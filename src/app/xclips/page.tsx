@@ -66,6 +66,7 @@ export default function XclipsDashboardPage() {
   const [downloadSubtitles, setDownloadSubtitles] = useState(true);
   const [ytInfo, setYtInfo] = useState<YouTubeVideoInfo | null>(null);
   const [fetchingYtInfo, setFetchingYtInfo] = useState(false);
+  const [ytInfoError, setYtInfoError] = useState<string | null>(null);
   const [downloadPercent, setDownloadPercent] = useState<number>(0);
   const [downloadSize, setDownloadSize] = useState<string>("");
   const [downloadSpeed, setDownloadSpeed] = useState<string>("");
@@ -96,12 +97,14 @@ export default function XclipsDashboardPage() {
   useEffect(() => {
     if (!youtubeUrl || !youtubeUrl.includes("youtu")) {
       setYtInfo(null);
+      setYtInfoError(null);
       return;
     }
 
     const timeout = setTimeout(async () => {
       setFetchingYtInfo(true);
       setIngestError(null);
+      setYtInfoError(null);
       const res = await apiFetch<{ ok: boolean; info: YouTubeVideoInfo }>("/api/xclips/youtube/info", {
         method: "POST",
         body: JSON.stringify({ url: youtubeUrl }),
@@ -114,6 +117,10 @@ export default function XclipsDashboardPage() {
         }
       } else {
         setYtInfo(null);
+        setYtInfoError(
+          res.message ||
+            `Gagal mengambil info video (API tidak terjangkau). Pastikan API server berjalan di port 3351.`
+        );
       }
       setFetchingYtInfo(false);
     }, 600);
@@ -233,6 +240,7 @@ export default function XclipsDashboardPage() {
     setProjectName("");
     setYoutubeUrl("");
     setYtInfo(null);
+    setYtInfoError(null);
     setIngestError(null);
     setDownloadPercent(0);
     setDownloadSize("");
@@ -505,6 +513,7 @@ export default function XclipsDashboardPage() {
             onChange={(_, val) => {
               setIngestTab(val);
               setIngestError(null);
+              setYtInfoError(null);
             }}
             sx={{
               "& .MuiTab-root": {
@@ -548,6 +557,23 @@ export default function XclipsDashboardPage() {
                     Mengambil info video YouTube...
                   </Typography>
                 </Box>
+              )}
+
+              {/* Metadata Fetch Error (never silent) */}
+              {!fetchingYtInfo && ytInfoError && (
+                <Alert
+                  severity="warning"
+                  onClose={() => setYtInfoError(null)}
+                  sx={{
+                    mb: 2,
+                    bgcolor: "rgba(245, 158, 11, 0.12)",
+                    color: "#fcd34d",
+                    borderRadius: 0.8,
+                    "& .MuiAlert-icon": { color: "#fbbf24" },
+                  }}
+                >
+                  {ytInfoError}
+                </Alert>
               )}
 
               {/* YouTube Metadata Preview Card */}

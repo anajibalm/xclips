@@ -2253,8 +2253,8 @@ function StudioContent() {
                   cursor: "pointer",
                   userSelect: "none",
                   "&:hover .canvas-center-action": {
-                    opacity: 1,
-                    transform: "translate(-50%, -50%) scale(1)",
+                    opacity: isPlaying ? 0.3 : 0.45,
+                    transform: "translate(-50%, -50%) scale(1.05)",
                   },
                 }}
               >
@@ -2265,27 +2265,20 @@ function StudioContent() {
                     position: "absolute",
                     top: "50%",
                     left: "50%",
-                    transform: isPlaying ? "translate(-50%, -50%) scale(0.85)" : "translate(-50%, -50%) scale(1)",
-                    opacity: isPlaying ? 0 : 0.95,
+                    transform: "translate(-50%, -50%)",
+                    opacity: isPlaying ? 0 : 0.3,
                     zIndex: 15,
                     pointerEvents: "none",
-                    bgcolor: "rgba(0, 0, 0, 0.65)",
-                    backdropFilter: "blur(6px)",
-                    border: "1.5px solid rgba(255, 255, 255, 0.2)",
-                    borderRadius: "50%",
-                    width: 54,
-                    height: 54,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    boxShadow: "0 8px 32px rgba(0, 0, 0, 0.7)",
-                    transition: "all 0.22s cubic-bezier(0.4, 0, 0.2, 1)",
+                    transition: "opacity 0.2s ease, transform 0.2s ease",
                   }}
                 >
                   {isPlaying ? (
-                    <PauseIcon sx={{ fontSize: 28, color: "#ffffff" }} />
+                    <PauseIcon sx={{ fontSize: 56, color: "#ffffff" }} />
                   ) : (
-                    <PlayArrowIcon sx={{ fontSize: 32, color: "#ffffff", ml: "3px" }} />
+                    <PlayArrowIcon sx={{ fontSize: 60, color: "#ffffff", ml: "4px" }} />
                   )}
                 </Box>
                 {/* MODE 1: BLUR BACKGROUND (Background layer + crisp foreground) */}

@@ -4,7 +4,7 @@
   "version": "1.1.0",
   "identifier": "com.eggafx.xclips",
   "build": {
-    "beforeDevCommand": "bun run dev",
+    "beforeDevCommand": "bun run dev:all",
     "beforeBuildCommand": "bun run build",
     "devUrl": "http://localhost:3350/xclips",
     "frontendDist": "../out"

@@ -5,9 +5,11 @@
   "scripts": {
     "dev": "next dev -p 3350",
     "dev:api": "bun --watch src/server/index.ts",
+    "dev:all": "concurrently -k -n ui,api -c blue,green \"bun run dev\" \"bun run dev:api\"",
     "build": "next build",
     "start": "next start -p 3350",
     "start:api": "bun src/server/index.ts",
+    "clean:ports": "powershell -Command \"Get-NetTCPConnection -LocalPort 3350,3351 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }\"",
     "test": "bun test",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
@@ -42,6 +44,7 @@
     "@types/node": "^26.3.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
+    "concurrently": "^10.0.5",
     "typescript": "^7.0.2"
   }
 }
