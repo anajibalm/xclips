@@ -24,7 +24,27 @@ export type LayoutMode = z.infer<typeof LayoutModeSchema>;
 export const ClipStatusSchema = z.enum(["draft", "queued", "rendering", "completed", "failed"]);
 export type ClipStatus = z.infer<typeof ClipStatusSchema>;
 
-export const SubtitlePresetSchema = z.enum(["plain", "hormozi", "neon", "clean_box", "minimal", "custom"]);
+export const SubtitlePresetSchema = z.enum([
+  "plain",
+  "hormozi",
+  "neon",
+  "clean_box",
+  "minimal",
+  "custom",
+  "ali",
+  "bold_yellow",
+  "devin",
+  "storyteller",
+  "retro_glow",
+  "cinematic",
+  "cyberpunk",
+  "midnight",
+  "fire_red",
+  "emerald_glow",
+  "comic_pop",
+  "nordic_minimal",
+  "synthwave",
+]);
 export type SubtitlePreset = z.infer<typeof SubtitlePresetSchema>;
 
 export const SubtitleStyleSchema = z.object({
@@ -33,6 +53,7 @@ export const SubtitleStyleSchema = z.object({
   fontFamily: z.string().default("Inter"),
   fontSize: z.number().default(42),
   primaryColor: z.string().default("#FFFFFF"), // CSS / UI Hex
+  secondaryColor: z.string().optional(),
   highlightColor: z.string().default("#FACC15"), // Yellow hex for active karaoke word
   outlineColor: z.string().default("#000000"), // Outline color
   outlineWidth: z.number().default(2), // Outline width (0-6)
