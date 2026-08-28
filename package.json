@@ -1,0 +1,47 @@
+{
+  "name": "xclips",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3350",
+    "dev:api": "bun --watch src/server/index.ts",
+    "build": "next build",
+    "start": "next start -p 3350",
+    "start:api": "bun src/server/index.ts",
+    "test": "bun test",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "dependencies": {
+    "@emotion/cache": "^11.14.0",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@hono/node-server": "^2.1.1",
+    "@mui/icons-material": "^9.3.1",
+    "@mui/material": "^9.3.1",
+    "@tauri-apps/plugin-opener": "^2.5.4",
+    "cookie-signature": "^1.2.2",
+    "decimal.js": "^10.6.0",
+    "docx": "^9.7.1",
+    "dotenv": "^17.4.2",
+    "hono": "^4.13.5",
+    "next": "^16.3.3",
+    "pino": "^10.3.1",
+    "pino-pretty": "^13.1.3",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "wavesurfer.js": "^7.12.11",
+    "zod": "^4.4.3",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/bun": "^1.4.0",
+    "@types/node": "^26.3.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "typescript": "^7.0.2"
+  }
+}
