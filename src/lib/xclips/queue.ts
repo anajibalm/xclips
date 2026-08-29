@@ -176,6 +176,7 @@ class JobQueueManager {
         clipStart: clip.startSec,
         clipEnd: clip.endSec,
         keepIntervals,
+        aspectRatio: clip.aspectRatio || "9:16",
         layoutMode: clip.layoutMode,
         panOffsetX: clip.panOffsetX,
         assSubtitlePath: actualAssPath,

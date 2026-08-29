@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const isProd = process.env.NODE_ENV === "production";
-const internalHost = process.env.TAURI_DEV_HOST || "localhost";
+const internalHost = process.env.TAURI_DEV_HOST;
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
-  assetPrefix: isProd ? undefined : `http://${internalHost}:3350`,
+  assetPrefix: isProd ? undefined : internalHost ? `http://${internalHost}:3350` : undefined,
 };
 
 export default nextConfig;

@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import { spawn } from "child_process";
 import {
   XclipsProject,
   XclipsTranscript,
@@ -25,6 +26,7 @@ import {
   fetchYouTubeInfo,
   downloadYouTubeVideo,
   parseSrtToWords,
+  findYtDlpBinary,
   YouTubeVideoInfo,
   DownloadProgress,
 } from "@/lib/xclips/ytdlp-downloader";
@@ -686,6 +688,102 @@ Format output WAJIB HANYA berupa JSON valid:
   }
 
   /**
+   * Fetches or restores original YouTube subtitles (CC / auto-caption) for a project
+   */
+  async fetchYouTubeSubtitles(projectId: string): Promise<Result<XclipsTranscript>> {
+    const project = xclipsDb.getProject(projectId);
+    if (!project) return { success: false, error: "Proyek tidak ditemukan" };
+
+    const youtubeId = (function (sourcePath: string): string | null {
+      if (!sourcePath) return null;
+      const bracketMatch = sourcePath.match(/\[([a-zA-Z0-9_-]{11})\]/);
+      if (bracketMatch) return bracketMatch[1];
+      const urlMatch = sourcePath.match(/(?:v=|\/|be\/)([a-zA-Z0-9_-]{11})/);
+      if (urlMatch) return urlMatch[1];
+      return null;
+    })(project.sourcePath);
+
+    const isYt = Boolean(youtubeId) || project.sourceType === "youtube";
+    if (!isYt) {
+      return { success: false, error: "Bukan video YouTube atau URL YouTube tidak ditemukan." };
+    }
+
+    const videoUrl = youtubeId ? `https://www.youtube.com/watch?v=${youtubeId}` : project.sourcePath;
+    const cacheDir = path.resolve(process.cwd(), "vault", "xclips", "cache", projectId);
+    fs.mkdirSync(cacheDir, { recursive: true });
+
+    // 1. Check if an existing .srt file is already in cacheDir
+    const existingFiles = fs.readdirSync(cacheDir);
+    let srtFile = existingFiles.find((f) => f.endsWith(".srt"));
+    let srtPath = srtFile ? path.join(cacheDir, srtFile) : undefined;
+
+    // 2. If not found, download subtitles via yt-dlp
+    if (!srtPath || !fs.existsSync(srtPath)) {
+      const ytdlp = findYtDlpBinary();
+      const outputTemplate = path.join(cacheDir, "%(title)s [%(id)s].%(ext)s");
+      await new Promise<void>((resolve) => {
+        const proc = spawn(
+          ytdlp,
+          [
+            "--write-subs",
+            "--write-auto-subs",
+            "--sub-lang",
+            "id,id-orig,en,en-orig",
+            "--sub-format",
+            "srt",
+            "--skip-download",
+            "--no-warnings",
+            "-o",
+            outputTemplate,
+            videoUrl,
+          ],
+          { windowsHide: true }
+        );
+        proc.on("close", () => resolve());
+        proc.on("error", () => resolve());
+      });
+
+      const updatedFiles = fs.readdirSync(cacheDir);
+      srtFile = updatedFiles.find((f) => f.endsWith(".srt"));
+      if (srtFile) {
+        srtPath = path.join(cacheDir, srtFile);
+      }
+    }
+
+    if (!srtPath || !fs.existsSync(srtPath)) {
+      return {
+        success: false,
+        error: "Subtitle YouTube (CC / Auto-caption) tidak ditemukan untuk video ini.",
+      };
+    }
+
+    const srtContent = fs.readFileSync(srtPath, "utf-8");
+    const words = parseSrtToWords(srtContent);
+    if (words.length === 0) {
+      return {
+        success: false,
+        error: "Subtitle YouTube kosong atau tidak dapat di-parse.",
+      };
+    }
+
+    detectTokenFillers(words);
+
+    const transcript: XclipsTranscript = {
+      id: `tr_yt_${Date.now()}`,
+      projectId: project.id,
+      language: "id",
+      rawText: words.map((w) => w.word).join(" "),
+      srtContent,
+      words,
+      createdAt: new Date().toISOString(),
+    };
+
+    xclipsDb.saveTranscript(transcript);
+    aiLogger.info({ projectId, wordsCount: words.length }, "Restored YouTube subtitle transcript");
+    return { success: true, data: transcript };
+  }
+
+  /**
    * Discovers viral clip candidates using Map-Reduce LLM scoring with configured narrative settings
    */
   async discoverHighlights(
@@ -773,18 +871,19 @@ Format output WAJIB HANYA berupa JSON valid:
       enabled: true,
       preset: "plain",
       fontFamily: "Inter",
-      fontSize: 42,
+      fontSize: 22,
       primaryColor: "#FFFFFF",
-      highlightColor: "#FACC15",
+      secondaryColor: "#FFFFFF",
+      highlightColor: "#FFFFFF",
       outlineColor: "#000000",
-      outlineWidth: 2,
+      outlineWidth: 2.0,
       boxColor: "#000000",
-      boxOpacity: 0.7,
+      boxOpacity: 0.0,
       allCaps: false,
       textCase: "uppercase",
       autoEmoji: false,
       positionY: 80,
-      karaokeEnabled: true,
+      karaokeEnabled: false,
     };
 
     const createdClips: XclipsClip[] = [];
@@ -800,6 +899,7 @@ Format output WAJIB HANYA berupa JSON valid:
         viralScore: cand.viralScore,
         startSec: cand.startSec,
         endSec: cand.endSec,
+        aspectRatio: "9:16",
         layoutMode: "blur_bg",
         panOffsetX: 0.0,
         subtitleStyle: defaultSubtitleStyle,

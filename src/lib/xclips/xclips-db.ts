@@ -72,6 +72,7 @@ export class XclipsDatabase {
         viralScore REAL NOT NULL DEFAULT 0,
         startSec REAL NOT NULL,
         endSec REAL NOT NULL,
+        aspectRatio TEXT NOT NULL DEFAULT '9:16',
         layoutMode TEXT NOT NULL DEFAULT 'blur_bg',
         panOffsetX REAL NOT NULL DEFAULT 0,
         subtitleStyleJson TEXT NOT NULL,
@@ -119,6 +120,7 @@ export class XclipsDatabase {
     });
 
     this.ensureColumns("clips", {
+      aspectRatio: "TEXT NOT NULL DEFAULT '9:16'",
       transcriptId: "TEXT",
       hookText: "TEXT NOT NULL DEFAULT ''",
       removeFillers: "INTEGER NOT NULL DEFAULT 1",
@@ -325,12 +327,12 @@ export class XclipsDatabase {
     const stmt = this.db.prepare(`
       INSERT INTO clips (
         id, projectId, transcriptId, title, hookText, viralScore,
-        startSec, endSec, layoutMode, panOffsetX, subtitleStyleJson,
+        startSec, endSec, aspectRatio, layoutMode, panOffsetX, subtitleStyleJson,
         removeFillers, removeSilence, status, outputPath, renderError,
         createdAt, updatedAt, rawJson
       ) VALUES (
         $id, $projectId, $transcriptId, $title, $hookText, $viralScore,
-        $startSec, $endSec, $layoutMode, $panOffsetX, $subtitleStyleJson,
+        $startSec, $endSec, $aspectRatio, $layoutMode, $panOffsetX, $subtitleStyleJson,
         $removeFillers, $removeSilence, $status, $outputPath, $renderError,
         $createdAt, $updatedAt, $rawJson
       )
@@ -341,6 +343,7 @@ export class XclipsDatabase {
         viralScore = excluded.viralScore,
         startSec = excluded.startSec,
         endSec = excluded.endSec,
+        aspectRatio = excluded.aspectRatio,
         layoutMode = excluded.layoutMode,
         panOffsetX = excluded.panOffsetX,
         subtitleStyleJson = excluded.subtitleStyleJson,
@@ -362,6 +365,7 @@ export class XclipsDatabase {
       $viralScore: clip.viralScore || 0,
       $startSec: clip.startSec,
       $endSec: clip.endSec,
+      $aspectRatio: clip.aspectRatio || "9:16",
       $layoutMode: clip.layoutMode || "blur_bg",
       $panOffsetX: clip.panOffsetX || 0,
       $subtitleStyleJson: JSON.stringify(clip.subtitleStyle),

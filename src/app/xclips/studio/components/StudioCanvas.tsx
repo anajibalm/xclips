@@ -1,13 +1,11 @@
 import React, { useRef, useState, useCallback, useMemo, RefObject } from "react";
-import { Box, Typography, IconButton, Chip } from "@mui/material";
+import { Box, Typography, Chip } from "@mui/material";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import PauseIcon from "@mui/icons-material/Pause";
-import CropFreeIcon from "@mui/icons-material/CropFree";
-import FullscreenIcon from "@mui/icons-material/Fullscreen";
 import { useStudioStore } from "../store/useStudioStore";
 import { getApiBaseUrl } from "@/lib/api-client";
-import { LayoutMode, SubtitleStyle } from "@/lib/xclips/types";
-import { PhraseSegment } from "../types/studio.types";
+import { LayoutMode, AspectRatio, SubtitleStyle } from "@/lib/xclips/types";
+import { PhraseSegment, DEFAULT_SUBTITLE_STYLE } from "../types/studio.types";
 
 interface StudioCanvasProps {
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -30,7 +28,9 @@ export function StudioCanvas({
   currentActivePhrase: externalActivePhrase,
   effectiveSubtitleTime: externalEffectiveSubtitleTime,
 }: StudioCanvasProps) {
-  const projectId = useStudioStore((s) => s.projectId);
+  const storeProjectId = useStudioStore((s) => s.projectId);
+  const project = useStudioStore((s) => s.project);
+  const projectId = storeProjectId || project?.id;
   const currentTime = useStudioStore((s) => s.currentTime);
   const subtitleOffsetMs = useStudioStore((s) => s.subtitleOffsetMs);
   const editableWords = useStudioStore((s) => s.editableWords);
@@ -49,26 +49,22 @@ export function StudioCanvas({
 
   const togglePlay = onTogglePlayPause || togglePlayPauseStore;
 
-  const layoutMode: LayoutMode = selectedClip?.layoutMode || "blur_bg";
-  const panOffsetX: number = selectedClip?.panOffsetX || 0;
-  const subtitleStyle: SubtitleStyle = selectedClip?.subtitleStyle || {
-    enabled: true,
-    preset: "plain",
-    fontFamily: "Anton",
-    fontSize: 48,
-    primaryColor: "#FFFFFF",
-    secondaryColor: "#FACC15",
-    highlightColor: "#FACC15",
-    outlineColor: "#000000",
-    outlineWidth: 3.5,
-    boxColor: "#000000",
-    boxOpacity: 0.0,
-    karaokeEnabled: true,
-    allCaps: true,
-    textCase: "uppercase",
-    autoEmoji: false,
-    positionY: 80,
-  };
+  const studioAspectRatio = useStudioStore((s) => s.studioAspectRatio);
+  const studioLayoutMode = useStudioStore((s) => s.studioLayoutMode);
+  const studioPanOffsetX = useStudioStore((s) => s.studioPanOffsetX);
+  const studioSubtitleStyle = useStudioStore((s) => s.studioSubtitleStyle);
+
+  const layoutMode: LayoutMode = selectedClip?.layoutMode || studioLayoutMode || "blur_bg";
+  const aspectRatio: AspectRatio = selectedClip?.aspectRatio || studioAspectRatio || "9:16";
+  const panOffsetX: number = selectedClip?.panOffsetX ?? studioPanOffsetX ?? 0;
+
+  const canvasAspectRatio =
+    aspectRatio === "1:1" ? "1/1" :
+    aspectRatio === "4:5" ? "4/5" :
+    aspectRatio === "16:9" ? "16/9" :
+    "9/16";
+
+  const subtitleStyle: SubtitleStyle = selectedClip?.subtitleStyle || studioSubtitleStyle || DEFAULT_SUBTITLE_STYLE;
 
   // Group raw word timestamps into phrase segments if not supplied
   const phraseSegments = useMemo<PhraseSegment[]>(() => {
@@ -158,27 +154,7 @@ export function StudioCanvas({
     }
   };
 
-  const toggleLayoutMode = () => {
-    if (!selectedClip) return;
-    const modes: LayoutMode[] = ["blur_bg", "center_crop", "split_screen"];
-    const currentIdx = modes.indexOf(layoutMode);
-    const nextMode = modes[(currentIdx + 1) % modes.length];
-    handleSaveClip({
-      ...selectedClip,
-      layoutMode: nextMode,
-    });
-  };
-
-  const toggleFullscreen = () => {
-    if (!canvasContainerRef.current) return;
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    } else {
-      canvasContainerRef.current.requestFullscreen().catch(() => {});
-    }
-  };
-
-  const videoStreamSrc = projectId ? `${getApiBaseUrl()}/api/xclips/media/${projectId}/stream` : "";
+  const videoStreamSrc = projectId ? `${getApiBaseUrl()}/api/xclips/media/${projectId}/stream` : undefined;
 
   return (
     <Box
@@ -192,7 +168,7 @@ export function StudioCanvas({
         width: "100%",
         flex: 1,
         minHeight: 0,
-        bgcolor: "#000000",
+        bgcolor: "#09090c",
         overflow: "hidden",
         display: "flex",
         alignItems: "center",
@@ -201,23 +177,26 @@ export function StudioCanvas({
         cursor: layoutMode === "center_crop" ? (isDraggingPan ? "grabbing" : "ew-resize") : "default",
       }}
     >
-      {/* 9:16 Canvas Viewport */}
+      {/* Canvas Viewport with Dynamic Aspect Ratio */}
       <Box
         sx={{
           position: "relative",
-          height: "100%",
-          aspectRatio: "9/16",
+          maxWidth: "100%",
+          maxHeight: "100%",
+          aspectRatio: canvasAspectRatio,
+          ...(aspectRatio === "9:16" ? { width: "auto", height: "100%" } : { width: "100%", height: "auto" }),
           bgcolor: "#000000",
           overflow: "hidden",
-          boxShadow: "0 8px 32px rgba(0, 0, 0, 0.8)",
+          borderRadius: 0,
         }}
       >
-        {/* MODE 1: BLUR BACKGROUND (Letterbox foreground + blurred scaled background) */}
+        {/* MODE 1: BLUR BACKGROUND (Letterbox/Pillarbox foreground + blurred scaled background) */}
         {layoutMode === "blur_bg" && (
           <>
             <video
               ref={bgVideoRef}
               src={videoStreamSrc}
+              preload="auto"
               muted
               playsInline
               onEnded={onEnded}
@@ -237,6 +216,7 @@ export function StudioCanvas({
             <video
               ref={videoRef}
               src={videoStreamSrc}
+              preload="auto"
               onTimeUpdate={onTimeUpdate}
               onEnded={onEnded}
               muted={isMuted}
@@ -247,21 +227,21 @@ export function StudioCanvas({
                 left: "50%",
                 transform: "translate(-50%, -50%)",
                 width: "100%",
-                maxHeight: "56%",
+                height: "100%",
                 objectFit: "contain",
-                borderRadius: 6,
-                boxShadow: "0 6px 24px rgba(0,0,0,0.9)",
+                borderRadius: 0,
                 zIndex: 2,
               }}
             />
           </>
         )}
 
-        {/* MODE 2: CENTER CROP (Full bleed 9:16 with Speaker Pan Offset) */}
+        {/* MODE 2: CENTER CROP (Full bleed with Speaker Pan Offset) */}
         {layoutMode === "center_crop" && (
           <video
             ref={videoRef}
             src={videoStreamSrc}
+            preload="auto"
             onTimeUpdate={onTimeUpdate}
             onEnded={onEnded}
             muted={isMuted}
@@ -282,43 +262,156 @@ export function StudioCanvas({
         {/* MODE 3: SPLIT SCREEN */}
         {layoutMode === "split_screen" && (
           <>
-            <video
-              ref={videoRef}
-              src={videoStreamSrc}
-              onTimeUpdate={onTimeUpdate}
-              onEnded={onEnded}
-              muted={isMuted}
-              playsInline
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                height: "50%",
-                objectFit: "cover",
-                objectPosition: `${50 + panOffsetX * 35}% center`,
-                zIndex: 2,
-                borderBottom: "2px solid #27272a",
-              }}
-            />
-            <video
-              ref={bgVideoRef}
-              src={videoStreamSrc}
-              muted
-              playsInline
-              onEnded={onEnded}
-              style={{
-                position: "absolute",
-                bottom: 0,
-                left: 0,
-                width: "100%",
-                height: "50%",
-                objectFit: "cover",
-                objectPosition: "center center",
-                zIndex: 2,
-              }}
-            />
+            {aspectRatio === "16:9" ? (
+              // Side-by-side split screen for 16:9 landscape
+              <>
+                <video
+                  ref={videoRef}
+                  src={videoStreamSrc}
+                  preload="auto"
+                  onTimeUpdate={onTimeUpdate}
+                  onEnded={onEnded}
+                  muted={isMuted}
+                  playsInline
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "50%",
+                    height: "100%",
+                    objectFit: "cover",
+                    objectPosition: `${50 + panOffsetX * 35}% center`,
+                    zIndex: 2,
+                    borderRight: "2px solid #27272a",
+                  }}
+                />
+                <video
+                  ref={bgVideoRef}
+                  src={videoStreamSrc}
+                  preload="auto"
+                  muted
+                  playsInline
+                  onEnded={onEnded}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    right: 0,
+                    width: "50%",
+                    height: "100%",
+                    objectFit: "cover",
+                    objectPosition: "center center",
+                    zIndex: 2,
+                  }}
+                />
+              </>
+            ) : (
+              // Stacked top & bottom split screen for 9:16, 1:1, 4:5
+              <>
+                <video
+                  ref={videoRef}
+                  src={videoStreamSrc}
+                  preload="auto"
+                  onTimeUpdate={onTimeUpdate}
+                  onEnded={onEnded}
+                  muted={isMuted}
+                  playsInline
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    height: "50%",
+                    objectFit: "cover",
+                    objectPosition: `${50 + panOffsetX * 35}% center`,
+                    zIndex: 2,
+                    borderBottom: "2px solid #27272a",
+                  }}
+                />
+                <video
+                  ref={bgVideoRef}
+                  src={videoStreamSrc}
+                  preload="auto"
+                  muted
+                  playsInline
+                  onEnded={onEnded}
+                  style={{
+                    position: "absolute",
+                    bottom: 0,
+                    left: 0,
+                    width: "100%",
+                    height: "50%",
+                    objectFit: "cover",
+                    objectPosition: "center center",
+                    zIndex: 2,
+                  }}
+                />
+              </>
+            )}
           </>
+        )}
+
+        {/* Dynamic ASS Karaoke Subtitle Overlay (Inside Canvas) */}
+        {subtitleStyle.enabled !== false && currentActivePhrase && (
+          <Box
+            sx={{
+              position: "absolute",
+              bottom: `${Math.max(5, Math.min(90, 100 - (subtitleStyle.positionY || 80)))}%`,
+              left: "6%",
+              right: "6%",
+              textAlign: "center",
+              zIndex: 3,
+              pointerEvents: "none",
+            }}
+          >
+            <Typography
+              component="div"
+              sx={{
+                fontFamily: subtitleStyle.fontFamily
+                  ? `"${subtitleStyle.fontFamily}", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
+                  : '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                fontSize: `${(subtitleStyle.fontSize ?? 22) * 0.44}px`,
+                fontWeight: subtitleStyle.fontFamily === "Inter" || !subtitleStyle.fontFamily ? 700 : 900,
+                lineHeight: 1.25,
+                textTransform: subtitleStyle.allCaps ? "uppercase" : "none",
+                paintOrder: "stroke fill",
+                WebkitPaintOrder: "stroke fill",
+                WebkitTextStroke:
+                  (subtitleStyle.outlineWidth ?? 2.0) > 0
+                    ? `${(subtitleStyle.outlineWidth ?? 2.0) * 0.55}px ${subtitleStyle.outlineColor || "#000000"}`
+                    : "none",
+                filter: "drop-shadow(0px 1.5px 2.5px rgba(0, 0, 0, 0.9))",
+                letterSpacing: "0.2px",
+                display: "inline-block",
+              }}
+            >
+              {currentActivePhrase.words.map((w, idx) => {
+                const isActiveWord = effectiveSubtitleTime >= w.start && effectiveSubtitleTime <= w.end;
+                const isKaraokeActive = subtitleStyle.karaokeEnabled !== false && isActiveWord;
+                const wordColor = isKaraokeActive
+                  ? subtitleStyle.highlightColor || subtitleStyle.secondaryColor || "#FFFFFF"
+                  : subtitleStyle.primaryColor || "#FFFFFF";
+
+                return (
+                  <span
+                    key={`${w.start}_${idx}`}
+                    style={{
+                      color: wordColor,
+                      marginRight: "4px",
+                      display: "inline-block",
+                      transform: isKaraokeActive ? "scale(1.08)" : "scale(1)",
+                      transition: "transform 0.08s ease-out, color 0.08s ease-out",
+                      textShadow:
+                        isKaraokeActive && subtitleStyle.highlightColor !== "#FFFFFF"
+                          ? `0 0 12px ${subtitleStyle.highlightColor || "#FACC15"}, 0 2px 4px #000000`
+                          : undefined,
+                    }}
+                  >
+                    {w.word}
+                  </span>
+                );
+              })}
+            </Typography>
+          </Box>
         )}
 
         {/* Flat White Play / Pause Overlay Icon (Opacity: 30%, Hover: 45%) */}
@@ -363,121 +456,30 @@ export function StudioCanvas({
         </Box>
       </Box>
 
-      {/* Top Left Status Badge */}
-      <Box sx={{ position: "absolute", top: 12, left: 12, zIndex: 5, display: "flex", gap: 0.8 }}>
-        <Chip
-          label={layoutMode.replace("_", " ").toUpperCase()}
-          size="small"
-          sx={{
-            bgcolor: "rgba(0,0,0,0.6)",
-            backdropFilter: "blur(8px)",
-            color: "#ffffff",
-            fontWeight: 800,
-            fontSize: "0.65rem",
-            border: "1px solid rgba(255,255,255,0.15)",
-          }}
-        />
-        {layoutMode === "center_crop" && panOffsetX !== 0 && (
-          <Chip
-            label={`Pan ${panOffsetX > 0 ? `+${panOffsetX}` : panOffsetX}`}
-            size="small"
-            sx={{
-              bgcolor: "rgba(59,130,246,0.6)",
-              backdropFilter: "blur(8px)",
-              color: "#ffffff",
-              fontWeight: 800,
-              fontSize: "0.65rem",
-            }}
-          />
-        )}
-      </Box>
-
-      {/* Top Right Controls */}
-      <Box sx={{ position: "absolute", top: 10, right: 10, zIndex: 5, display: "flex", gap: 0.5 }}>
-        <IconButton
-          size="small"
-          onClick={toggleLayoutMode}
-          title="Ganti Layout Mode (Blur / Center Crop / Split)"
-          sx={{
-            bgcolor: "rgba(0,0,0,0.6)",
-            backdropFilter: "blur(8px)",
-            color: "#ffffff",
-            p: 0.6,
-            "&:hover": { bgcolor: "rgba(0,0,0,0.85)" },
-          }}
-        >
-          <CropFreeIcon fontSize="small" />
-        </IconButton>
-
-        <IconButton
-          size="small"
-          onClick={toggleFullscreen}
-          title="Fullscreen Canvas"
-          sx={{
-            bgcolor: "rgba(0,0,0,0.6)",
-            backdropFilter: "blur(8px)",
-            color: "#ffffff",
-            p: 0.6,
-            "&:hover": { bgcolor: "rgba(0,0,0,0.85)" },
-          }}
-        >
-          <FullscreenIcon fontSize="small" />
-        </IconButton>
-      </Box>
-
-      {/* Dynamic ASS Karaoke Subtitle Overlay */}
-      {subtitleStyle.enabled !== false && currentActivePhrase && (
+      {/* Dynamic Pan Feedback Toast (Only shown when dragging in center_crop mode) */}
+      {isDraggingPan && layoutMode === "center_crop" && (
         <Box
           sx={{
             position: "absolute",
-            bottom: "16%",
-            left: "6%",
-            right: "6%",
-            textAlign: "center",
-            zIndex: 3,
+            top: 14,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 6,
             pointerEvents: "none",
           }}
         >
-          <Typography
-            component="div"
+          <Chip
+            label={`Pan: ${panOffsetX > 0 ? `+${panOffsetX.toFixed(2)}` : panOffsetX.toFixed(2)}`}
+            size="small"
             sx={{
-              fontFamily: subtitleStyle.fontFamily || "Anton",
-              fontSize: `${(subtitleStyle.fontSize || 48) * 0.44}px`,
-              fontWeight: 900,
-              lineHeight: 1.15,
-              textTransform: subtitleStyle.allCaps ? "uppercase" : "none",
-              WebkitTextStroke: `${(subtitleStyle.outlineWidth || 3.5) * 0.4}px ${subtitleStyle.outlineColor || "#000000"}`,
-              textShadow: `0 0 4px ${subtitleStyle.outlineColor || "#000000"}`,
-              letterSpacing: "0.5px",
+              bgcolor: "rgba(0, 229, 255, 0.9)",
+              color: "#000000",
+              fontWeight: 800,
+              fontSize: "0.72rem",
+              backdropFilter: "blur(4px)",
+              boxShadow: "0 2px 12px rgba(0, 229, 255, 0.4)",
             }}
-          >
-            {currentActivePhrase.words.map((w, idx) => {
-              const isActiveWord =
-                effectiveSubtitleTime >= w.start && effectiveSubtitleTime <= w.end;
-              const wordColor = isActiveWord
-                ? subtitleStyle.highlightColor || subtitleStyle.secondaryColor || "#FACC15"
-                : subtitleStyle.primaryColor || "#FFFFFF";
-
-              return (
-                <span
-                  key={`${w.start}_${idx}`}
-                  style={{
-                    color: wordColor,
-                    marginRight: "4px",
-                    display: "inline-block",
-                    transform: isActiveWord ? "scale(1.08)" : "scale(1)",
-                    transition: "transform 0.08s ease-out, color 0.08s ease-out",
-                    textShadow:
-                      isActiveWord
-                        ? `0 0 12px ${subtitleStyle.highlightColor || "#FACC15"}, 0 2px 4px #000000`
-                        : undefined,
-                  }}
-                >
-                  {w.word}
-                </span>
-              );
-            })}
-          </Typography>
+          />
         </Box>
       )}
     </Box>

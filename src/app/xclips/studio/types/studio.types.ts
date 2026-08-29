@@ -7,6 +7,25 @@ export interface GoogleFontOption {
   weights: string[];
 }
 
+export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
+  enabled: true,
+  preset: "plain",
+  fontFamily: "Inter",
+  fontSize: 22,
+  primaryColor: "#FFFFFF",
+  secondaryColor: "#FFFFFF",
+  highlightColor: "#FFFFFF",
+  outlineColor: "#000000",
+  outlineWidth: 2.0,
+  boxColor: "#000000",
+  boxOpacity: 0.0,
+  karaokeEnabled: false,
+  allCaps: false,
+  textCase: "uppercase",
+  autoEmoji: false,
+  positionY: 80,
+};
+
 export const GOOGLE_FONTS_CATALOG: GoogleFontOption[] = [
   { id: "Inter", name: "Inter", category: "Sans-Serif", weights: ["400", "700", "900"] },
   { id: "Montserrat", name: "Montserrat", category: "Sans-Serif", weights: ["400", "700", "900"] },
@@ -33,16 +52,19 @@ export const GOOGLE_FONTS_CATALOG: GoogleFontOption[] = [
 export const PRESET_STYLES: Record<string, Partial<SubtitleStyle>> = {
   plain: {
     fontFamily: "Inter",
-    fontSize: 40,
+    fontSize: 22,
     primaryColor: "#FFFFFF",
-    secondaryColor: "#FACC15",
-    highlightColor: "#FACC15",
+    secondaryColor: "#FFFFFF",
+    highlightColor: "#FFFFFF",
     outlineColor: "#000000",
     outlineWidth: 2.0,
     boxColor: "#000000",
     boxOpacity: 0.0,
     karaokeEnabled: false,
     allCaps: false,
+    textCase: "uppercase",
+    autoEmoji: false,
+    positionY: 80,
     enabled: true,
   },
   hormozi: {

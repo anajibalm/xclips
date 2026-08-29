@@ -85,4 +85,27 @@ Hari ini kita bahas AI`;
     expect(words[4].start).toBe(3.5);
     expect(words[8].word).toBe("AI");
   });
+
+  it("should resolve dual-axis bounds and format sort for all download qualities (1080p, 720p, 480p, best)", () => {
+    const { getQualitySelectorArgs } = require("@/lib/xclips/ytdlp-downloader");
+
+    const q1080 = getQualitySelectorArgs("1080p");
+    expect(q1080.formatSelector).toContain("height<=1080][width<=1920]");
+    expect(q1080.formatSelector).toContain("width<=1080][height<=1920]");
+    expect(q1080.formatSort).toBe("res:1080,fps,vcodec:h264,acodec:m4a");
+
+    const q720 = getQualitySelectorArgs("720p");
+    expect(q720.formatSelector).toContain("height<=720][width<=1280]");
+    expect(q720.formatSelector).toContain("width<=720][height<=1280]");
+    expect(q720.formatSort).toBe("res:720,fps,vcodec:h264,acodec:m4a");
+
+    const q480 = getQualitySelectorArgs("480p");
+    expect(q480.formatSelector).toContain("height<=480][width<=854]");
+    expect(q480.formatSort).toBe("res:480,fps,vcodec:h264,acodec:m4a");
+
+    const qBest = getQualitySelectorArgs("best");
+    expect(qBest.formatSelector).toBe("bv*+ba/b");
+    expect(qBest.formatSort).toBe("res,fps,vcodec:h264,acodec:m4a");
+  });
 });
+

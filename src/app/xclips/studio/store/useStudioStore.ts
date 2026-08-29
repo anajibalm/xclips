@@ -6,8 +6,11 @@ import {
   XclipsClip,
   WordTimestamp,
   XclipsAiSettings,
+  AspectRatio,
+  LayoutMode,
+  SubtitleStyle,
 } from "@/lib/xclips/types";
-import { LogItem, ProjectAssets, FootageProgress } from "../types/studio.types";
+import { LogItem, ProjectAssets, FootageProgress, DEFAULT_SUBTITLE_STYLE } from "../types/studio.types";
 
 interface StudioState {
   projectId: string | null;
@@ -20,10 +23,16 @@ interface StudioState {
   activeTab: number;
   isPlaying: boolean;
   currentTime: number;
+  studioAspectRatio: AspectRatio;
+  studioLayoutMode: LayoutMode;
+  studioPanOffsetX: number;
+  studioSubtitleStyle: SubtitleStyle;
+  volume: number;
   isMuted: boolean;
   isFullSourceView: boolean;
 
   isTranscribing: boolean;
+  isFetchingYtSubtitles: boolean;
   isDiscovering: boolean;
   isSavingTranscript: boolean;
   actionError: string | null;
@@ -50,6 +59,7 @@ interface StudioState {
 
   previewVideoOpen: boolean;
   previewThumbnailOpen: boolean;
+  exportModalOpen: boolean;
 
   logs: LogItem[];
   logsFilter: "ALL" | "INFO" | "WARN" | "ERROR" | "DEBUG";
@@ -86,10 +96,17 @@ interface StudioState {
   setActiveTab: (tab: number) => void;
   setIsPlaying: (playing: boolean | ((prev: boolean) => boolean)) => void;
   setCurrentTime: (time: number | ((prev: number) => number)) => void;
+  setStudioAspectRatio: (ratio: AspectRatio) => void;
+  setStudioLayoutMode: (mode: LayoutMode) => void;
+  setStudioPanOffsetX: (pan: number) => void;
+  setStudioSubtitleStyle: (style: SubtitleStyle | ((prev: SubtitleStyle) => SubtitleStyle)) => void;
+  setVolume: (volume: number | ((prev: number) => number)) => void;
   setIsMuted: (muted: boolean | ((prev: boolean) => boolean)) => void;
+  toggleMute: () => void;
   setIsFullSourceView: (full: boolean | ((prev: boolean) => boolean)) => void;
 
   setIsTranscribing: (val: boolean) => void;
+  setIsFetchingYtSubtitles: (val: boolean) => void;
   setIsDiscovering: (val: boolean) => void;
   setIsSavingTranscript: (val: boolean) => void;
   setActionError: (err: string | null) => void;
@@ -116,6 +133,7 @@ interface StudioState {
 
   setPreviewVideoOpen: (open: boolean) => void;
   setPreviewThumbnailOpen: (open: boolean) => void;
+  setExportModalOpen: (open: boolean) => void;
 
   setLogs: (logs: LogItem[]) => void;
   setLogsFilter: (filter: "ALL" | "INFO" | "WARN" | "ERROR" | "DEBUG") => void;
@@ -155,6 +173,7 @@ interface StudioState {
   handleSaveClip: (updatedClip: XclipsClip) => Promise<void>;
   handleDeleteClip: (clipId: string) => Promise<void>;
   handleTranscribe: () => Promise<void>;
+  handleFetchYouTubeSubtitles: () => Promise<void>;
   handleDiscoverHighlights: () => Promise<void>;
   handleSaveTranscript: () => Promise<void>;
   handleShiftSubtitleOffsetMs: (deltaMs: number) => void;
@@ -164,6 +183,7 @@ interface StudioState {
   handleOpenInExplorer: (sourcePath?: string, targetProjectId?: string) => Promise<void>;
   handleRender: () => Promise<void>;
   handleCopyLogs: () => void;
+  handleClearLogs: () => Promise<void>;
 }
 
 export const useStudioStore = create<StudioState>((set, get) => ({
@@ -177,10 +197,16 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   activeTab: 0,
   isPlaying: false,
   currentTime: 0,
+  studioAspectRatio: "9:16",
+  studioLayoutMode: "blur_bg",
+  studioPanOffsetX: 0,
+  studioSubtitleStyle: DEFAULT_SUBTITLE_STYLE,
+  volume: 100,
   isMuted: false,
   isFullSourceView: false,
 
   isTranscribing: false,
+  isFetchingYtSubtitles: false,
   isDiscovering: false,
   isSavingTranscript: false,
   actionError: null,
@@ -207,6 +233,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
   previewVideoOpen: false,
   previewThumbnailOpen: false,
+  exportModalOpen: false,
 
   logs: [],
   logsFilter: "ALL",
@@ -249,16 +276,69 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     set((state) => ({
       currentTime: typeof updater === "function" ? updater(state.currentTime) : updater,
     })),
+  setStudioAspectRatio: (ratio) => {
+    set({ studioAspectRatio: ratio });
+    const { selectedClip } = get();
+    if (selectedClip) {
+      get().handleSaveClip({
+        ...selectedClip,
+        aspectRatio: ratio,
+      });
+    }
+  },
+  setStudioLayoutMode: (mode) => {
+    set({ studioLayoutMode: mode });
+    const { selectedClip } = get();
+    if (selectedClip) {
+      get().handleSaveClip({
+        ...selectedClip,
+        layoutMode: mode,
+      });
+    }
+  },
+  setStudioPanOffsetX: (pan) => {
+    set({ studioPanOffsetX: pan });
+    const { selectedClip } = get();
+    if (selectedClip) {
+      get().handleSaveClip({
+        ...selectedClip,
+        panOffsetX: pan,
+      });
+    }
+  },
+  setStudioSubtitleStyle: (updater) =>
+    set((state) => {
+      const nextStyle = typeof updater === "function" ? updater(state.studioSubtitleStyle) : updater;
+      const { selectedClip } = state;
+      if (selectedClip) {
+        get().handleSaveClip({
+          ...selectedClip,
+          subtitleStyle: nextStyle,
+        });
+      }
+      return { studioSubtitleStyle: nextStyle };
+    }),
+  setVolume: (updater) =>
+    set((state) => {
+      const nextVol = typeof updater === "function" ? updater(state.volume) : updater;
+      const clamped = Math.max(0, Math.min(100, nextVol));
+      return {
+        volume: clamped,
+        isMuted: clamped === 0 ? true : state.isMuted,
+      };
+    }),
   setIsMuted: (updater) =>
     set((state) => ({
       isMuted: typeof updater === "function" ? updater(state.isMuted) : updater,
     })),
+  toggleMute: () => set((state) => ({ isMuted: !state.isMuted })),
   setIsFullSourceView: (updater) =>
     set((state) => ({
       isFullSourceView: typeof updater === "function" ? updater(state.isFullSourceView) : updater,
     })),
 
   setIsTranscribing: (isTranscribing) => set({ isTranscribing }),
+  setIsFetchingYtSubtitles: (isFetchingYtSubtitles) => set({ isFetchingYtSubtitles }),
   setIsDiscovering: (isDiscovering) => set({ isDiscovering }),
   setIsSavingTranscript: (isSavingTranscript) => set({ isSavingTranscript }),
   setActionError: (actionError) => set({ actionError }),
@@ -291,6 +371,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
   setPreviewVideoOpen: (previewVideoOpen) => set({ previewVideoOpen }),
   setPreviewThumbnailOpen: (previewThumbnailOpen) => set({ previewThumbnailOpen }),
+  setExportModalOpen: (exportModalOpen) => set({ exportModalOpen }),
 
   setLogs: (logs) => set({ logs }),
   setLogsFilter: (logsFilter) => set({ logsFilter }),
@@ -320,7 +401,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   loadProjectData: async (targetId) => {
     const id = targetId || get().projectId;
     if (!id) return;
-    set({ loading: true });
+    set({ projectId: id, loading: true });
     try {
       const res = await apiFetch<{
         ok: boolean;
@@ -335,6 +416,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         const loadedClips = res.data.clips || [];
 
         set({
+          projectId: id,
           project: p,
           transcript: t,
           editableWords: t?.words ? [...t.words] : [],
@@ -345,8 +427,15 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           set({
             selectedClip: loadedClips[0],
             currentTime: loadedClips[0].startSec,
+            studioSubtitleStyle: loadedClips[0].subtitleStyle || DEFAULT_SUBTITLE_STYLE,
+            studioLayoutMode: loadedClips[0].layoutMode || "blur_bg",
+            studioAspectRatio: loadedClips[0].aspectRatio || "9:16",
+            studioPanOffsetX: loadedClips[0].panOffsetX || 0,
           });
         }
+
+        get().fetchAssets(id);
+        get().fetchLogs(id);
       }
     } finally {
       set({ loading: false });
@@ -369,7 +458,16 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     if (!id) return;
     const res = await apiFetch<{ ok: boolean; logs: LogItem[] }>(`/api/xclips/projects/${id}/logs`);
     if (res.ok && res.data?.logs) {
-      set({ logs: res.data.logs });
+      const newLogs = res.data.logs;
+      const currentLogs = get().logs;
+      if (
+        newLogs.length !== currentLogs.length ||
+        (newLogs.length > 0 &&
+          (newLogs[newLogs.length - 1]?.time !== currentLogs[currentLogs.length - 1]?.time ||
+            newLogs[0]?.time !== currentLogs[0]?.time))
+      ) {
+        set({ logs: newLogs });
+      }
     }
   },
 
@@ -517,6 +615,32 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       get().handleDiscoverHighlights();
     } else {
       set({ actionError: res.data?.message || "Gagal melakukan transkripsi AI" });
+      get().fetchLogs();
+    }
+  },
+
+  handleFetchYouTubeSubtitles: async () => {
+    const id = get().projectId;
+    if (!id) return;
+    set({ isFetchingYtSubtitles: true, actionError: null, actionSuccess: null });
+
+    const res = await apiFetch<{ ok: boolean; transcript?: XclipsTranscript; message?: string }>(
+      `/api/xclips/projects/${id}/subtitles/youtube`,
+      { method: "POST" }
+    );
+    set({ isFetchingYtSubtitles: false });
+
+    if (res.ok && res.data?.transcript) {
+      set({
+        transcript: res.data.transcript,
+        editableWords: res.data.transcript.words,
+        actionSuccess: "Subtitle YouTube berhasil dimuat!",
+      });
+      setTimeout(() => set({ actionSuccess: null }), 3000);
+      get().fetchAssets();
+      get().fetchLogs();
+    } else {
+      set({ actionError: res.data?.message || "Gagal memuat subtitle YouTube" });
       get().fetchLogs();
     }
   },
@@ -763,5 +887,13 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
     set({ copiedLogs: true });
     setTimeout(() => set({ copiedLogs: false }), 2000);
+  },
+
+  handleClearLogs: async () => {
+    const { projectId } = get();
+    set({ logs: [] });
+    if (projectId) {
+      await apiFetch(`/api/xclips/projects/${projectId}/logs`, { method: "DELETE" });
+    }
   },
 }));

@@ -2,16 +2,13 @@ import React from "react";
 import Link from "next/link";
 import { Box, Typography, Button, IconButton, Chip } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import SettingsIcon from "@mui/icons-material/Settings";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import { useStudioStore } from "../store/useStudioStore";
 import { formatTime } from "../types/studio.types";
 
 export function StudioHeader() {
   const project = useStudioStore((s) => s.project);
-  const aiSettings = useStudioStore((s) => s.aiSettings);
-  const setAiSettingsModalOpen = useStudioStore((s) => s.setAiSettingsModalOpen);
-  const setActiveTab = useStudioStore((s) => s.setActiveTab);
+  const setExportModalOpen = useStudioStore((s) => s.setExportModalOpen);
 
   return (
     <Box
@@ -59,27 +56,9 @@ export function StudioHeader() {
       <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
         <Button
           size="small"
-          variant="outlined"
-          startIcon={<SettingsIcon fontSize="small" />}
-          onClick={() => setAiSettingsModalOpen(true)}
-          sx={{
-            borderColor: "#27272a",
-            color: "#e4e4e7",
-            textTransform: "none",
-            fontSize: "0.78rem",
-            fontWeight: 600,
-            borderRadius: 1,
-            "&:hover": { borderColor: "#3f3f46", bgcolor: "#141418" },
-          }}
-        >
-          AI Settings ({aiSettings?.provider ? aiSettings.provider.toUpperCase() : "KIE.AI"})
-        </Button>
-
-        <Button
-          size="small"
           variant="contained"
           startIcon={<FileDownloadIcon fontSize="small" />}
-          onClick={() => setActiveTab(4)}
+          onClick={() => setExportModalOpen(true)}
           sx={{
             bgcolor: "#3b82f6",
             color: "#ffffff",

@@ -18,6 +18,9 @@ export type WordTimestamp = z.infer<typeof WordTimestampSchema>;
 export const SourceTypeSchema = z.enum(["local", "youtube", "tiktok", "instagram"]);
 export type SourceType = z.infer<typeof SourceTypeSchema>;
 
+export const AspectRatioSchema = z.enum(["9:16", "1:1", "4:5", "16:9"]);
+export type AspectRatio = z.infer<typeof AspectRatioSchema>;
+
 export const LayoutModeSchema = z.enum(["center_crop", "blur_bg", "split_screen"]);
 export type LayoutMode = z.infer<typeof LayoutModeSchema>;
 
@@ -51,7 +54,7 @@ export const SubtitleStyleSchema = z.object({
   enabled: z.boolean().default(true),
   preset: SubtitlePresetSchema.default("plain"),
   fontFamily: z.string().default("Inter"),
-  fontSize: z.number().default(42),
+  fontSize: z.number().min(0).max(999).default(22),
   primaryColor: z.string().default("#FFFFFF"), // CSS / UI Hex
   secondaryColor: z.string().optional(),
   highlightColor: z.string().default("#FACC15"), // Yellow hex for active karaoke word
@@ -104,6 +107,7 @@ export interface XclipsClip {
   viralScore: number;
   startSec: number;
   endSec: number;
+  aspectRatio?: AspectRatio; // default 9:16
   layoutMode: LayoutMode;
   panOffsetX: number; // -1.0 to 1.0
   subtitleStyle: SubtitleStyle;

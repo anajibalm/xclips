@@ -67,7 +67,7 @@ export function PreviewVideoModal() {
           <video
             controls
             autoPlay
-            src={`${getApiBaseUrl()}/api/xclips/media/${projectId}/stream`}
+            src={projectId ? `${getApiBaseUrl()}/api/xclips/media/${projectId}/stream` : undefined}
             style={{ width: "100%", height: "100%", objectFit: "contain" }}
           />
         </Box>

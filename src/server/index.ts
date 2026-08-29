@@ -37,8 +37,11 @@ app.use("*", async (c, next) => {
   const start = Date.now();
   const reqMethod = c.req.method;
   const reqPath = c.req.path;
+  const isPollingOrStream = reqPath.endsWith("/logs") || reqPath.endsWith("/stream");
 
-  httpLogger.debug({ traceId, method: reqMethod, path: reqPath }, `--> ${reqMethod} ${reqPath}`);
+  if (!isPollingOrStream) {
+    httpLogger.debug({ traceId, method: reqMethod, path: reqPath }, `--> ${reqMethod} ${reqPath}`);
+  }
 
   try {
     await next();
@@ -49,7 +52,7 @@ app.use("*", async (c, next) => {
       httpLogger.error({ traceId, method: reqMethod, path: reqPath, statusCode, durationMs }, `<-- ${reqMethod} ${reqPath} ${statusCode} (${durationMs}ms)`);
     } else if (statusCode >= 400) {
       httpLogger.warn({ traceId, method: reqMethod, path: reqPath, statusCode, durationMs }, `<-- ${reqMethod} ${reqPath} ${statusCode} (${durationMs}ms)`);
-    } else {
+    } else if (!isPollingOrStream) {
       httpLogger.info({ traceId, method: reqMethod, path: reqPath, statusCode, durationMs }, `<-- ${reqMethod} ${reqPath} ${statusCode} (${durationMs}ms)`);
     }
   } catch (err: unknown) {
@@ -555,13 +558,19 @@ app.get("/api/xclips/projects/:id/logs", (c) => {
       if (!line) continue;
       try {
         const parsed = JSON.parse(line);
+        // Exclude internal HTTP server access logs so polling /logs doesn't pollute process logs
+        if (parsed.module === "http:server") continue;
+
         if (
           parsed.projectId === id ||
           parsed.url?.includes(id) ||
           parsed.outputDir?.includes(id) ||
           parsed.msg?.includes(id) ||
           parsed.module?.startsWith("media:") ||
-          parsed.module?.startsWith("ai:")
+          parsed.module?.startsWith("ai:") ||
+          parsed.module?.startsWith("db:") ||
+          parsed.module?.startsWith("ffmpeg:") ||
+          parsed.module?.startsWith("filler:")
         ) {
           entries.push(parsed);
         }
@@ -573,6 +582,20 @@ app.get("/api/xclips/projects/:id/logs", (c) => {
     return c.json({ ok: true, logs: entries.reverse() });
   } catch (err: unknown) {
     return c.json({ ok: true, logs: [] });
+  }
+});
+
+// Clear Logs Endpoint
+app.delete("/api/xclips/projects/:id/logs", (c) => {
+  const logFile = path.resolve(process.cwd(), "logs", "app.log");
+  try {
+    if (fs.existsSync(logFile)) {
+      fs.writeFileSync(logFile, "");
+    }
+    return c.json({ ok: true, message: "Logs cleared successfully" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Failed to clear logs";
+    return c.json({ ok: false, message: msg }, 500);
   }
 });
 
@@ -1033,6 +1056,15 @@ app.post("/api/xclips/projects/:id/transcribe", async (c) => {
   const apiKey = body?.apiKey;
 
   const res = await xclipsService.transcribeProject(id, apiKey);
+  if (!res.success) {
+    return c.json({ ok: false, message: res.error }, 400);
+  }
+  return c.json({ ok: true, transcript: res.data });
+});
+
+app.post("/api/xclips/projects/:id/subtitles/youtube", async (c) => {
+  const id = c.req.param("id");
+  const res = await xclipsService.fetchYouTubeSubtitles(id);
   if (!res.success) {
     return c.json({ ok: false, message: res.error }, 400);
   }

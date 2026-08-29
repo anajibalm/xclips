@@ -25,9 +25,9 @@ import { TabAutoclips } from "./tabs/TabAutoclips";
 import { TabSubtitles } from "./tabs/TabSubtitles";
 import { TabFramingStyle } from "./tabs/TabFramingStyle";
 import { TabAssets } from "./tabs/TabAssets";
-import { TabExport } from "./tabs/TabExport";
 import { TabLogs } from "./tabs/TabLogs";
 import { AiSettingsModal } from "./modals/AiSettingsModal";
+import { ExportModal } from "./modals/ExportModal";
 import { PreviewVideoModal } from "./modals/PreviewVideoModal";
 import { PreviewThumbnailModal } from "./modals/PreviewThumbnailModal";
 import { PreviewFootageModal } from "./modals/PreviewFootageModal";
@@ -222,7 +222,6 @@ function StudioContent() {
               <Tab label="Subtitles" />
               <Tab label="Style" />
               <Tab icon={<PermMediaIcon sx={{ fontSize: "0.95rem" }} />} iconPosition="start" label="Assets" />
-              <Tab label="Export" />
               <Tab icon={<TerminalIcon sx={{ fontSize: "1rem" }} />} iconPosition="start" label="Logs" />
             </Tabs>
 
@@ -241,8 +240,7 @@ function StudioContent() {
               {activeTab === 3 && (
                 <TabAssets onPreviewBroll={(item) => setBrollPreviewItem(item)} />
               )}
-              {activeTab === 4 && <TabExport />}
-              {activeTab === 5 && <TabLogs />}
+              {activeTab === 4 && <TabLogs />}
             </CardContent>
           </Card>
         </Box>
@@ -250,6 +248,7 @@ function StudioContent() {
 
       {/* Global Modals */}
       <AiSettingsModal />
+      <ExportModal />
       <PreviewVideoModal />
       <PreviewThumbnailModal />
       <PreviewFootageModal

@@ -3,6 +3,8 @@ import {
   Box,
   Typography,
   Button,
+  IconButton,
+  Tooltip,
   Chip,
   Grid,
   Card,
@@ -10,6 +12,7 @@ import {
   InputAdornment,
   FormControlLabel,
   Switch,
+  CircularProgress,
 } from "@mui/material";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import YouTubeIcon from "@mui/icons-material/YouTube";
@@ -31,6 +34,10 @@ export function TabSubtitles() {
   const handleShiftSubtitleOffsetMs = useStudioStore((s) => s.handleShiftSubtitleOffsetMs);
   const handleApplyOffsetPermanently = useStudioStore((s) => s.handleApplyOffsetPermanently);
   const isSavingTranscript = useStudioStore((s) => s.isSavingTranscript);
+  const isTranscribing = useStudioStore((s) => s.isTranscribing);
+  const isFetchingYtSubtitles = useStudioStore((s) => s.isFetchingYtSubtitles);
+  const handleTranscribe = useStudioStore((s) => s.handleTranscribe);
+  const handleFetchYouTubeSubtitles = useStudioStore((s) => s.handleFetchYouTubeSubtitles);
   const editableWords = useStudioStore((s) => s.editableWords);
   const autoScrollToPlayhead = useStudioStore((s) => s.autoScrollToPlayhead);
   const setAutoScrollToPlayhead = useStudioStore((s) => s.setAutoScrollToPlayhead);
@@ -49,7 +56,7 @@ export function TabSubtitles() {
     filteredPhrases,
     itemPositions,
     visibleRange,
-    effectiveSubtitleTime,
+    currentActivePhrase,
     handleUpdatePhraseText,
     handleReorderPhrases,
     renderHighlightedText,
@@ -58,8 +65,8 @@ export function TabSubtitles() {
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
       <Grid container spacing={2} sx={{ height: "100%", minHeight: 0, flex: 1, alignItems: "stretch" }}>
-        {/* LEFT COLUMN: SINKRONISASI KONFIGURASI (COMPACT, SLEEK & PROPORTIONAL) */}
-        <Grid size={{ xs: 12, md: 4.2, lg: 3.8 }} sx={{ display: "flex", flexDirection: "column" }}>
+        {/* LEFT COLUMN: SOURCE SELECTION & OFFSET SYNC */}
+        <Grid size={{ xs: 12, md: 4.2, lg: 3.6 }} sx={{ display: "flex", flexDirection: "column" }}>
           <Box
             sx={{
               p: 2,
@@ -73,19 +80,20 @@ export function TabSubtitles() {
               boxSizing: "border-box",
             }}
           >
-            {/* Header & Controls */}
+            {/* Top Controls */}
             <Box>
-              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.2, gap: 1 }}>
+              {/* Header */}
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5, gap: 1 }}>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                   <AccessTimeIcon sx={{ color: subtitleOffsetMs !== 0 ? "#f59e0b" : "#3b82f6", fontSize: "1.15rem" }} />
                   <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#fafafa", fontSize: "0.88rem" }}>
-                    Sinkronisasi Subtitle
+                    Subtitle & Sync
                   </Typography>
                 </Box>
                 <Chip
                   label={
                     subtitleOffsetMs === 0
-                      ? "Tepat (0 ms)"
+                      ? "0 ms"
                       : subtitleOffsetMs > 0
                       ? `+${subtitleOffsetMs} ms`
                       : `${subtitleOffsetMs} ms`
@@ -101,165 +109,211 @@ export function TabSubtitles() {
                 />
               </Box>
 
-              {/* Keterangan Sumber Subtitle (YouTube vs Generate AI) */}
+              {/* Subtitle Source Switcher (Sleek Icon Buttons with Tooltip) */}
               <Box
                 sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  p: 1,
-                  px: 1.2,
+                  p: 1.2,
+                  px: 1.5,
                   bgcolor: "#0d0d10",
                   borderRadius: 1,
                   border: "1px solid #27272a",
                   mb: 1.5,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
                 }}
               >
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
-                  {project?.sourceType === "youtube" ? (
-                    <YouTubeIcon sx={{ color: "#ef4444", fontSize: "1.15rem" }} />
-                  ) : (
-                    <AutoFixHighIcon sx={{ color: "#a855f7", fontSize: "1.05rem" }} />
-                  )}
-                  <Box>
-                    <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.66rem", display: "block", lineHeight: 1 }}>
-                      Sumber Subtitle
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: "#fafafa", fontWeight: 700, fontSize: "0.76rem" }}>
-                      {project?.sourceType === "youtube" ? "Subtitle YouTube" : "Hasil Generate AI"}
-                    </Typography>
-                  </Box>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <Typography variant="caption" sx={{ color: "#71717a", fontWeight: 700, textTransform: "uppercase", fontSize: "0.68rem" }}>
+                    SOURCE
+                  </Typography>
+                  <Chip
+                    label={project?.sourceType === "youtube" ? "YouTube CC" : "AI Transcribe"}
+                    size="small"
+                    sx={{
+                      bgcolor: project?.sourceType === "youtube" ? "rgba(239, 68, 68, 0.15)" : "rgba(168, 85, 247, 0.15)",
+                      color: project?.sourceType === "youtube" ? "#f87171" : "#c084fc",
+                      fontWeight: 800,
+                      fontSize: "0.65rem",
+                      height: 20,
+                      borderRadius: 0.8,
+                    }}
+                  />
                 </Box>
 
-                <Chip
-                  label={project?.sourceType === "youtube" ? "YouTube CC" : "Generate AI"}
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
+                  <Tooltip title="Gunakan Subtitle Bawaan YouTube (CC)" arrow placement="top">
+                    <span>
+                      <IconButton
+                        size="small"
+                        onClick={handleFetchYouTubeSubtitles}
+                        disabled={isFetchingYtSubtitles || isTranscribing}
+                        sx={{
+                          p: 0.7,
+                          bgcolor: project?.sourceType === "youtube" ? "rgba(239, 68, 68, 0.18)" : "rgba(255, 255, 255, 0.03)",
+                          color: project?.sourceType === "youtube" ? "#ef4444" : "#71717a",
+                          border: project?.sourceType === "youtube" ? "1px solid #ef4444" : "1px solid #27272a",
+                          borderRadius: 0.8,
+                          transition: "all 0.15s ease",
+                          "&:hover": {
+                            bgcolor: "rgba(239, 68, 68, 0.25)",
+                            color: "#ef4444",
+                            borderColor: "#ef4444",
+                          },
+                          "&.Mui-disabled": { opacity: 0.35 },
+                        }}
+                      >
+                        {isFetchingYtSubtitles ? (
+                          <CircularProgress size={16} sx={{ color: "#ef4444" }} />
+                        ) : (
+                          <YouTubeIcon sx={{ fontSize: "1.15rem" }} />
+                        )}
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+
+                  <Tooltip title="Transkripsi Ulang dengan AI" arrow placement="top">
+                    <span>
+                      <IconButton
+                        size="small"
+                        onClick={handleTranscribe}
+                        disabled={isFetchingYtSubtitles || isTranscribing}
+                        sx={{
+                          p: 0.7,
+                          bgcolor: project?.sourceType !== "youtube" ? "rgba(168, 85, 247, 0.18)" : "rgba(255, 255, 255, 0.03)",
+                          color: project?.sourceType !== "youtube" ? "#c084fc" : "#71717a",
+                          border: project?.sourceType !== "youtube" ? "1px solid #a855f7" : "1px solid #27272a",
+                          borderRadius: 0.8,
+                          transition: "all 0.15s ease",
+                          "&:hover": {
+                            bgcolor: "rgba(168, 85, 247, 0.25)",
+                            color: "#c084fc",
+                            borderColor: "#a855f7",
+                          },
+                          "&.Mui-disabled": { opacity: 0.35 },
+                        }}
+                      >
+                        {isTranscribing ? (
+                          <CircularProgress size={16} sx={{ color: "#c084fc" }} />
+                        ) : (
+                          <AutoFixHighIcon sx={{ fontSize: "1.15rem" }} />
+                        )}
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </Box>
+              </Box>
+
+              {/* Offset Input Field */}
+              <Box sx={{ mb: 1.5 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                  <Typography variant="caption" sx={{ color: "#a1a1aa", fontWeight: 700, fontSize: "0.72rem" }}>
+                    Timing Offset
+                  </Typography>
+                </Box>
+                <TextField
+                  fullWidth
                   size="small"
+                  type="number"
+                  value={subtitleOffsetMs === 0 ? "0" : subtitleOffsetMs.toString()}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    setSubtitleOffsetMs(isNaN(val) ? 0 : val);
+                  }}
+                  slotProps={{
+                    input: {
+                      endAdornment: <InputAdornment position="end"><Typography variant="caption" sx={{ color: "#71717a", fontWeight: 800 }}>ms</Typography></InputAdornment>,
+                    },
+                  }}
                   sx={{
-                    bgcolor: project?.sourceType === "youtube" ? "rgba(239, 68, 68, 0.15)" : "rgba(168, 85, 247, 0.15)",
-                    color: project?.sourceType === "youtube" ? "#f87171" : "#c084fc",
-                    fontWeight: 800,
-                    fontSize: "0.64rem",
-                    height: 19,
-                    borderRadius: 0.6,
+                    "& .MuiInputBase-input": {
+                      color: subtitleOffsetMs !== 0 ? "#facc15" : "#ffffff",
+                      fontWeight: 800,
+                      fontSize: "0.92rem",
+                      fontFamily: "monospace",
+                      py: 0.7,
+                    },
+                    "& .MuiOutlinedInput-root": {
+                      bgcolor: "#0d0d10",
+                      borderRadius: 1,
+                      "& fieldset": { borderColor: subtitleOffsetMs !== 0 ? "#f59e0b" : "#27272a" },
+                      "&:hover fieldset": { borderColor: subtitleOffsetMs !== 0 ? "#fbbf24" : "#3f3f46" },
+                    },
                   }}
                 />
               </Box>
 
-              <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.72rem", display: "block", mb: 1.5, lineHeight: 1.35 }}>
-                Atur pergeseran waktu secara real-time jika subtitle tidak sinkron dengan pembicara.
-              </Typography>
-
-              {/* Direct Input Field */}
-              <Typography variant="caption" sx={{ color: "#a1a1aa", fontWeight: 700, fontSize: "0.72rem", mb: 0.5, display: "block" }}>
-                Offset Milidetik (ms)
-              </Typography>
-              <TextField
-                fullWidth
-                size="small"
-                type="number"
-                value={subtitleOffsetMs === 0 ? "0" : subtitleOffsetMs.toString()}
-                onChange={(e) => {
-                  const val = parseInt(e.target.value, 10);
-                  setSubtitleOffsetMs(isNaN(val) ? 0 : val);
-                }}
-                slotProps={{
-                  input: {
-                    endAdornment: <InputAdornment position="end"><Typography variant="caption" sx={{ color: "#71717a", fontWeight: 800 }}>ms</Typography></InputAdornment>,
-                  },
-                }}
-                sx={{
-                  mb: 1.5,
-                  "& .MuiInputBase-input": {
-                    color: subtitleOffsetMs !== 0 ? "#facc15" : "#ffffff",
-                    fontWeight: 800,
-                    fontSize: "0.95rem",
-                    fontFamily: "monospace",
-                    py: 0.8,
-                  },
-                  "& .MuiOutlinedInput-root": {
-                    bgcolor: "#0d0d10",
-                    borderRadius: 1,
-                    "& fieldset": { borderColor: subtitleOffsetMs !== 0 ? "#f59e0b" : "#27272a" },
-                    "&:hover fieldset": { borderColor: subtitleOffsetMs !== 0 ? "#fbbf24" : "#3f3f46" },
-                  },
-                }}
-              />
-
-              {/* Quick Shift Grid: Maju (Negatif) & Tunda (Positif) */}
-              <Typography variant="caption" sx={{ color: "#71717a", fontWeight: 700, fontSize: "0.68rem", mb: 0.6, display: "block", textTransform: "uppercase" }}>
-                Pergeseran Cepat
-              </Typography>
-
-              {/* Row 1: Maju / -ms (Subtitle Muncul Lebih Awal) */}
-              <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 0.6, mb: 0.6 }}>
+              {/* Quick Shift Grid */}
+              <Box sx={{ mb: 1.2 }}>
+                <Typography variant="caption" sx={{ color: "#71717a", fontWeight: 700, fontSize: "0.68rem", mb: 0.6, display: "block", textTransform: "uppercase" }}>
+                  Quick Shift
+                </Typography>
+                <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 0.6, mb: 0.6 }}>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => handleShiftSubtitleOffsetMs(-1000)}
+                    sx={{ py: 0.3, px: 0.5, fontSize: "0.7rem", borderColor: "#3f3f46", color: "#e4e4e7", textTransform: "none", borderRadius: 0.8, fontWeight: 700 }}
+                  >
+                    -1000ms
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => handleShiftSubtitleOffsetMs(-500)}
+                    sx={{ py: 0.3, px: 0.5, fontSize: "0.7rem", borderColor: "#3f3f46", color: "#e4e4e7", textTransform: "none", borderRadius: 0.8, fontWeight: 700 }}
+                  >
+                    -500ms
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => handleShiftSubtitleOffsetMs(-100)}
+                    sx={{ py: 0.3, px: 0.5, fontSize: "0.7rem", borderColor: "#3f3f46", color: "#e4e4e7", textTransform: "none", borderRadius: 0.8, fontWeight: 700 }}
+                  >
+                    -100ms
+                  </Button>
+                </Box>
+                <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 0.6, mb: 0.8 }}>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => handleShiftSubtitleOffsetMs(100)}
+                    sx={{ py: 0.3, px: 0.5, fontSize: "0.7rem", borderColor: "#3f3f46", color: "#e4e4e7", textTransform: "none", borderRadius: 0.8, fontWeight: 700 }}
+                  >
+                    +100ms
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => handleShiftSubtitleOffsetMs(500)}
+                    sx={{ py: 0.3, px: 0.5, fontSize: "0.7rem", borderColor: "#3f3f46", color: "#e4e4e7", textTransform: "none", borderRadius: 0.8, fontWeight: 700 }}
+                  >
+                    +500ms
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => handleShiftSubtitleOffsetMs(1000)}
+                    sx={{ py: 0.3, px: 0.5, fontSize: "0.7rem", borderColor: "#3f3f46", color: "#e4e4e7", textTransform: "none", borderRadius: 0.8, fontWeight: 700 }}
+                  >
+                    +1000ms
+                  </Button>
+                </Box>
                 <Button
+                  fullWidth
                   size="small"
-                  variant="outlined"
-                  onClick={() => handleShiftSubtitleOffsetMs(-1000)}
-                  sx={{ py: 0.3, px: 0.5, fontSize: "0.7rem", borderColor: "#3f3f46", color: "#e4e4e7", textTransform: "none", borderRadius: 0.8, fontWeight: 700 }}
+                  variant="text"
+                  onClick={() => setSubtitleOffsetMs(0)}
+                  disabled={subtitleOffsetMs === 0}
+                  sx={{ py: 0.3, fontSize: "0.72rem", color: subtitleOffsetMs !== 0 ? "#a1a1aa" : "#52525b", textTransform: "none", fontWeight: 700 }}
                 >
-                  -1000 ms
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => handleShiftSubtitleOffsetMs(-500)}
-                  sx={{ py: 0.3, px: 0.5, fontSize: "0.7rem", borderColor: "#3f3f46", color: "#e4e4e7", textTransform: "none", borderRadius: 0.8, fontWeight: 700 }}
-                >
-                  -500 ms
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => handleShiftSubtitleOffsetMs(-100)}
-                  sx={{ py: 0.3, px: 0.5, fontSize: "0.7rem", borderColor: "#3f3f46", color: "#e4e4e7", textTransform: "none", borderRadius: 0.8, fontWeight: 700 }}
-                >
-                  -100 ms
+                  Reset to 0ms
                 </Button>
               </Box>
-
-              {/* Row 2: Tunda / +ms (Subtitle Ditunda) */}
-              <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 0.6, mb: 1 }}>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => handleShiftSubtitleOffsetMs(100)}
-                  sx={{ py: 0.3, px: 0.5, fontSize: "0.7rem", borderColor: "#3f3f46", color: "#e4e4e7", textTransform: "none", borderRadius: 0.8, fontWeight: 700 }}
-                >
-                  +100 ms
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => handleShiftSubtitleOffsetMs(500)}
-                  sx={{ py: 0.3, px: 0.5, fontSize: "0.7rem", borderColor: "#3f3f46", color: "#e4e4e7", textTransform: "none", borderRadius: 0.8, fontWeight: 700 }}
-                >
-                  +500 ms
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => handleShiftSubtitleOffsetMs(1000)}
-                  sx={{ py: 0.3, px: 0.5, fontSize: "0.7rem", borderColor: "#3f3f46", color: "#e4e4e7", textTransform: "none", borderRadius: 0.8, fontWeight: 700 }}
-                >
-                  +1000 ms
-                </Button>
-              </Box>
-
-              {/* Reset Button */}
-              <Button
-                fullWidth
-                size="small"
-                variant="text"
-                onClick={() => setSubtitleOffsetMs(0)}
-                disabled={subtitleOffsetMs === 0}
-                sx={{ py: 0.3, fontSize: "0.72rem", color: subtitleOffsetMs !== 0 ? "#a1a1aa" : "#52525b", textTransform: "none", fontWeight: 700, mb: 1 }}
-              >
-                Reset (0 ms)
-              </Button>
             </Box>
 
-            {/* Bottom Actions: Terapkan Permanen */}
+            {/* Bottom Action: Apply Permanently */}
             <Box sx={{ pt: 1.2, borderTop: "1px solid #27272a" }}>
               <Button
                 fullWidth
@@ -278,27 +332,19 @@ export function TabSubtitles() {
                   "&:hover": { bgcolor: subtitleOffsetMs !== 0 ? "#059669" : "#27272a" },
                 }}
               >
-                {isSavingTranscript ? "Menyimpan..." : "Terapkan Permanen"}
+                {isSavingTranscript ? "Applying..." : "Apply Offset Permanently"}
               </Button>
-              <Typography variant="caption" sx={{ color: "#52525b", fontSize: "0.66rem", display: "block", mt: 0.6, textAlign: "center" }}>
-                Nilai negatif (-) memajukan subtitle. Terapkan untuk simpan ke database.
-              </Typography>
             </Box>
           </Box>
         </Grid>
 
         {/* RIGHT COLUMN: SUBTITLE EDITOR & PHRASE LIST */}
-        <Grid size={{ xs: 12, md: 7.8, lg: 8.2 }} sx={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
-          {/* Top Bar: Title, Follow Playhead toggle & Save Button */}
+        <Grid size={{ xs: 12, md: 7.8, lg: 8.4 }} sx={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+          {/* Top Bar */}
           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1, flexWrap: "wrap", gap: 1, flexShrink: 0 }}>
-            <Box>
-              <Typography variant="subtitle2" sx={{ color: "#fafafa", fontWeight: 800, fontSize: "0.92rem" }}>
-                Subtitles ({phraseSegments.length} Phrases)
-              </Typography>
-              <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.72rem" }}>
-                Klik frasa untuk seek player. Edit teks langsung pada kartu frasa.
-              </Typography>
-            </Box>
+            <Typography variant="subtitle2" sx={{ color: "#fafafa", fontWeight: 800, fontSize: "0.92rem" }}>
+              Subtitles ({phraseSegments.length} Phrases)
+            </Typography>
 
             <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
               <FormControlLabel
@@ -325,17 +371,17 @@ export function TabSubtitles() {
             </Box>
           </Box>
 
-          {/* Search Bar with spellCheck=false */}
+          {/* Search Bar */}
           <TextField
             fullWidth
             size="small"
-            placeholder="Search words or phrases in transcript..."
+            placeholder="Search phrases..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             sx={{
               mb: 1,
               flexShrink: 0,
-              "& .MuiInputBase-input": { color: "#ffffff", fontSize: "0.82rem", py: 0.7 },
+              "& .MuiInputBase-input": { color: "#ffffff", fontSize: "0.82rem", py: 0.6 },
               "& .MuiOutlinedInput-root": {
                 bgcolor: "#0d0d10",
                 borderRadius: 1,
@@ -360,14 +406,14 @@ export function TabSubtitles() {
           />
 
           {phraseSegments.length === 0 ? (
-            <Box sx={{ py: 6, textAlign: "center", border: "1px dashed #27272a", borderRadius: 1, flex: 1 }}>
+            <Box sx={{ py: 6, textAlign: "center", border: "1px dashed #27272a", borderRadius: 1, flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
               <RecordVoiceOverIcon sx={{ fontSize: 40, color: "#3f3f46", mb: 1.5 }} />
-              <Typography variant="body2" sx={{ color: "#71717a", mb: 2 }}>
-                Transcript not generated yet. Go to <strong style={{ color: "#ffffff" }}>Autoclip</strong> tab to transcribe.
+              <Typography variant="body2" sx={{ color: "#71717a" }}>
+                No subtitles available yet. Choose <strong style={{ color: "#f87171" }}>YouTube CC</strong> or <strong style={{ color: "#c084fc" }}>AI Transcribe</strong> on the left panel.
               </Typography>
             </Box>
           ) : (
-            /* High-Performance Virtualized Container taking full remaining height in right pane */
+            /* High-Performance Virtualized Container with Hidden Scrollbar */
             <Box
               ref={virtualScrollRef}
               onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
@@ -381,9 +427,12 @@ export function TabSubtitles() {
                 borderRadius: 1,
                 border: "1px solid #27272a",
                 boxSizing: "border-box",
+                scrollbarWidth: "none", // Firefox
+                "&::-webkit-scrollbar": { display: "none" }, // Chrome / Safari / Edge
+                msOverflowStyle: "none", // IE / legacy Edge
               }}
             >
-              {/* Virtual spacer to simulate full scroll height */}
+              {/* Virtual spacer */}
               <Box sx={{ height: itemPositions.totalHeight, width: "100%", position: "relative" }}>
                 {filteredPhrases
                   .slice(visibleRange.start, visibleRange.end + 1)
@@ -392,8 +441,8 @@ export function TabSubtitles() {
                     const pos = itemPositions.positions[actualIndex];
                     if (!pos) return null;
 
-                    const isTimeActive = effectiveSubtitleTime >= seg.startSec && effectiveSubtitleTime < (seg.endSec + 0.35);
-                    const isActive = isTimeActive;
+                    // Exactly one active playhead matching the video preview
+                    const isActive = currentActivePhrase !== undefined && (currentActivePhrase.id === seg.id || currentActivePhrase.index === seg.index);
                     const isDragOver = dragOverPhraseIndex === seg.index;
                     const isBeingDragged = draggedPhraseIndex === seg.index;
                     const hasSearchMatch = searchQuery.trim() && seg.text.toLowerCase().includes(searchQuery.toLowerCase());
@@ -458,7 +507,7 @@ export function TabSubtitles() {
                         >
                           {/* Single Horizontal Row */}
                           <Box sx={{ display: "flex", alignItems: "center", gap: 0.8, width: "100%" }}>
-                            {/* Drag Handle & Phrase Index Badge */}
+                            {/* Drag Handle & Phrase Index */}
                             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexShrink: 0 }}>
                               <Box
                                 draggable
@@ -504,7 +553,7 @@ export function TabSubtitles() {
                               </Typography>
                             </Box>
 
-                            {/* Single-line Text Input with Auto-Seek on Focus */}
+                            {/* Text Input */}
                             <TextField
                               fullWidth
                               size="small"
@@ -539,7 +588,7 @@ export function TabSubtitles() {
                               }}
                             />
 
-                            {/* Search Keyword Highlight Preview Tag */}
+                            {/* Search Keyword Highlight Preview */}
                             {hasSearchMatch && (
                               <Box
                                 sx={{

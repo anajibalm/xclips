@@ -47,6 +47,7 @@ export function findYtDlpBinary(): string {
   const customCandidates = [
     "yt-dlp",
     "yt-dlp.exe",
+    "C:\\Users\\precore\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\yt-dlp.exe",
     "C:\\Users\\precore\\AppData\\Local\\Programs\\Python\\Python314\\Scripts\\yt-dlp.exe",
     "C:\\Users\\precore\\AppData\\Local\\Programs\\Python\\Python313\\Scripts\\yt-dlp.exe",
     "C:\\Users\\precore\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\yt-dlp.exe",
@@ -60,6 +61,56 @@ export function findYtDlpBinary(): string {
   }
 
   return "yt-dlp";
+}
+
+/**
+ * Finds the ffmpeg binary on the system for yt-dlp stream muxing
+ */
+export function findFfmpegBinary(): string | undefined {
+  const customCandidates = [
+    "C:\\Users\\precore\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.1.1-full_build\\bin\\ffmpeg.exe",
+    "ffmpeg.exe",
+    "ffmpeg",
+    "C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe",
+    "C:\\ffmpeg\\bin\\ffmpeg.exe",
+  ];
+
+  for (const candidate of customCandidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Resolves format selector and format sort arguments for target download quality.
+ * Accurately supports both landscape (16:9) and portrait/vertical (9:16 Shorts) videos.
+ */
+export function getQualitySelectorArgs(quality?: "best" | "1080p" | "720p" | "480p"): { formatSelector: string; formatSort: string } {
+  if (quality === "1080p") {
+    return {
+      formatSelector: "bv*[height<=1080][width<=1920]+ba/bv*[width<=1080][height<=1920]+ba/bv*[height<=1080]+ba/bv*[width<=1080]+ba/bv*+ba/b",
+      formatSort: "res:1080,fps,vcodec:h264,acodec:m4a",
+    };
+  } else if (quality === "720p") {
+    return {
+      formatSelector: "bv*[height<=720][width<=1280]+ba/bv*[width<=720][height<=1280]+ba/bv*[height<=720]+ba/bv*[width<=720]+ba/bv*+ba/b",
+      formatSort: "res:720,fps,vcodec:h264,acodec:m4a",
+    };
+  } else if (quality === "480p") {
+    return {
+      formatSelector: "bv*[height<=480][width<=854]+ba/bv*[width<=480][height<=854]+ba/bv*[height<=480]+ba/bv*[width<=480]+ba/bv*+ba/b",
+      formatSort: "res:480,fps,vcodec:h264,acodec:m4a",
+    };
+  } else {
+    // "best"
+    return {
+      formatSelector: "bv*+ba/b",
+      formatSort: "res,fps,vcodec:h264,acodec:m4a",
+    };
+  }
 }
 
 /**
@@ -160,6 +211,10 @@ export async function fetchGenericYtDlpInfo(url: string): Promise<Result<YouTube
       "--dump-json",
       "--no-download",
       "--no-warnings",
+      "--js-runtimes",
+      "node",
+      "--remote-components",
+      "ejs:github",
       "--ignore-errors",
       url.trim(),
     ];
@@ -245,8 +300,10 @@ export async function fetchYouTubeInfo(url: string): Promise<Result<YouTubeVideo
       "--dump-json",
       "--no-download",
       "--no-warnings",
-      "--extractor-args",
-      "youtube:player_client=android,web",
+      "--js-runtimes",
+      "node",
+      "--remote-components",
+      "ejs:github",
       "--ignore-errors",
       url.trim(),
     ];
@@ -510,14 +567,8 @@ export async function downloadGenericYtDlpVideo(
   }
   const info = infoRes.data;
 
-  let formatSelector = "bestvideo+bestaudio/best";
-  if (quality === "1080p") {
-    formatSelector = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best";
-  } else if (quality === "720p") {
-    formatSelector = "bestvideo[height<=720]+bestaudio/best[height<=720]/best";
-  } else if (quality === "480p") {
-    formatSelector = "bestvideo[height<=480]+bestaudio/best[height<=480]/best";
-  }
+  const { formatSelector, formatSort } = getQualitySelectorArgs(quality);
+  const ffmpeg = findFfmpegBinary();
 
   const outputTemplate = path.join(outputDir, "[FULL] %(title)s [%(id)s].%(ext)s");
   const args = [
@@ -526,12 +577,23 @@ export async function downloadGenericYtDlpVideo(
     "--ignore-errors",
     "-f",
     formatSelector,
+    "--format-sort",
+    formatSort,
     "--merge-output-format",
     "mp4",
+    "--js-runtimes",
+    "node",
+    "--remote-components",
+    "ejs:github",
     "-o",
     outputTemplate,
-    url.trim(),
   ];
+
+  if (ffmpeg) {
+    args.push("--ffmpeg-location", ffmpeg);
+  }
+
+  args.push(url.trim());
 
   ytdlpLogger.info({ url, outputDir, quality }, "Starting generic media video download with yt-dlp");
 
@@ -638,31 +700,33 @@ export async function downloadYouTubeVideo(
 
   const info = infoRes.data;
 
-  // 2. Select format string with fallback to best
-  let formatSelector = "bestvideo+bestaudio/best";
-  if (quality === "1080p") {
-    formatSelector = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best";
-  } else if (quality === "720p") {
-    formatSelector = "bestvideo[height<=720]+bestaudio/best[height<=720]/best";
-  } else if (quality === "480p") {
-    formatSelector = "bestvideo[height<=480]+bestaudio/best[height<=480]/best";
-  }
+  // 2. Select format string & format sort with dual-axis dimension bounds
+  const { formatSelector, formatSort } = getQualitySelectorArgs(quality);
+  const ffmpeg = findFfmpegBinary();
 
   const outputTemplate = path.join(outputDir, "[FULL] %(title)s [%(id)s].%(ext)s");
 
   const args = [
     "-i",
     "--no-warnings",
-    "--extractor-args",
-    "youtube:player_client=android,web",
     "--ignore-errors",
     "-f",
     formatSelector,
+    "--format-sort",
+    formatSort,
     "--merge-output-format",
     "mp4",
+    "--js-runtimes",
+    "node",
+    "--remote-components",
+    "ejs:github",
     "-o",
     outputTemplate,
   ];
+
+  if (ffmpeg) {
+    args.push("--ffmpeg-location", ffmpeg);
+  }
 
   if (downloadSubtitles) {
     args.push(

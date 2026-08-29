@@ -153,18 +153,33 @@ export function TabAutoclips() {
                   }}
                 >
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
-                    <Chip
-                      label={`Clip #${idx + 1}`}
-                      size="small"
-                      sx={{
-                        bgcolor: "#1e1e24",
-                        color: "#e4e4e7",
-                        fontWeight: 700,
-                        fontSize: "0.68rem",
-                        height: 20,
-                        borderRadius: 0.8,
-                      }}
-                    />
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
+                      <Chip
+                        label={`Clip #${idx + 1}`}
+                        size="small"
+                        sx={{
+                          bgcolor: "#1e1e24",
+                          color: "#e4e4e7",
+                          fontWeight: 700,
+                          fontSize: "0.68rem",
+                          height: 20,
+                          borderRadius: 0.8,
+                        }}
+                      />
+                      <Chip
+                        label={clip.aspectRatio || "9:16"}
+                        size="small"
+                        sx={{
+                          bgcolor: "rgba(59, 130, 246, 0.12)",
+                          color: "#60a5fa",
+                          fontWeight: 800,
+                          fontSize: "0.65rem",
+                          height: 20,
+                          borderRadius: 0.8,
+                          border: "1px solid rgba(59, 130, 246, 0.25)",
+                        }}
+                      />
+                    </Box>
                     <Typography variant="caption" sx={{ color: "#a1a1aa", fontFamily: "monospace", fontWeight: 700 }}>
                       {formatTime(clip.startSec)} - {formatTime(clip.endSec)} ({(clip.endSec - clip.startSec).toFixed(1)}s)
                     </Typography>

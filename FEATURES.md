@@ -95,10 +95,15 @@ mindmap
 ---
 
 ### 5. Video Framing & Subtitle Styler
-- **Framing Modes (9:16 Portrait)**:
-  1. **Center Crop with Manual Pan**: Crop tengah 9:16 dengan slider penyesuaian sumbu X (-100% s/d +100%) untuk membingkai posisi wajah pembicara.
-  2. **Blurred Background Fit**: Video asli 16:9 diletakkan di tengah dengan latar belakang salinan video yang di-scale dan di-blur (`boxblur=20:5`).
-  3. **Split Screen (2-Stack)**: Menumpuk dua viewport video secara vertikal (contoh: video pembicara di atas, rekaman layar/gameplay di bawah).
+- **Multi-Platform Aspect Ratio Standards**:
+  1. **9:16 Vertical (1080 × 1920)**: Standar untuk TikTok (VT), Instagram Reels, YouTube Shorts, dan Snapchat Spotlight.
+  2. **1:1 Square (1080 × 1080)**: Standar persegi untuk Instagram Feed, Facebook Post, dan LinkedIn.
+  3. **4:5 Portrait (1080 × 1350)**: Standar optimal untuk feed post Instagram/Facebook mobile tanpa terpotong.
+  4. **16:9 Landscape (1920 × 1080)**: Standar widescreen untuk YouTube long-form, video horizontal, dan desktop playback.
+- **Framing Layout Modes**:
+  1. **Center Crop with Manual Pan**: Crop framing dengan slider penyesuaian sumbu X (-100% s/d +100%) untuk membingkai posisi wajah pembicara.
+  2. **Blurred Background Fit**: Video diletakkan di tengah (contain) dengan latar belakang salinan video yang di-scale dan di-blur (`boxblur=25:5`).
+  3. **Split Screen**: Menumpuk dua viewport video secara vertikal (`vstack` untuk 9:16/1:1/4:5) atau horizontal side-by-side (`hstack` untuk 16:9).
 - **Karaoke Subtitle Presets**:
   - **Hormozi Neon Bold**: Teks tebal di tengah bawah, kata yang sedang diucapkan menyala kuning/hijau neon (`#FACC15`).
   - **Clean Box**: Subtitle dengan latar belakang kotak semi-transparan yang rapi.

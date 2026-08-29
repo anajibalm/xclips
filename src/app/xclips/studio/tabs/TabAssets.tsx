@@ -323,7 +323,7 @@ export function TabAssets({ onPreviewBroll }: TabAssetsProps) {
                     <Box sx={{ position: "relative", width: "100%", aspectRatio: "16/9", bgcolor: "#000" }}>
                       <Box
                         component="img"
-                        src={`${getApiBaseUrl()}/api/xclips/media/${item.id}/thumbnail`}
+                        src={item?.id ? `${getApiBaseUrl()}/api/xclips/media/${item.id}/thumbnail` : undefined}
                         alt={item.name}
                         sx={{ width: "100%", height: "100%", objectFit: "cover" }}
                       />
@@ -433,7 +433,7 @@ export function TabAssets({ onPreviewBroll }: TabAssetsProps) {
               onClick={() => setPreviewThumbnailOpen(true)}
               sx={{ width: "100%", height: 180, bgcolor: "#000", borderRadius: 1, border: "1px solid #27272a", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", mb: 1.5, position: "relative", cursor: "pointer" }}
             >
-              <Box component="img" src={`${getApiBaseUrl()}/api/xclips/media/${projectId}/thumbnail?t=${thumbTimestamp}`} alt="Cover" sx={{ width: "100%", height: "100%", objectFit: "contain" }} />
+              <Box component="img" src={projectId ? `${getApiBaseUrl()}/api/xclips/media/${projectId}/thumbnail?t=${thumbTimestamp}` : undefined} alt="Cover" sx={{ width: "100%", height: "100%", objectFit: "contain" }} />
             </Box>
 
             <Box sx={{ display: "flex", gap: 0.8 }}>

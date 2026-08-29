@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { LayoutMode, SubtitleStyle, WordTimestamp, Result } from "@/lib/xclips/types";
+import { LayoutMode, AspectRatio, SubtitleStyle, WordTimestamp, Result } from "@/lib/xclips/types";
 
 export interface FilterComplexOptions {
   sourceVideo: string;
@@ -9,17 +9,35 @@ export interface FilterComplexOptions {
   clipStart: number;
   clipEnd: number;
   keepIntervals: Array<{ start: number; end: number; duration: number }>;
+  aspectRatio?: AspectRatio;
   layoutMode: LayoutMode;
   panOffsetX?: number; // -1.0 to 1.0 (0.0 = centered)
   assSubtitlePath?: string;
-  targetWidth?: number; // default 1080
-  targetHeight?: number; // default 1920
+  targetWidth?: number;
+  targetHeight?: number;
   targetFps?: number; // default 30
 }
 
 export interface FfmpegCommandResult {
   args: string[];
   filterComplex: string;
+}
+
+/**
+ * Returns standard target pixel dimensions for standard aspect ratios (TikTok, Reels, Shorts, IG, YT)
+ */
+export function getDimensionsForAspectRatio(aspectRatio?: AspectRatio): { width: number; height: number } {
+  switch (aspectRatio) {
+    case "1:1":
+      return { width: 1080, height: 1080 };
+    case "4:5":
+      return { width: 1080, height: 1350 };
+    case "16:9":
+      return { width: 1920, height: 1080 };
+    case "9:16":
+    default:
+      return { width: 1080, height: 1920 };
+  }
 }
 
 /**
@@ -30,8 +48,9 @@ export function buildFfmpegCommand(
   outputPath: string,
   hwaccel: "nvenc" | "qsv" | "amf" | "cpu" = "cpu"
 ): FfmpegCommandResult {
-  const targetW = options.targetWidth || 1080;
-  const targetH = options.targetHeight || 1920;
+  const dims = getDimensionsForAspectRatio(options.aspectRatio);
+  const targetW = options.targetWidth || dims.width;
+  const targetH = options.targetHeight || dims.height;
   const targetFps = options.targetFps || 30;
   const intervals = options.keepIntervals;
 
@@ -75,33 +94,45 @@ export function buildFfmpegCommand(
     filterChains.push(`[a_trim_0]acopy[a_concatenated]`);
   }
 
-  // Step 3: Layout Reframing (9:16 target)
+  // Step 3: Layout Reframing for Target Aspect Ratio
   if (options.layoutMode === "blur_bg") {
-    // Background: scale to fill 1080x1920 and boxblur
-    // Foreground: scale to fit width 1080
+    // Background: scale to fill targetW:targetH and boxblur
+    // Foreground: scale to fit inside targetW:targetH cleanly with letterbox/pillarbox
     filterChains.push(
       `[v_concatenated]split=2[v_bg_in][v_fg_in]`,
       `[v_bg_in]scale=${targetW}:${targetH}:force_original_aspect_ratio=increase,crop=${targetW}:${targetH},boxblur=25:5[v_bg]`,
-      `[v_fg_in]scale=${targetW}:-2[v_fg]`,
+      `[v_fg_in]scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2[v_fg]`,
       `[v_bg][v_fg]overlay=(W-w)/2:(H-h)/2[v_framed]`
     );
   } else if (options.layoutMode === "center_crop") {
-    // Scale height to 1920, crop width to 1080 with pan offset
+    // Scale to cover target dimension, crop with pan offset
     const panOffset = options.panOffsetX || 0.0;
     // panOffset 0 = center, -1.0 = left edge, 1.0 = right edge
     const cropXExpr = `(in_w-out_w)/2 + (${panOffset.toFixed(2)} * (in_w-out_w)/2)`;
+    const cropYExpr = `(in_h-out_h)/2`;
     filterChains.push(
-      `[v_concatenated]scale=-2:${targetH},crop=${targetW}:${targetH}:${cropXExpr}:0[v_framed]`
+      `[v_concatenated]scale=${targetW}:${targetH}:force_original_aspect_ratio=increase,crop=${targetW}:${targetH}:${cropXExpr}:${cropYExpr}[v_framed]`
     );
   } else if (options.layoutMode === "split_screen") {
-    // Split screen: top half & bottom half (stacked)
-    const halfH = Math.floor(targetH / 2);
-    filterChains.push(
-      `[v_concatenated]split=2[v_top_in][v_bot_in]`,
-      `[v_top_in]scale=${targetW}:${halfH}:force_original_aspect_ratio=increase,crop=${targetW}:${halfH}[v_top]`,
-      `[v_bot_in]scale=${targetW}:${halfH}:force_original_aspect_ratio=increase,crop=${targetW}:${halfH}[v_bot]`,
-      `[v_top][v_bot]vstack=inputs=2[v_framed]`
-    );
+    if (options.aspectRatio === "16:9") {
+      // Landscape 16:9 side-by-side (left & right)
+      const halfW = Math.floor(targetW / 2);
+      filterChains.push(
+        `[v_concatenated]split=2[v_left_in][v_right_in]`,
+        `[v_left_in]scale=${halfW}:${targetH}:force_original_aspect_ratio=increase,crop=${halfW}:${targetH}[v_left]`,
+        `[v_right_in]scale=${halfW}:${targetH}:force_original_aspect_ratio=increase,crop=${halfW}:${targetH}[v_right]`,
+        `[v_left][v_right]hstack=inputs=2[v_framed]`
+      );
+    } else {
+      // Vertical / Square / Portrait (9:16, 1:1, 4:5): Top & Bottom stacked
+      const halfH = Math.floor(targetH / 2);
+      filterChains.push(
+        `[v_concatenated]split=2[v_top_in][v_bot_in]`,
+        `[v_top_in]scale=${targetW}:${halfH}:force_original_aspect_ratio=increase,crop=${targetW}:${halfH}[v_top]`,
+        `[v_bot_in]scale=${targetW}:${halfH}:force_original_aspect_ratio=increase,crop=${targetW}:${halfH}[v_bot]`,
+        `[v_top][v_bot]vstack=inputs=2[v_framed]`
+      );
+    }
   } else {
     // Fallback: simple scale
     filterChains.push(`[v_concatenated]scale=${targetW}:${targetH}[v_framed]`);

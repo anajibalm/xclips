@@ -66,7 +66,7 @@ export function PreviewThumbnailModal() {
         >
           <Box
             component="img"
-            src={`${getApiBaseUrl()}/api/xclips/media/${projectId}/thumbnail?t=${thumbTimestamp}`}
+            src={projectId ? `${getApiBaseUrl()}/api/xclips/media/${projectId}/thumbnail?t=${thumbTimestamp}` : undefined}
             alt="Thumbnail"
             sx={{ width: "100%", height: "100%", objectFit: "contain" }}
           />

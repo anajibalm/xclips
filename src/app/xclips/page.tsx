@@ -663,7 +663,7 @@ export default function XclipsDashboardPage() {
                 }
                 label={
                   <Typography variant="body2" sx={{ color: "#e4e4e7" }}>
-                    Ekstrak Subtitle YouTube Otomatis (Transkrip Instan)
+                    Include Youtube Subtitle
                   </Typography>
                 }
               />

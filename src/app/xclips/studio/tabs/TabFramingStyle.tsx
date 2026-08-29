@@ -14,6 +14,8 @@ import {
   Slider,
   Switch,
   Divider,
+  Tabs,
+  Tab,
 } from "@mui/material";
 import BlurOnIcon from "@mui/icons-material/BlurOn";
 import CropIcon from "@mui/icons-material/Crop";
@@ -21,344 +23,652 @@ import ViewAgendaIcon from "@mui/icons-material/ViewAgenda";
 import SubtitlesIcon from "@mui/icons-material/Subtitles";
 import SubtitlesOffIcon from "@mui/icons-material/SubtitlesOff";
 import FontDownloadIcon from "@mui/icons-material/FontDownload";
+import SmartphoneIcon from "@mui/icons-material/Smartphone";
+import CropSquareIcon from "@mui/icons-material/CropSquare";
+import CropPortraitIcon from "@mui/icons-material/CropPortrait";
+import CropLandscapeIcon from "@mui/icons-material/CropLandscape";
+import PaletteIcon from "@mui/icons-material/Palette";
 import { useStudioStore } from "../store/useStudioStore";
-import { LayoutMode, SubtitleStyle, SubtitlePreset } from "@/lib/xclips/types";
-import { PRESET_STYLES, GOOGLE_FONTS_CATALOG } from "../types/studio.types";
+import { LayoutMode, AspectRatio, SubtitleStyle, SubtitlePreset } from "@/lib/xclips/types";
+import { PRESET_STYLES, GOOGLE_FONTS_CATALOG, DEFAULT_SUBTITLE_STYLE } from "../types/studio.types";
+
+interface AspectRatioOption {
+  id: AspectRatio;
+  name: string;
+  resolution: string;
+  platform: string;
+  description: string;
+  icon: React.ReactNode;
+  aspectBoxRatio: string;
+}
+
+const ASPECT_RATIO_OPTIONS: AspectRatioOption[] = [
+  {
+    id: "9:16",
+    name: "9:16 Vertical",
+    resolution: "1080 × 1920",
+    platform: "TikTok · Reels · Shorts",
+    description: "Format vertikal standar FYP TikTok, IG Reels, dan YT Shorts.",
+    icon: <SmartphoneIcon sx={{ fontSize: "1.1rem" }} />,
+    aspectBoxRatio: "9/16",
+  },
+  {
+    id: "1:1",
+    name: "1:1 Square",
+    resolution: "1080 × 1080",
+    platform: "Instagram · FB Feed",
+    description: "Format persegi simetris untuk feed post media sosial.",
+    icon: <CropSquareIcon sx={{ fontSize: "1.1rem" }} />,
+    aspectBoxRatio: "1/1",
+  },
+  {
+    id: "4:5",
+    name: "4:5 Portrait",
+    resolution: "1080 × 1350",
+    platform: "IG Feed Portrait",
+    description: "Format feed vertikal optimal layar mobile tanpa terpotong.",
+    icon: <CropPortraitIcon sx={{ fontSize: "1.1rem" }} />,
+    aspectBoxRatio: "4/5",
+  },
+  {
+    id: "16:9",
+    name: "16:9 Landscape",
+    resolution: "1920 × 1080",
+    platform: "YouTube · Desktop",
+    description: "Format widescreen standar untuk video horizontal & desktop.",
+    icon: <CropLandscapeIcon sx={{ fontSize: "1.1rem" }} />,
+    aspectBoxRatio: "16/9",
+  },
+];
 
 export function TabFramingStyle() {
   const selectedClip = useStudioStore((s) => s.selectedClip);
   const handleSaveClip = useStudioStore((s) => s.handleSaveClip);
+  const studioAspectRatio = useStudioStore((s) => s.studioAspectRatio);
+  const setStudioAspectRatio = useStudioStore((s) => s.setStudioAspectRatio);
+  const studioLayoutMode = useStudioStore((s) => s.studioLayoutMode);
+  const setStudioLayoutMode = useStudioStore((s) => s.setStudioLayoutMode);
+  const studioPanOffsetX = useStudioStore((s) => s.studioPanOffsetX);
+  const setStudioPanOffsetX = useStudioStore((s) => s.setStudioPanOffsetX);
+  const studioSubtitleStyle = useStudioStore((s) => s.studioSubtitleStyle);
+  const setStudioSubtitleStyle = useStudioStore((s) => s.setStudioSubtitleStyle);
+
+  const [styleSubTab, setStyleSubTab] = useState<number>(0);
   const [fontSearch, setFontSearch] = useState("");
 
-  if (!selectedClip) {
-    return (
-      <Typography variant="body2" sx={{ color: "#71717a", py: 4, textAlign: "center" }}>
-        Select a clip in the Autoclip tab to configure framing and subtitles.
-      </Typography>
-    );
-  }
+  const currentAspectRatio: AspectRatio = selectedClip?.aspectRatio || studioAspectRatio || "9:16";
+  const currentLayoutMode: LayoutMode = selectedClip?.layoutMode || studioLayoutMode || "blur_bg";
+  const currentPanOffsetX: number = selectedClip?.panOffsetX ?? studioPanOffsetX ?? 0;
+  const currentStyle: SubtitleStyle = selectedClip?.subtitleStyle || studioSubtitleStyle || DEFAULT_SUBTITLE_STYLE;
 
-  const currentStyle: SubtitleStyle = selectedClip.subtitleStyle || {
-    fontFamily: "Anton",
-    fontSize: 48,
-    primaryColor: "#FFFFFF",
-    secondaryColor: "#FACC15",
-    outlineColor: "#000000",
-    shadowColor: "#000000",
-    outlineWidth: 3.5,
-    shadowOffset: 2.0,
-    karaoke: true,
-    allCaps: true,
-    activeWordGlow: true,
-    enabled: true,
+  const updateSubtitleStyle = (newStyle: SubtitleStyle) => {
+    setStudioSubtitleStyle(newStyle);
+    if (selectedClip) {
+      handleSaveClip({
+        ...selectedClip,
+        subtitleStyle: newStyle,
+      });
+    }
+  };
+
+  const updateLayoutMode = (mode: LayoutMode) => {
+    setStudioLayoutMode(mode);
+    if (selectedClip) {
+      handleSaveClip({
+        ...selectedClip,
+        layoutMode: mode,
+      });
+    }
+  };
+
+  const updatePanOffsetX = (pan: number) => {
+    setStudioPanOffsetX(pan);
+    if (selectedClip) {
+      handleSaveClip({
+        ...selectedClip,
+        panOffsetX: pan,
+      });
+    }
+  };
+
+  const updateAspectRatio = (ratio: AspectRatio) => {
+    setStudioAspectRatio(ratio);
+    if (selectedClip) {
+      handleSaveClip({
+        ...selectedClip,
+        aspectRatio: ratio,
+      });
+    }
   };
 
   const handleApplyPreset = (preset: SubtitlePreset) => {
     const presetOverrides = PRESET_STYLES[preset];
     const newStyle: SubtitleStyle = {
-      ...selectedClip.subtitleStyle,
+      ...currentStyle,
       ...presetOverrides,
       preset,
     };
-    handleSaveClip({
-      ...selectedClip,
-      subtitleStyle: newStyle,
-    });
+    updateSubtitleStyle(newStyle);
   };
 
   return (
     <Box>
-      {/* LAYOUT MODES */}
-      <Typography variant="subtitle2" sx={{ color: "#fafafa", fontWeight: 800, mb: 1.2, fontSize: "0.9rem" }}>
-        1. Framing Layout (9:16)
-      </Typography>
-      <RadioGroup
-        row
-        value={selectedClip.layoutMode}
-        onChange={(e) =>
-          handleSaveClip({
-            ...selectedClip,
-            layoutMode: e.target.value as LayoutMode,
-          })
-        }
-        sx={{ mb: 2 }}
-      >
-        <FormControlLabel
-          value="blur_bg"
-          control={<Radio size="small" sx={{ color: "#3b82f6" }} />}
-          label={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-              <BlurOnIcon fontSize="small" />
-              <Typography variant="body2" sx={{ fontSize: "0.82rem" }}>Blur Background</Typography>
-            </Box>
-          }
-        />
-        <FormControlLabel
-          value="center_crop"
-          control={<Radio size="small" sx={{ color: "#3b82f6" }} />}
-          label={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-              <CropIcon fontSize="small" />
-              <Typography variant="body2" sx={{ fontSize: "0.82rem" }}>Center Crop</Typography>
-            </Box>
-          }
-        />
-        <FormControlLabel
-          value="split_screen"
-          control={<Radio size="small" sx={{ color: "#3b82f6" }} />}
-          label={
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-              <ViewAgendaIcon fontSize="small" />
-              <Typography variant="body2" sx={{ fontSize: "0.82rem" }}>Split Screen</Typography>
-            </Box>
-          }
-        />
-      </RadioGroup>
-
-      {selectedClip.layoutMode === "center_crop" && (
-        <Box sx={{ mb: 2.5, p: 1.5, bgcolor: "#141418", borderRadius: 1, border: "1px solid #27272a" }}>
-          <Typography variant="caption" sx={{ color: "#a1a1aa", display: "block", mb: 0.5, fontWeight: 600 }}>
-            Horizontal Pan Offset ({(selectedClip.panOffsetX || 0).toFixed(2)})
+      {/* Context Badge Header */}
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2, p: 1.2, bgcolor: "#111116", borderRadius: 1, border: "1px solid #27272a" }}>
+        <Box>
+          <Typography variant="body2" sx={{ color: "#fafafa", fontWeight: 700, fontSize: "0.85rem" }}>
+            {selectedClip ? `Active Clip Framing & Style` : `Master Video Template (Global Style)`}
           </Typography>
-          <Slider
-            min={-1.0}
-            max={1.0}
-            step={0.05}
-            value={selectedClip.panOffsetX || 0}
-            onChange={(_, val) =>
-              handleSaveClip({
-                ...selectedClip,
-                panOffsetX: val as number,
-              })
-            }
-            sx={{ color: "#3b82f6" }}
-          />
+          <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.72rem" }}>
+            {selectedClip
+              ? `Customizing style for current clip (${(selectedClip.endSec - selectedClip.startSec).toFixed(1)}s duration)`
+              : `Configuring layout & subtitle style template for the full master video`}
+          </Typography>
         </Box>
-      )}
 
-      <Divider sx={{ borderColor: "#27272a", my: 2.5 }} />
-
-      {/* SUBTITLE MASTER TOGGLE */}
-      <Box
-        sx={{
-          p: 1.8,
-          bgcolor: currentStyle.enabled !== false ? "rgba(59, 130, 246, 0.05)" : "#131317",
-          borderRadius: 1,
-          border: currentStyle.enabled !== false ? "1px solid rgba(59, 130, 246, 0.25)" : "1px solid #27272a",
-          mb: 2.5,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.2 }}>
-          <Box sx={{ p: 0.8, bgcolor: currentStyle.enabled !== false ? "rgba(59, 130, 246, 0.15)" : "#1c1c22", borderRadius: 0.8 }}>
-            {currentStyle.enabled !== false ? (
-              <SubtitlesIcon sx={{ color: "#3b82f6", fontSize: "1.2rem" }} />
-            ) : (
-              <SubtitlesOffIcon sx={{ color: "#71717a", fontSize: "1.2rem" }} />
-            )}
-          </Box>
-          <Box>
-            <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#fafafa", fontSize: "0.88rem" }}>
-              Subtitle &amp; Caption
-            </Typography>
-            <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.72rem", display: "block" }}>
-              {currentStyle.enabled !== false
-                ? "Teks subtitle aktif dan akan dirender ke video ekspor"
-                : "Subtitle dinonaktifkan — video akan dirender tanpa teks subtitle"}
-            </Typography>
-          </Box>
-        </Box>
-        <FormControlLabel
-          control={
-            <Switch
-              checked={currentStyle.enabled !== false}
-              onChange={(e) =>
-                handleSaveClip({
-                  ...selectedClip,
-                  subtitleStyle: { ...currentStyle, enabled: e.target.checked },
-                })
-              }
-              sx={{ "& .Mui-checked": { color: "#3b82f6" } }}
-            />
-          }
-          label={
-            <Typography variant="body2" sx={{ fontSize: "0.78rem", fontWeight: 700, color: currentStyle.enabled !== false ? "#3b82f6" : "#71717a" }}>
-              {currentStyle.enabled !== false ? "Aktif" : "Nonaktif"}
-            </Typography>
-          }
-          sx={{ m: 0 }}
+        <Chip
+          label={selectedClip ? "CLIP LEVEL" : "MASTER VIDEO"}
+          size="small"
+          sx={{
+            bgcolor: selectedClip ? "rgba(59, 130, 246, 0.15)" : "rgba(16, 185, 129, 0.15)",
+            color: selectedClip ? "#60a5fa" : "#34d399",
+            fontWeight: 800,
+            fontSize: "0.65rem",
+            border: selectedClip ? "1px solid rgba(59, 130, 246, 0.3)" : "1px solid rgba(16, 185, 129, 0.3)",
+          }}
         />
       </Box>
 
-      {/* SUBTITLE DISABLED BANNER */}
-      {currentStyle.enabled === false ? (
-        <Box
-          sx={{
-            p: 3.5,
-            bgcolor: "#121216",
-            borderRadius: 1,
-            border: "1px dashed #27272a",
-            textAlign: "center",
-            my: 2,
-          }}
-        >
-          <SubtitlesOffIcon sx={{ fontSize: 36, color: "#71717a", mb: 1 }} />
-          <Typography variant="body2" sx={{ fontWeight: 800, color: "#e4e4e7", mb: 0.5 }}>
-            Subtitle Sedang Dinonaktifkan
+      {/* Subtabs Header */}
+      <Tabs
+        value={styleSubTab}
+        onChange={(_, val) => setStyleSubTab(val)}
+        sx={{
+          minHeight: 38,
+          mb: 2.5,
+          borderBottom: "1px solid #27272a",
+          "& .MuiTabs-indicator": {
+            bgcolor: "#3b82f6",
+            height: 2.5,
+            borderRadius: "2px 2px 0 0",
+          },
+          "& .MuiTab-root": {
+            minHeight: 38,
+            py: 0.8,
+            px: 1.5,
+            fontSize: "0.78rem",
+            fontWeight: 700,
+            textTransform: "none",
+            color: "#71717a",
+            "&.Mui-selected": {
+              color: "#3b82f6",
+            },
+            "&:hover": {
+              color: "#d4d4d8",
+            },
+          },
+        }}
+      >
+        <Tab icon={<CropIcon sx={{ fontSize: "1rem" }} />} iconPosition="start" label="Aspect & Framing" />
+        <Tab icon={<SubtitlesIcon sx={{ fontSize: "1rem" }} />} iconPosition="start" label="Presets & Subtitles" />
+        <Tab icon={<FontDownloadIcon sx={{ fontSize: "1rem" }} />} iconPosition="start" label="Typography & Colors" />
+      </Tabs>
+
+      {/* SUBTAB 0: ASPECT RATIO & FRAMING */}
+      {styleSubTab === 0 && (
+        <Box>
+          {/* 1. ASPECT RATIO & PLATFORM STANDARDS */}
+          <Box sx={{ mb: 3 }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.2 }}>
+              <Typography variant="subtitle2" sx={{ color: "#fafafa", fontWeight: 800, fontSize: "0.92rem" }}>
+                1. Aspect Ratio &amp; Platform Standard
+              </Typography>
+              <Chip
+                label={`${currentAspectRatio} (${ASPECT_RATIO_OPTIONS.find((o) => o.id === currentAspectRatio)?.resolution || "1080x1920"})`}
+                size="small"
+                sx={{
+                  bgcolor: "rgba(59, 130, 246, 0.15)",
+                  color: "#60a5fa",
+                  fontWeight: 800,
+                  fontSize: "0.68rem",
+                  border: "1px solid rgba(59, 130, 246, 0.3)",
+                }}
+              />
+            </Box>
+            <Typography variant="caption" sx={{ color: "#71717a", display: "block", mb: 1.5 }}>
+              Pilih rasio aspek sesuai platform tujuan (TikTok VT, IG Reels, Shorts, Post Feed, atau YouTube).
+            </Typography>
+
+            <Grid container spacing={1.5}>
+              {ASPECT_RATIO_OPTIONS.map((opt) => {
+                const isSelected = currentAspectRatio === opt.id;
+                return (
+                  <Grid key={opt.id} size={{ xs: 6, sm: 3 }}>
+                    <Card
+                      onClick={() => updateAspectRatio(opt.id)}
+                      sx={{
+                        p: 1.5,
+                        bgcolor: isSelected ? "rgba(59, 130, 246, 0.12)" : "#141418",
+                        border: isSelected ? "2px solid #3b82f6" : "1px solid #27272a",
+                        borderRadius: 1.2,
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                        display: "flex",
+                        flexDirection: "column",
+                        justifyContent: "space-between",
+                        height: "100%",
+                        "&:hover": {
+                          borderColor: isSelected ? "#3b82f6" : "#3f3f46",
+                          transform: "translateY(-1px)",
+                        },
+                      }}
+                    >
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1 }}>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            width: 28,
+                            height: 28,
+                            borderRadius: 0.8,
+                            bgcolor: isSelected ? "rgba(59, 130, 246, 0.25)" : "#1e1e24",
+                            color: isSelected ? "#60a5fa" : "#a1a1aa",
+                          }}
+                        >
+                          {opt.icon}
+                        </Box>
+                        {isSelected && (
+                          <Chip
+                            label="ACTIVE"
+                            size="small"
+                            sx={{
+                              bgcolor: "#3b82f6",
+                              color: "#ffffff",
+                              fontWeight: 900,
+                              fontSize: "0.58rem",
+                              height: 18,
+                              borderRadius: 0.5,
+                            }}
+                          />
+                        )}
+                      </Box>
+
+                      <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#fafafa", fontSize: "0.82rem", mb: 0.2 }}>
+                        {opt.name}
+                      </Typography>
+
+                      <Typography variant="caption" sx={{ color: "#38bdf8", fontWeight: 700, fontSize: "0.68rem", display: "block", mb: 0.5 }}>
+                        {opt.platform}
+                      </Typography>
+
+                      <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.65rem", display: "block", lineHeight: 1.25 }}>
+                        {opt.description}
+                      </Typography>
+                    </Card>
+                  </Grid>
+                );
+              })}
+            </Grid>
+          </Box>
+
+          <Divider sx={{ borderColor: "#27272a", my: 2.5 }} />
+
+          {/* 2. LAYOUT MODES */}
+          <Typography variant="subtitle2" sx={{ color: "#fafafa", fontWeight: 800, mb: 1.2, fontSize: "0.9rem" }}>
+            2. Framing Layout ({currentAspectRatio})
           </Typography>
-          <Typography variant="caption" sx={{ color: "#71717a", maxWidth: 380, display: "block", mx: "auto", mb: 2 }}>
-            Klip ini akan diekspor dalam format bersih tanpa caption. Nyalakan sakelar di atas jika ingin menampilkan dan mengkustomisasi subtitle.
-          </Typography>
-          <Button
-            variant="outlined"
-            size="small"
-            onClick={() =>
-              handleSaveClip({
-                ...selectedClip,
-                subtitleStyle: { ...currentStyle, enabled: true },
-              })
-            }
-            startIcon={<SubtitlesIcon fontSize="small" />}
+          <RadioGroup
+            row
+            value={currentLayoutMode}
+            onChange={(e) => updateLayoutMode(e.target.value as LayoutMode)}
+            sx={{ mb: 2 }}
+          >
+            <FormControlLabel
+              value="blur_bg"
+              control={<Radio size="small" sx={{ color: "#3b82f6" }} />}
+              label={
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <BlurOnIcon fontSize="small" />
+                  <Typography variant="body2" sx={{ fontSize: "0.82rem" }}>Blur Background</Typography>
+                </Box>
+              }
+            />
+            <FormControlLabel
+              value="center_crop"
+              control={<Radio size="small" sx={{ color: "#3b82f6" }} />}
+              label={
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <CropIcon fontSize="small" />
+                  <Typography variant="body2" sx={{ fontSize: "0.82rem" }}>Center Crop</Typography>
+                </Box>
+              }
+            />
+            <FormControlLabel
+              value="split_screen"
+              control={<Radio size="small" sx={{ color: "#3b82f6" }} />}
+              label={
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <ViewAgendaIcon fontSize="small" />
+                  <Typography variant="body2" sx={{ fontSize: "0.82rem" }}>Split Screen</Typography>
+                </Box>
+              }
+            />
+          </RadioGroup>
+
+          {currentLayoutMode === "center_crop" && (
+            <Box sx={{ mb: 2.5, p: 1.5, bgcolor: "#141418", borderRadius: 1, border: "1px solid #27272a" }}>
+              <Typography variant="caption" sx={{ color: "#a1a1aa", display: "block", mb: 0.5, fontWeight: 600 }}>
+                Horizontal Pan Offset ({(currentPanOffsetX || 0).toFixed(2)})
+              </Typography>
+              <Slider
+                min={-1.0}
+                max={1.0}
+                step={0.05}
+                value={currentPanOffsetX || 0}
+                onChange={(_, val) => updatePanOffsetX(val as number)}
+                sx={{ color: "#3b82f6" }}
+              />
+            </Box>
+          )}
+        </Box>
+      )}
+
+      {/* SUBTAB 1: PRESETS & SUBTITLES */}
+      {styleSubTab === 1 && (
+        <Box>
+          {/* SUBTITLE MASTER TOGGLE */}
+          <Box
             sx={{
-              color: "#60a5fa",
-              borderColor: "#3b82f6",
-              textTransform: "none",
-              fontWeight: 700,
-              fontSize: "0.78rem",
+              p: 1.8,
+              bgcolor: currentStyle.enabled !== false ? "rgba(59, 130, 246, 0.05)" : "#131317",
               borderRadius: 1,
-              "&:hover": { bgcolor: "rgba(59, 130, 246, 0.1)", borderColor: "#60a5fa" },
+              border: currentStyle.enabled !== false ? "1px solid rgba(59, 130, 246, 0.25)" : "1px solid #27272a",
+              mb: 2.5,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
             }}
           >
-            Aktifkan Subtitle
-          </Button>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.2 }}>
+              <Box sx={{ p: 0.8, bgcolor: currentStyle.enabled !== false ? "rgba(59, 130, 246, 0.15)" : "#1c1c22", borderRadius: 0.8 }}>
+                {currentStyle.enabled !== false ? (
+                  <SubtitlesIcon sx={{ color: "#3b82f6", fontSize: "1.2rem" }} />
+                ) : (
+                  <SubtitlesOffIcon sx={{ color: "#71717a", fontSize: "1.2rem" }} />
+                )}
+              </Box>
+              <Box>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#fafafa", fontSize: "0.88rem" }}>
+                  Subtitle &amp; Caption
+                </Typography>
+                <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.72rem", display: "block" }}>
+                  {currentStyle.enabled !== false
+                    ? "Teks subtitle aktif dan akan dirender ke video ekspor"
+                    : "Subtitle dinonaktifkan — video akan dirender tanpa teks subtitle"}
+                </Typography>
+              </Box>
+            </Box>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={currentStyle.enabled !== false}
+                  onChange={(e) =>
+                    updateSubtitleStyle({ ...currentStyle, enabled: e.target.checked })
+                  }
+                  sx={{ "& .Mui-checked": { color: "#3b82f6" } }}
+                />
+              }
+              label={
+                <Typography variant="body2" sx={{ fontSize: "0.78rem", fontWeight: 700, color: currentStyle.enabled !== false ? "#3b82f6" : "#71717a" }}>
+                  {currentStyle.enabled !== false ? "Aktif" : "Nonaktif"}
+                </Typography>
+              }
+              sx={{ m: 0 }}
+            />
+          </Box>
+
+          {/* SUBTITLE DISABLED BANNER */}
+          {currentStyle.enabled === false ? (
+            <Box
+              sx={{
+                p: 3.5,
+                bgcolor: "#121216",
+                borderRadius: 1,
+                border: "1px dashed #27272a",
+                textAlign: "center",
+                my: 2,
+              }}
+            >
+              <SubtitlesOffIcon sx={{ fontSize: 36, color: "#71717a", mb: 1 }} />
+              <Typography variant="body2" sx={{ fontWeight: 800, color: "#e4e4e7", mb: 0.5 }}>
+                Subtitle Sedang Dinonaktifkan
+              </Typography>
+              <Typography variant="caption" sx={{ color: "#71717a", maxWidth: 380, display: "block", mx: "auto", mb: 2 }}>
+                Video akan diekspor dalam format bersih tanpa caption. Nyalakan sakelar di atas jika ingin menampilkan dan mengkustomisasi subtitle.
+              </Typography>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() =>
+                  updateSubtitleStyle({ ...currentStyle, enabled: true })
+                }
+                startIcon={<SubtitlesIcon fontSize="small" />}
+                sx={{
+                  color: "#60a5fa",
+                  borderColor: "#3b82f6",
+                  textTransform: "none",
+                  fontWeight: 700,
+                  fontSize: "0.78rem",
+                  borderRadius: 1,
+                  "&:hover": { bgcolor: "rgba(59, 130, 246, 0.1)", borderColor: "#60a5fa" },
+                }}
+              >
+                Aktifkan Subtitle
+              </Button>
+            </Box>
+          ) : (
+            <Box>
+              {/* PRESET SELECTOR WITH LIVE SAMPLE CAPTIONS */}
+              <Typography variant="subtitle2" sx={{ color: "#fafafa", fontWeight: 800, mb: 1.5, fontSize: "0.9rem" }}>
+                Instant Subtitle Presets
+              </Typography>
+              <Grid container spacing={1.5} sx={{ mb: 3 }}>
+                {[
+                  {
+                    id: "plain",
+                    label: "Standard Clean",
+                    desc: "Classic crisp white subtitles",
+                    sample: (
+                      <Box sx={{ mt: 1, p: 0.8, bgcolor: "#0a0a0c", borderRadius: 0.8, textAlign: "center" }}>
+                        <span style={{ fontFamily: "Inter", fontSize: "13px", fontWeight: 700, color: "#FFFFFF", textShadow: "0 0 4px #000" }}>
+                          STANDARD CLEAN WHITE
+                        </span>
+                      </Box>
+                    ),
+                  },
+                  {
+                    id: "hormozi",
+                    label: "Hormozi Viral",
+                    desc: "Bold impact, yellow active glow",
+                    sample: (
+                      <Box sx={{ mt: 1, p: 0.8, bgcolor: "#0a0a0c", borderRadius: 0.8, textAlign: "center" }}>
+                        <span style={{ fontFamily: "Anton, Impact", fontSize: "14px", fontWeight: 900, color: "#FACC15", textShadow: "0 0 8px #FACC15, 0 2px 4px #000", textTransform: "uppercase" }}>
+                          DYNAMIC{" "}
+                        </span>
+                        <span style={{ fontFamily: "Anton, Impact", fontSize: "14px", fontWeight: 900, color: "#FFFFFF", textShadow: "0 0 2px #000, 0 2px 4px #000", textTransform: "uppercase" }}>
+                          VIRAL HOOK
+                        </span>
+                      </Box>
+                    ),
+                  },
+                  {
+                    id: "beast",
+                    label: "MrBeast Action",
+                    desc: "Punchy sky blue & white stroke",
+                    sample: (
+                      <Box sx={{ mt: 1, p: 0.8, bgcolor: "#05070d", borderRadius: 0.8, textAlign: "center" }}>
+                        <span style={{ fontFamily: "Bebas Neue", fontSize: "15px", fontWeight: 900, color: "#38BDF8", textShadow: "0 0 8px #38BDF8", textTransform: "uppercase" }}>
+                          INSANE{" "}
+                        </span>
+                        <span style={{ fontFamily: "Bebas Neue", fontSize: "15px", fontWeight: 900, color: "#FFFFFF", textShadow: "0 0 4px #000", textTransform: "uppercase" }}>
+                          CHALLENGE
+                        </span>
+                      </Box>
+                    ),
+                  },
+                  {
+                    id: "neon_glow",
+                    label: "Neon Cyberpunk",
+                    desc: "Pink & electric purple aura",
+                    sample: (
+                      <Box sx={{ mt: 1, p: 0.8, bgcolor: "#0d0514", borderRadius: 0.8, textAlign: "center" }}>
+                        <span style={{ fontFamily: "Syne", fontSize: "13px", fontWeight: 900, color: "#F472B6", textShadow: "0 0 10px #F472B6", textTransform: "uppercase" }}>
+                          NEON{" "}
+                        </span>
+                        <span style={{ fontFamily: "Syne", fontSize: "13px", fontWeight: 900, color: "#A855F7", textShadow: "0 0 10px #A855F7", textTransform: "uppercase" }}>
+                          CYBER GLOW
+                        </span>
+                      </Box>
+                    ),
+                  },
+                  {
+                    id: "minimal",
+                    label: "Minimalist Clean",
+                    desc: "Modern soft typography",
+                    sample: (
+                      <Box sx={{ mt: 1, p: 0.8, bgcolor: "#0c0c0e", borderRadius: 0.8, textAlign: "center" }}>
+                        <span style={{ fontFamily: "Inter", fontSize: "13px", fontWeight: 600, color: "#93C5FD", letterSpacing: "0.02em" }}>
+                          minimalist{" "}
+                        </span>
+                        <span style={{ fontFamily: "Inter", fontSize: "13px", fontWeight: 600, color: "#F4F4F5", letterSpacing: "0.02em" }}>
+                          typography
+                        </span>
+                      </Box>
+                    ),
+                  },
+                  {
+                    id: "cinema",
+                    label: "Cinema Serif",
+                    desc: "Editorial Playfair elegance",
+                    sample: (
+                      <Box sx={{ mt: 1, p: 0.8, bgcolor: "#0e0e11", borderRadius: 0.8, textAlign: "center" }}>
+                        <span style={{ fontFamily: "Playfair Display", fontSize: "13px", fontWeight: 700, color: "#E2E8F0", fontStyle: "italic" }}>
+                          Cinematic Narrative Story
+                        </span>
+                      </Box>
+                    ),
+                  },
+                ].map((preset) => {
+                  const isCurrent = currentStyle.preset === preset.id;
+                  return (
+                    <Grid key={preset.id} size={{ xs: 12, sm: 6, md: 4 }}>
+                      <Card
+                        onClick={() => handleApplyPreset(preset.id as SubtitlePreset)}
+                        sx={{
+                          p: 1.5,
+                          bgcolor: isCurrent ? "rgba(59, 130, 246, 0.1)" : "#141418",
+                          border: isCurrent ? "1.5px solid #3b82f6" : "1px solid #27272a",
+                          borderRadius: 1,
+                          cursor: "pointer",
+                          "&:hover": { borderColor: isCurrent ? "#3b82f6" : "#3f3f46" },
+                        }}
+                      >
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#fafafa", fontSize: "0.85rem" }}>
+                            {preset.label}
+                          </Typography>
+                          {isCurrent && (
+                            <Chip label="Active" size="small" sx={{ bgcolor: "#3b82f6", color: "#fff", fontSize: "0.62rem", height: 18, borderRadius: 0.6, fontWeight: 800 }} />
+                          )}
+                        </Box>
+                        <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.72rem" }}>
+                          {preset.desc}
+                        </Typography>
+                        {preset.sample}
+                      </Card>
+                    </Grid>
+                  );
+                })}
+              </Grid>
+
+              <Divider sx={{ borderColor: "#27272a", my: 2 }} />
+
+              {/* TEXT CASE SWITCHER & KARAOKE TOGGLE */}
+              <Typography variant="subtitle2" sx={{ color: "#fafafa", fontWeight: 800, mb: 1, fontSize: "0.9rem" }}>
+                Text Case Format
+              </Typography>
+              <Box sx={{ display: "flex", gap: 1, mb: 2.5 }}>
+                {[
+                  { id: "uppercase", label: "UPPERCASE" },
+                  { id: "capitalize", label: "Capitalize Words" },
+                  { id: "lowercase", label: "lowercase" },
+                ].map((item) => {
+                  const isSelected =
+                    (currentStyle.textCase === item.id) ||
+                    (item.id === "uppercase" && currentStyle.allCaps && !currentStyle.textCase);
+
+                  return (
+                    <Button
+                      key={item.id}
+                      variant={isSelected ? "contained" : "outlined"}
+                      size="small"
+                      onClick={() =>
+                        updateSubtitleStyle({
+                          ...currentStyle,
+                          textCase: item.id as "uppercase" | "capitalize" | "lowercase",
+                          allCaps: item.id === "uppercase",
+                        })
+                      }
+                      sx={{
+                        textTransform: "none",
+                        fontWeight: 700,
+                        fontSize: "0.78rem",
+                        borderRadius: 1,
+                        bgcolor: isSelected ? "#3b82f6" : "transparent",
+                        borderColor: isSelected ? "#3b82f6" : "#27272a",
+                        color: isSelected ? "#ffffff" : "#a1a1aa",
+                        "&:hover": { borderColor: "#3f3f46", bgcolor: isSelected ? "#2563eb" : "#18181c" },
+                      }}
+                    >
+                      {item.label}
+                    </Button>
+                  );
+                })}
+              </Box>
+
+              <Box sx={{ p: 1.5, bgcolor: "#141418", borderRadius: 1, border: "1px solid #27272a" }}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={currentStyle.karaokeEnabled !== false}
+                      onChange={(e) =>
+                        updateSubtitleStyle({ ...currentStyle, karaokeEnabled: e.target.checked })
+                      }
+                      sx={{ "& .Mui-checked": { color: "#3b82f6" } }}
+                    />
+                  }
+                  label={<Typography variant="body2" sx={{ fontSize: "0.82rem", fontWeight: 600 }}>Karaoke Active Word Highlight</Typography>}
+                />
+              </Box>
+            </Box>
+          )}
         </Box>
-      ) : (
+      )}
+
+      {/* SUBTAB 2: TYPOGRAPHY & COLORS */}
+      {styleSubTab === 2 && (
         <Box>
-          {/* PRESET SELECTOR WITH LIVE SAMPLE CAPTIONS */}
+          {/* 1. CLOUD FONT SELECTOR (20 GOOGLE FONTS) */}
           <Typography variant="subtitle2" sx={{ color: "#fafafa", fontWeight: 800, mb: 1.5, fontSize: "0.9rem" }}>
-            2. Instant Subtitle Presets
-          </Typography>
-          <Grid container spacing={1.5} sx={{ mb: 3 }}>
-            {[
-              {
-                id: "hormozi",
-                label: "Hormozi Viral",
-                desc: "Bold impact, yellow active glow",
-                sample: (
-                  <Box sx={{ mt: 1, p: 0.8, bgcolor: "#0a0a0c", borderRadius: 0.8, textAlign: "center" }}>
-                    <span style={{ fontFamily: "Anton, Impact", fontSize: "14px", fontWeight: 900, color: "#FACC15", textShadow: "0 0 8px #FACC15, 0 2px 4px #000", textTransform: "uppercase" }}>
-                      DYNAMIC{" "}
-                    </span>
-                    <span style={{ fontFamily: "Anton, Impact", fontSize: "14px", fontWeight: 900, color: "#FFFFFF", textShadow: "0 0 2px #000, 0 2px 4px #000", textTransform: "uppercase" }}>
-                      VIRAL HOOK
-                    </span>
-                  </Box>
-                ),
-              },
-              {
-                id: "beast",
-                label: "MrBeast Action",
-                desc: "Punchy sky blue & white stroke",
-                sample: (
-                  <Box sx={{ mt: 1, p: 0.8, bgcolor: "#05070d", borderRadius: 0.8, textAlign: "center" }}>
-                    <span style={{ fontFamily: "Bebas Neue", fontSize: "15px", fontWeight: 900, color: "#38BDF8", textShadow: "0 0 8px #38BDF8", textTransform: "uppercase" }}>
-                      INSANE{" "}
-                    </span>
-                    <span style={{ fontFamily: "Bebas Neue", fontSize: "15px", fontWeight: 900, color: "#FFFFFF", textShadow: "0 0 4px #000", textTransform: "uppercase" }}>
-                      CHALLENGE
-                    </span>
-                  </Box>
-                ),
-              },
-              {
-                id: "neon_glow",
-                label: "Neon Cyberpunk",
-                desc: "Pink & electric purple aura",
-                sample: (
-                  <Box sx={{ mt: 1, p: 0.8, bgcolor: "#0d0514", borderRadius: 0.8, textAlign: "center" }}>
-                    <span style={{ fontFamily: "Syne", fontSize: "13px", fontWeight: 900, color: "#F472B6", textShadow: "0 0 10px #F472B6", textTransform: "uppercase" }}>
-                      NEON{" "}
-                    </span>
-                    <span style={{ fontFamily: "Syne", fontSize: "13px", fontWeight: 900, color: "#A855F7", textShadow: "0 0 10px #A855F7", textTransform: "uppercase" }}>
-                      CYBER GLOW
-                    </span>
-                  </Box>
-                ),
-              },
-              {
-                id: "minimal",
-                label: "Minimalist Clean",
-                desc: "Modern soft typography",
-                sample: (
-                  <Box sx={{ mt: 1, p: 0.8, bgcolor: "#0c0c0e", borderRadius: 0.8, textAlign: "center" }}>
-                    <span style={{ fontFamily: "Inter", fontSize: "13px", fontWeight: 600, color: "#93C5FD", letterSpacing: "0.02em" }}>
-                      minimalist{" "}
-                    </span>
-                    <span style={{ fontFamily: "Inter", fontSize: "13px", fontWeight: 600, color: "#F4F4F5", letterSpacing: "0.02em" }}>
-                      typography
-                    </span>
-                  </Box>
-                ),
-              },
-              {
-                id: "cinema",
-                label: "Cinema Serif",
-                desc: "Editorial Playfair elegance",
-                sample: (
-                  <Box sx={{ mt: 1, p: 0.8, bgcolor: "#0e0e11", borderRadius: 0.8, textAlign: "center" }}>
-                    <span style={{ fontFamily: "Playfair Display", fontSize: "13px", fontWeight: 700, color: "#E2E8F0", fontStyle: "italic" }}>
-                      Cinematic Narrative Story
-                    </span>
-                  </Box>
-                ),
-              },
-            ].map((preset) => {
-              const isCurrent = currentStyle.preset === preset.id;
-              return (
-                <Grid key={preset.id} size={{ xs: 12, sm: 6, md: 4 }}>
-                  <Card
-                    onClick={() => handleApplyPreset(preset.id as SubtitlePreset)}
-                    sx={{
-                      p: 1.5,
-                      bgcolor: isCurrent ? "rgba(59, 130, 246, 0.1)" : "#141418",
-                      border: isCurrent ? "1.5px solid #3b82f6" : "1px solid #27272a",
-                      borderRadius: 1,
-                      cursor: "pointer",
-                      "&:hover": { borderColor: isCurrent ? "#3b82f6" : "#3f3f46" },
-                    }}
-                  >
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#fafafa", fontSize: "0.85rem" }}>
-                        {preset.label}
-                      </Typography>
-                      {isCurrent && (
-                        <Chip label="Active" size="small" sx={{ bgcolor: "#3b82f6", color: "#fff", fontSize: "0.62rem", height: 18, borderRadius: 0.6, fontWeight: 800 }} />
-                      )}
-                    </Box>
-                    <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.72rem" }}>
-                      {preset.desc}
-                    </Typography>
-                    {preset.sample}
-                  </Card>
-                </Grid>
-              );
-            })}
-          </Grid>
-
-          <Divider sx={{ borderColor: "#27272a", my: 2 }} />
-
-          {/* 3. CLOUD FONT SELECTOR (20 GOOGLE FONTS) */}
-          <Typography variant="subtitle2" sx={{ color: "#fafafa", fontWeight: 800, mb: 1.5, fontSize: "0.9rem" }}>
-            3. Font Cloud (20 Curated Google Fonts)
+            1. Font Cloud (20 Curated Google Fonts)
           </Typography>
 
-          <Box sx={{ mb: 2 }}>
+          <Box sx={{ mb: 2.5 }}>
             <TextField
               fullWidth
               size="small"
-              placeholder="Search fonts (e.g. Anton, Montserrat, Oswald)..."
+              placeholder="Search fonts (e.g. Inter, Anton, Montserrat, Oswald)..."
               value={fontSearch}
               onChange={(e) => setFontSearch(e.target.value)}
               slotProps={{
@@ -385,10 +695,7 @@ export function TabFramingStyle() {
                   <Box
                     key={font.id}
                     onClick={() =>
-                      handleSaveClip({
-                        ...selectedClip,
-                        subtitleStyle: { ...currentStyle, fontFamily: font.name },
-                      })
+                      updateSubtitleStyle({ ...currentStyle, fontFamily: font.name })
                     }
                     sx={{
                       px: 1.2,
@@ -412,57 +719,11 @@ export function TabFramingStyle() {
             </Box>
           </Box>
 
-          {/* 4. TEXT CASE SWITCHER */}
-          <Typography variant="subtitle2" sx={{ color: "#fafafa", fontWeight: 800, mb: 1, fontSize: "0.9rem" }}>
-            4. Text Case Format
-          </Typography>
-          <Box sx={{ display: "flex", gap: 1, mb: 2.5 }}>
-            {[
-              { id: "uppercase", label: "UPPERCASE" },
-              { id: "capitalize", label: "Capitalize Words" },
-              { id: "lowercase", label: "lowercase" },
-            ].map((item) => {
-              const isSelected =
-                (currentStyle.textCase === item.id) ||
-                (item.id === "uppercase" && currentStyle.allCaps && !currentStyle.textCase);
-
-              return (
-                <Button
-                  key={item.id}
-                  variant={isSelected ? "contained" : "outlined"}
-                  size="small"
-                  onClick={() =>
-                    handleSaveClip({
-                      ...selectedClip,
-                      subtitleStyle: {
-                        ...currentStyle,
-                        textCase: item.id as "uppercase" | "capitalize" | "lowercase",
-                        allCaps: item.id === "uppercase",
-                      },
-                    })
-                  }
-                  sx={{
-                    textTransform: "none",
-                    fontWeight: 700,
-                    fontSize: "0.78rem",
-                    borderRadius: 1,
-                    bgcolor: isSelected ? "#3b82f6" : "transparent",
-                    borderColor: isSelected ? "#3b82f6" : "#27272a",
-                    color: isSelected ? "#ffffff" : "#a1a1aa",
-                    "&:hover": { borderColor: "#3f3f46", bgcolor: isSelected ? "#2563eb" : "#18181c" },
-                  }}
-                >
-                  {item.label}
-                </Button>
-              );
-            })}
-          </Box>
-
           <Divider sx={{ borderColor: "#27272a", my: 2 }} />
 
-          {/* 5. COLORS & SLIDERS */}
+          {/* 2. COLORS & SLIDERS */}
           <Typography variant="subtitle2" sx={{ color: "#fafafa", fontWeight: 800, mb: 1.5, fontSize: "0.9rem" }}>
-            5. Typography Colors &amp; Position
+            2. Typography Colors &amp; Position
           </Typography>
 
           <Grid container spacing={2}>
@@ -477,10 +738,7 @@ export function TabFramingStyle() {
                     type="color"
                     value={currentStyle.primaryColor || "#FFFFFF"}
                     onChange={(e) =>
-                      handleSaveClip({
-                        ...selectedClip,
-                        subtitleStyle: { ...currentStyle, primaryColor: e.target.value },
-                      })
+                      updateSubtitleStyle({ ...currentStyle, primaryColor: e.target.value })
                     }
                     style={{ width: 44, height: 26, borderRadius: 3, cursor: "pointer", background: "none", border: "1px solid #3f3f46" }}
                   />
@@ -492,11 +750,12 @@ export function TabFramingStyle() {
                   </Typography>
                   <input
                     type="color"
-                    value={currentStyle.highlightColor || currentStyle.secondaryColor || "#FACC15"}
+                    value={currentStyle.highlightColor || currentStyle.secondaryColor || "#FFFFFF"}
                     onChange={(e) =>
-                      handleSaveClip({
-                        ...selectedClip,
-                        subtitleStyle: { ...currentStyle, highlightColor: e.target.value, secondaryColor: e.target.value },
+                      updateSubtitleStyle({
+                        ...currentStyle,
+                        highlightColor: e.target.value,
+                        secondaryColor: e.target.value,
                       })
                     }
                     style={{ width: 44, height: 26, borderRadius: 3, cursor: "pointer", background: "none", border: "1px solid #3f3f46" }}
@@ -511,10 +770,7 @@ export function TabFramingStyle() {
                     type="color"
                     value={currentStyle.outlineColor || "#000000"}
                     onChange={(e) =>
-                      handleSaveClip({
-                        ...selectedClip,
-                        subtitleStyle: { ...currentStyle, outlineColor: e.target.value },
-                      })
+                      updateSubtitleStyle({ ...currentStyle, outlineColor: e.target.value })
                     }
                     style={{ width: 44, height: 26, borderRadius: 3, cursor: "pointer", background: "none", border: "1px solid #3f3f46" }}
                   />
@@ -524,22 +780,45 @@ export function TabFramingStyle() {
 
             {/* Sub-Column 2: Sliders (Size, Outline, Position Y) */}
             <Grid size={{ xs: 12, md: 6 }}>
-              {/* Font Size */}
+              {/* Font Size (Min: 0, Max: 999, Default: 22) */}
               <Box sx={{ mb: 2 }}>
-                <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
                   <Typography variant="caption" sx={{ color: "#e4e4e7", fontWeight: 600 }}>Font Size</Typography>
-                  <Typography variant="caption" sx={{ color: "#a1a1aa", fontFamily: "monospace" }}>{currentStyle.fontSize || 42}px</Typography>
+                  <TextField
+                    size="small"
+                    type="number"
+                    value={currentStyle.fontSize ?? 22}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      const clamped = isNaN(val) ? 0 : Math.max(0, Math.min(999, val));
+                      updateSubtitleStyle({ ...currentStyle, fontSize: clamped });
+                    }}
+                    slotProps={{
+                      input: {
+                        sx: {
+                          width: 64,
+                          height: 24,
+                          fontSize: "0.75rem",
+                          fontFamily: "monospace",
+                          color: "#3b82f6",
+                          fontWeight: 700,
+                          bgcolor: "#0d0d10",
+                          borderRadius: 0.8,
+                          p: 0,
+                          "& input": { textAlign: "center", p: "2px 4px" },
+                          "& fieldset": { borderColor: "#27272a" },
+                        },
+                      },
+                    }}
+                  />
                 </Box>
                 <Slider
-                  min={20}
-                  max={80}
+                  min={0}
+                  max={999}
                   step={1}
-                  value={currentStyle.fontSize || 42}
+                  value={Math.max(0, Math.min(999, currentStyle.fontSize ?? 22))}
                   onChange={(_, val) =>
-                    handleSaveClip({
-                      ...selectedClip,
-                      subtitleStyle: { ...currentStyle, fontSize: val as number },
-                    })
+                    updateSubtitleStyle({ ...currentStyle, fontSize: val as number })
                   }
                   sx={{ color: "#3b82f6" }}
                 />
@@ -557,10 +836,7 @@ export function TabFramingStyle() {
                   step={0.5}
                   value={currentStyle.outlineWidth ?? 2}
                   onChange={(_, val) =>
-                    handleSaveClip({
-                      ...selectedClip,
-                      subtitleStyle: { ...currentStyle, outlineWidth: val as number },
-                    })
+                    updateSubtitleStyle({ ...currentStyle, outlineWidth: val as number })
                   }
                   sx={{ color: "#3b82f6" }}
                 />
@@ -578,34 +854,13 @@ export function TabFramingStyle() {
                   step={1}
                   value={currentStyle.positionY || 80}
                   onChange={(_, val) =>
-                    handleSaveClip({
-                      ...selectedClip,
-                      subtitleStyle: { ...currentStyle, positionY: val as number },
-                    })
+                    updateSubtitleStyle({ ...currentStyle, positionY: val as number })
                   }
                   sx={{ color: "#3b82f6" }}
                 />
               </Box>
             </Grid>
           </Grid>
-
-          <Box sx={{ mt: 2 }}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={currentStyle.karaokeEnabled !== false}
-                  onChange={(e) =>
-                    handleSaveClip({
-                      ...selectedClip,
-                      subtitleStyle: { ...currentStyle, karaokeEnabled: e.target.checked },
-                    })
-                  }
-                  sx={{ "& .Mui-checked": { color: "#3b82f6" } }}
-                />
-              }
-              label={<Typography variant="body2" sx={{ fontSize: "0.82rem", fontWeight: 600 }}>Karaoke Active Word Highlight</Typography>}
-            />
-          </Box>
         </Box>
       )}
     </Box>

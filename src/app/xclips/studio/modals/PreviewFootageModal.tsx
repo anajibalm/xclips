@@ -75,7 +75,7 @@ export function PreviewFootageModal({ item, onClose }: PreviewFootageModalProps)
           <video
             controls
             autoPlay
-            src={`${getApiBaseUrl()}/api/xclips/media/${item.id}/stream`}
+            src={item?.id ? `${getApiBaseUrl()}/api/xclips/media/${item.id}/stream` : undefined}
             style={{ width: "100%", height: "100%", objectFit: "contain" }}
           />
         </Box>

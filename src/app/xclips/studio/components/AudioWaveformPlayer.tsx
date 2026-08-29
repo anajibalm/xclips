@@ -295,7 +295,7 @@ export function AudioWaveformPlayer({
     <Box sx={{ p: 2, bgcolor: "#141418", borderRadius: 1.5, border: "1px solid #27272a" }}>
       <audio
         ref={audioRef}
-        src={audioUrl}
+        src={audioUrl || undefined}
         onTimeUpdate={handleAudioTimeUpdate}
         onEnded={handleAudioEnded}
         style={{ display: "none" }}

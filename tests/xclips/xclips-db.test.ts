@@ -148,6 +148,7 @@ describe("xclips - Persistent SQLite Database Engine (bun:sqlite)", () => {
       startSec: 10,
       endSec: 45,
       viralScore: 82,
+      aspectRatio: "9:16",
       layoutMode: "blur_bg",
       panOffsetX: 0,
       subtitleStyle: defaultStyle,
@@ -167,6 +168,7 @@ describe("xclips - Persistent SQLite Database Engine (bun:sqlite)", () => {
       startSec: 100,
       endSec: 140,
       viralScore: 96,
+      aspectRatio: "1:1",
       layoutMode: "center_crop",
       panOffsetX: 0,
       subtitleStyle: defaultStyle,
@@ -186,6 +188,7 @@ describe("xclips - Persistent SQLite Database Engine (bun:sqlite)", () => {
       startSec: 200,
       endSec: 250,
       viralScore: 65,
+      aspectRatio: "16:9",
       layoutMode: "split_screen",
       panOffsetX: 0,
       subtitleStyle: defaultStyle,
@@ -205,10 +208,13 @@ describe("xclips - Persistent SQLite Database Engine (bun:sqlite)", () => {
     // Highest viral score first
     expect(retrievedClips[0].id).toBe("clip_2");
     expect(retrievedClips[0].viralScore).toBe(96);
+    expect(retrievedClips[0].aspectRatio).toBe("1:1");
     expect(retrievedClips[1].id).toBe("clip_1");
     expect(retrievedClips[1].viralScore).toBe(82);
+    expect(retrievedClips[1].aspectRatio).toBe("9:16");
     expect(retrievedClips[2].id).toBe("clip_3");
     expect(retrievedClips[2].viralScore).toBe(65);
+    expect(retrievedClips[2].aspectRatio).toBe("16:9");
 
     // Delete single clip
     const deleted = db.deleteClip("clip_3");

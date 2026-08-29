@@ -27,6 +27,9 @@ export function useVideoPlaybackSync() {
     setIsPlaying((prev) => !prev);
   }, [setIsPlaying]);
 
+  const volume = useStudioStore((s) => s.volume);
+  const isMuted = useStudioStore((s) => s.isMuted);
+
   // Synchronize HTML5 video element with play/pause state
   useEffect(() => {
     if (videoRef.current) {
@@ -44,6 +47,17 @@ export function useVideoPlaybackSync() {
       }
     }
   }, [isPlaying, setIsPlaying]);
+
+  // Synchronize HTML5 video element with volume and mute state
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.volume = Math.max(0, Math.min(1, (volume ?? 100) / 100));
+      videoRef.current.muted = isMuted;
+    }
+    if (bgVideoRef.current) {
+      bgVideoRef.current.muted = true;
+    }
+  }, [volume, isMuted]);
 
   // Synchronize time when selected clip changes (memoized on ID)
   useEffect(() => {

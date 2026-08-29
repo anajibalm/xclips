@@ -187,5 +187,67 @@ describe("xclips - FFmpeg Filter Complex Builder", () => {
     expect(args).toContain("-map");
     expect(args).toContain("[v_framed]");
   });
+
+  it("should resolve correct dimensions and generate valid commands for all standard aspect ratios (9:16, 1:1, 4:5, 16:9)", () => {
+    const { getDimensionsForAspectRatio } = require("@/lib/xclips/ffmpeg-builder");
+
+    expect(getDimensionsForAspectRatio("9:16")).toEqual({ width: 1080, height: 1920 });
+    expect(getDimensionsForAspectRatio("1:1")).toEqual({ width: 1080, height: 1080 });
+    expect(getDimensionsForAspectRatio("4:5")).toEqual({ width: 1080, height: 1350 });
+    expect(getDimensionsForAspectRatio("16:9")).toEqual({ width: 1920, height: 1080 });
+
+    // Test 1:1 Square (Instagram Feed)
+    const squareCmd = buildFfmpegCommand(
+      {
+        sourceVideo: "C:/test/sample.mp4",
+        sourceWidth: 1920,
+        sourceHeight: 1080,
+        clipStart: 0,
+        clipEnd: 15,
+        keepIntervals: [{ start: 0, end: 15, duration: 15 }],
+        aspectRatio: "1:1",
+        layoutMode: "center_crop",
+      },
+      "C:/test/output_square.mp4",
+      "cpu"
+    );
+    expect(squareCmd.filterComplex).toContain("crop=1080:1080:");
+
+    // Test 4:5 Portrait (IG Feed Portrait)
+    const portraitCmd = buildFfmpegCommand(
+      {
+        sourceVideo: "C:/test/sample.mp4",
+        sourceWidth: 1920,
+        sourceHeight: 1080,
+        clipStart: 0,
+        clipEnd: 15,
+        keepIntervals: [{ start: 0, end: 15, duration: 15 }],
+        aspectRatio: "4:5",
+        layoutMode: "blur_bg",
+      },
+      "C:/test/output_portrait.mp4",
+      "cpu"
+    );
+    expect(portraitCmd.filterComplex).toContain("scale=1080:1350");
+
+    // Test 16:9 Landscape (YouTube) with Split Screen side-by-side (hstack)
+    const landscapeSplitCmd = buildFfmpegCommand(
+      {
+        sourceVideo: "C:/test/sample.mp4",
+        sourceWidth: 1920,
+        sourceHeight: 1080,
+        clipStart: 0,
+        clipEnd: 15,
+        keepIntervals: [{ start: 0, end: 15, duration: 15 }],
+        aspectRatio: "16:9",
+        layoutMode: "split_screen",
+      },
+      "C:/test/output_landscape.mp4",
+      "cpu"
+    );
+    expect(landscapeSplitCmd.filterComplex).toContain("hstack=inputs=2");
+    expect(landscapeSplitCmd.filterComplex).toContain("scale=960:1080");
+  });
 });
+
 
