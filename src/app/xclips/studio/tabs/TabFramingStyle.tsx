@@ -84,6 +84,8 @@ const ASPECT_RATIO_OPTIONS: AspectRatioOption[] = [
 export function TabFramingStyle() {
   const selectedClip = useStudioStore((s) => s.selectedClip);
   const handleSaveClip = useStudioStore((s) => s.handleSaveClip);
+  const saveActiveClipNow = useStudioStore((s) => s.saveActiveClipNow);
+  const saveMasterTemplateNow = useStudioStore((s) => s.saveMasterTemplateNow);
   const studioAspectRatio = useStudioStore((s) => s.studioAspectRatio);
   const setStudioAspectRatio = useStudioStore((s) => s.setStudioAspectRatio);
   const studioLayoutMode = useStudioStore((s) => s.studioLayoutMode);
@@ -113,55 +115,49 @@ export function TabFramingStyle() {
   const currentVideoRotation: number = selectedClip?.videoRotation ?? studioVideoRotation ?? 0;
   const currentStyle: SubtitleStyle = selectedClip?.subtitleStyle || studioSubtitleStyle || DEFAULT_SUBTITLE_STYLE;
 
+  const saveNow = () => {
+    if (selectedClip) {
+      saveActiveClipNow();
+    } else {
+      saveMasterTemplateNow();
+    }
+  };
+
   const updateVideoScale = (scale: number) => {
     setStudioVideoScale(scale);
-    if (selectedClip) {
-      handleSaveClip({
-        ...selectedClip,
-        videoScale: scale,
-      });
-    }
+    saveNow();
+  };
+  const updateVideoScalePreview = (scale: number) => {
+    setStudioVideoScale(scale);
   };
 
   const updateVideoPanX = (x: number) => {
     setStudioVideoPanX(x);
-    if (selectedClip) {
-      handleSaveClip({
-        ...selectedClip,
-        videoPanX: x,
-        panOffsetX: x,
-      });
-    }
+    saveNow();
+  };
+  const updateVideoPanXPreview = (x: number) => {
+    setStudioVideoPanX(x);
   };
 
   const updateVideoPanY = (y: number) => {
     setStudioVideoPanY(y);
-    if (selectedClip) {
-      handleSaveClip({
-        ...selectedClip,
-        videoPanY: y,
-      });
-    }
+    saveNow();
+  };
+  const updateVideoPanYPreview = (y: number) => {
+    setStudioVideoPanY(y);
   };
 
   const updateVideoRotation = (rot: number) => {
     setStudioVideoRotation(rot);
-    if (selectedClip) {
-      handleSaveClip({
-        ...selectedClip,
-        videoRotation: rot,
-      });
-    }
+    saveNow();
+  };
+  const updateVideoRotationPreview = (rot: number) => {
+    setStudioVideoRotation(rot);
   };
 
   const updateSubtitleStyle = (newStyle: SubtitleStyle) => {
     setStudioSubtitleStyle(newStyle);
-    if (selectedClip) {
-      handleSaveClip({
-        ...selectedClip,
-        subtitleStyle: newStyle,
-      });
-    }
+    saveNow();
   };
 
   const updateSubtitleStylePreview = (newStyle: SubtitleStyle) => {
@@ -170,32 +166,17 @@ export function TabFramingStyle() {
 
   const updateSubtitleStyleCommitted = (newStyle: SubtitleStyle) => {
     setStudioSubtitleStyle(newStyle);
-    if (selectedClip) {
-      handleSaveClip({
-        ...selectedClip,
-        subtitleStyle: newStyle,
-      });
-    }
+    saveNow();
   };
 
   const updateLayoutMode = (mode: LayoutMode) => {
     setStudioLayoutMode(mode);
-    if (selectedClip) {
-      handleSaveClip({
-        ...selectedClip,
-        layoutMode: mode,
-      });
-    }
+    saveNow();
   };
 
   const updatePanOffsetX = (pan: number) => {
     setStudioPanOffsetX(pan);
-    if (selectedClip) {
-      handleSaveClip({
-        ...selectedClip,
-        panOffsetX: pan,
-      });
-    }
+    saveNow();
   };
 
   const updatePanOffsetPreview = (pan: number) => {
@@ -204,22 +185,12 @@ export function TabFramingStyle() {
 
   const updatePanOffsetCommitted = (pan: number) => {
     setStudioPanOffsetX(pan);
-    if (selectedClip) {
-      handleSaveClip({
-        ...selectedClip,
-        panOffsetX: pan,
-      });
-    }
+    saveNow();
   };
 
   const updateAspectRatio = (ratio: AspectRatio) => {
     setStudioAspectRatio(ratio);
-    if (selectedClip) {
-      handleSaveClip({
-        ...selectedClip,
-        aspectRatio: ratio,
-      });
-    }
+    saveNow();
   };
 
   const handleApplyPreset = (preset: SubtitlePreset) => {
@@ -508,7 +479,8 @@ export function TabFramingStyle() {
                 max={3.0}
                 step={0.05}
                 value={currentVideoScale}
-                onChange={(_, val) => updateVideoScale(val as number)}
+                onChange={(_, val) => updateVideoScalePreview(val as number)}
+                onChangeCommitted={(_, val) => updateVideoScale(val as number)}
                 sx={{ color: "#00e5ff" }}
               />
             </Box>
@@ -533,7 +505,8 @@ export function TabFramingStyle() {
                 max={1.0}
                 step={0.02}
                 value={currentVideoPanX}
-                onChange={(_, val) => updateVideoPanX(val as number)}
+                onChange={(_, val) => updateVideoPanXPreview(val as number)}
+                onChangeCommitted={(_, val) => updateVideoPanX(val as number)}
                 sx={{ color: "#00e5ff" }}
               />
             </Box>
@@ -558,7 +531,8 @@ export function TabFramingStyle() {
                 max={1.0}
                 step={0.02}
                 value={currentVideoPanY}
-                onChange={(_, val) => updateVideoPanY(val as number)}
+                onChange={(_, val) => updateVideoPanYPreview(val as number)}
+                onChangeCommitted={(_, val) => updateVideoPanY(val as number)}
                 sx={{ color: "#00e5ff" }}
               />
             </Box>
@@ -583,7 +557,8 @@ export function TabFramingStyle() {
                 max={180}
                 step={1}
                 value={currentVideoRotation}
-                onChange={(_, val) => updateVideoRotation(val as number)}
+                onChange={(_, val) => updateVideoRotationPreview(val as number)}
+                onChangeCommitted={(_, val) => updateVideoRotation(val as number)}
                 sx={{ color: "#00e5ff" }}
               />
             </Box>

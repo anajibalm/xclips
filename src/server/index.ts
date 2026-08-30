@@ -963,7 +963,6 @@ app.get("/api/xclips/media/:id/download", async (c) => {
 });
 
 app.get("/api/xclips/projects/:id", (c) => {
-
   const id = c.req.param("id");
   const project = xclipsDb.getProject(id);
   if (!project) return c.json({ ok: false, message: "Proyek tidak ditemukan" }, 404);
@@ -972,6 +971,27 @@ app.get("/api/xclips/projects/:id", (c) => {
   const clips = xclipsDb.getClips(id);
 
   return c.json({ ok: true, project, transcript, clips });
+});
+
+app.put("/api/xclips/projects/:id", async (c) => {
+  try {
+    const id = c.req.param("id");
+    const existing = xclipsDb.getProject(id);
+    if (!existing) return c.json({ ok: false, message: "Proyek tidak ditemukan" }, 404);
+
+    const body = await c.req.json();
+    const updatedProject: XclipsProject = {
+      ...existing,
+      ...body,
+      id,
+      updatedAt: new Date().toISOString(),
+    };
+    xclipsDb.saveProject(updatedProject);
+    return c.json({ ok: true, project: updatedProject });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Gagal memperbarui proyek";
+    return c.json({ ok: false, message }, 500);
+  }
 });
 
 app.delete("/api/xclips/projects/:id", (c) => {

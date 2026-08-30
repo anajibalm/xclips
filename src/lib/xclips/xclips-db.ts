@@ -47,6 +47,7 @@ export class XclipsDatabase {
         isVfr INTEGER NOT NULL DEFAULT 0,
         normalizedPath TEXT,
         audioPath TEXT,
+        masterStyleJson TEXT,
         createdAt TEXT NOT NULL,
         updatedAt TEXT NOT NULL,
         rawJson TEXT NOT NULL
@@ -118,6 +119,7 @@ export class XclipsDatabase {
       fps: "REAL NOT NULL DEFAULT 30",
       normalizedPath: "TEXT",
       audioPath: "TEXT",
+      masterStyleJson: "TEXT",
     });
 
     // Auto-migrate transcripts table if it still has legacy UNIQUE(projectId) constraint
@@ -246,9 +248,22 @@ export class XclipsDatabase {
   saveProject(project: XclipsProject): void {
     const updatedAt = new Date().toISOString();
     const fpsVal = project.frameRate || 30;
+
+    let masterStyle = project.masterStyle;
+    if (!masterStyle && project.masterStyleJson) {
+      try {
+        masterStyle = JSON.parse(project.masterStyleJson);
+      } catch {
+        // ignore
+      }
+    }
+    const masterStyleJson = project.masterStyleJson || (masterStyle ? JSON.stringify(masterStyle) : null);
+
     const updatedProject: XclipsProject = {
       ...project,
       frameRate: fpsVal,
+      masterStyle,
+      masterStyleJson: masterStyleJson || undefined,
       updatedAt,
     };
     const rawJson = JSON.stringify(updatedProject);
@@ -256,10 +271,10 @@ export class XclipsDatabase {
     const stmt = this.db.prepare(`
       INSERT INTO projects (
         id, name, sourceType, sourcePath, durationSec, width, height,
-        frameRate, fps, isVfr, normalizedPath, audioPath, createdAt, updatedAt, rawJson
+        frameRate, fps, isVfr, normalizedPath, audioPath, masterStyleJson, createdAt, updatedAt, rawJson
       ) VALUES (
         $id, $name, $sourceType, $sourcePath, $durationSec, $width, $height,
-        $frameRate, $fps, $isVfr, $normalizedPath, $audioPath, $createdAt, $updatedAt, $rawJson
+        $frameRate, $fps, $isVfr, $normalizedPath, $audioPath, $masterStyleJson, $createdAt, $updatedAt, $rawJson
       )
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
@@ -273,6 +288,7 @@ export class XclipsDatabase {
         isVfr = excluded.isVfr,
         normalizedPath = excluded.normalizedPath,
         audioPath = excluded.audioPath,
+        masterStyleJson = excluded.masterStyleJson,
         updatedAt = excluded.updatedAt,
         rawJson = excluded.rawJson
     `);
@@ -290,6 +306,7 @@ export class XclipsDatabase {
       $isVfr: project.isVfr ? 1 : 0,
       $normalizedPath: project.normalizedPath || null,
       $audioPath: project.audioPath || null,
+      $masterStyleJson: masterStyleJson,
       $createdAt: project.createdAt || updatedAt,
       $updatedAt: updatedAt,
       $rawJson: rawJson,

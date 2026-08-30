@@ -78,6 +78,17 @@ export const SubtitleStyleSchema = z.object({
 export type SubtitleStyle = z.infer<typeof SubtitleStyleSchema>;
 
 
+export interface MasterStyleConfig {
+  aspectRatio?: AspectRatio;
+  layoutMode?: LayoutMode;
+  panOffsetX?: number;
+  videoScale?: number;
+  videoPanX?: number;
+  videoPanY?: number;
+  videoRotation?: number;
+  subtitleStyle?: SubtitleStyle;
+}
+
 export interface XclipsProject {
   id: string;
   name: string;
@@ -90,6 +101,8 @@ export interface XclipsProject {
   isVfr: boolean;
   normalizedPath?: string;
   audioPath?: string;
+  masterStyleJson?: string;
+  masterStyle?: MasterStyleConfig;
   createdAt: string;
   updatedAt: string;
 }

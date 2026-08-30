@@ -43,6 +43,8 @@ export function StudioCanvas({
   const selectedClip = useStudioStore((s) => s.selectedClip);
   const togglePlayPauseStore = useStudioStore((s) => s.togglePlayPause);
   const handleSaveClip = useStudioStore((s) => s.handleSaveClip);
+  const saveActiveClipNow = useStudioStore((s) => s.saveActiveClipNow);
+  const saveMasterTemplateNow = useStudioStore((s) => s.saveMasterTemplateNow);
   const setStudioSubtitleStyle = useStudioStore((s) => s.setStudioSubtitleStyle);
 
   const internalContainerRef = useRef<HTMLDivElement>(null);
@@ -69,8 +71,8 @@ export function StudioCanvas({
   const setStudioVideoRotation = useStudioStore((s) => s.setStudioVideoRotation);
   const studioSubtitleStyle = useStudioStore((s) => s.studioSubtitleStyle);
 
-  const layoutMode: LayoutMode = selectedClip?.layoutMode || studioLayoutMode || "blur_bg";
   const aspectRatio: AspectRatio = selectedClip?.aspectRatio || studioAspectRatio || "9:16";
+  const layoutMode: LayoutMode = selectedClip?.layoutMode || studioLayoutMode || "blur_bg";
   const panOffsetX: number = selectedClip?.panOffsetX ?? studioPanOffsetX ?? 0;
   const videoScale: number = selectedClip?.videoScale ?? studioVideoScale ?? 1.0;
   const videoPanX: number = selectedClip?.videoPanX ?? selectedClip?.panOffsetX ?? studioVideoPanX ?? 0;
@@ -94,16 +96,8 @@ export function StudioCanvas({
       }
       if (updates.videoPanY !== undefined) setStudioVideoPanY(updates.videoPanY);
       if (updates.videoRotation !== undefined) setStudioVideoRotation(updates.videoRotation);
-
-      if (selectedClip) {
-        handleSaveClip({
-          ...selectedClip,
-          ...updates,
-          ...(updates.videoPanX !== undefined ? { panOffsetX: updates.videoPanX } : {}),
-        });
-      }
     },
-    [selectedClip, handleSaveClip, setStudioVideoScale, setStudioVideoPanX, setStudioPanOffsetX, setStudioVideoPanY, setStudioVideoRotation]
+    [setStudioVideoScale, setStudioVideoPanX, setStudioPanOffsetX, setStudioVideoPanY, setStudioVideoRotation]
   );
 
   // Auto-pause video when interacting with subtitle gizmo
@@ -288,16 +282,9 @@ export function StudioCanvas({
 
   const updateActiveSubtitleStyle = useCallback(
     (newStyle: SubtitleStyle) => {
-      if (selectedClip) {
-        handleSaveClip({
-          ...selectedClip,
-          subtitleStyle: newStyle,
-        });
-      } else {
-        setStudioSubtitleStyle(newStyle);
-      }
+      setStudioSubtitleStyle(newStyle);
     },
-    [selectedClip, handleSaveClip, setStudioSubtitleStyle]
+    [setStudioSubtitleStyle]
   );
 
   // Drag Gizmo Box (Move Position X & Position Y with Magnet Center Snapping)
@@ -377,6 +364,7 @@ export function StudioCanvas({
     } catch {
       // ignore
     }
+    saveActiveClipNow();
   };
 
   // Rotation Knob (Rotate Z Angle in degrees)
@@ -418,6 +406,7 @@ export function StudioCanvas({
     } catch {
       // ignore
     }
+    saveActiveClipNow();
   };
 
   // Corner Resize Handle (Scale Font Size via radial distance from box center)
@@ -463,6 +452,7 @@ export function StudioCanvas({
     } catch {
       // ignore
     }
+    saveActiveClipNow();
   };
 
   // Middle-Side Handles (Drag to adjust Custom Box Width)
@@ -500,6 +490,7 @@ export function StudioCanvas({
     } catch {
       // ignore
     }
+    saveActiveClipNow();
   };
 
   // Video Transform Handlers (Pan, Scale Zoom, Rotate)
@@ -568,6 +559,7 @@ export function StudioCanvas({
     } catch {
       // ignore
     }
+    saveActiveClipNow();
   };
 
   // Video Rotation Knob
@@ -626,6 +618,7 @@ export function StudioCanvas({
     } catch {
       // ignore
     }
+    saveActiveClipNow();
   };
 
   // Video Corner Scale Handle (Radial Scale / Zoom)
@@ -673,6 +666,7 @@ export function StudioCanvas({
     } catch {
       // ignore
     }
+    saveActiveClipNow();
   };
 
   // Pan interaction for center_crop
@@ -686,20 +680,15 @@ export function StudioCanvas({
 
   const handlePointerMovePan = useCallback(
     (e: React.PointerEvent) => {
-      if (!isDraggingPan || layoutMode !== "center_crop" || !selectedClip) return;
+      if (!isDraggingPan || layoutMode !== "center_crop") return;
       const deltaX = e.clientX - dragStartX;
       const sensitivity = 0.003;
       const rawPan = initialPanX + deltaX * sensitivity;
       const clampedPan = Math.max(-1.0, Math.min(1.0, Math.round(rawPan * 100) / 100));
 
-      if (clampedPan !== selectedClip.panOffsetX) {
-        handleSaveClip({
-          ...selectedClip,
-          panOffsetX: clampedPan,
-        });
-      }
+      setStudioPanOffsetX(clampedPan);
     },
-    [isDraggingPan, layoutMode, selectedClip, dragStartX, initialPanX, handleSaveClip]
+    [isDraggingPan, layoutMode, dragStartX, initialPanX, setStudioPanOffsetX]
   );
 
   const handlePointerUpPan = (e: React.PointerEvent) => {
@@ -710,6 +699,7 @@ export function StudioCanvas({
     } catch {
       // ignore
     }
+    saveActiveClipNow();
   };
 
   const videoStreamSrc = projectId ? `${getApiBaseUrl()}/api/xclips/media/${projectId}/stream` : undefined;

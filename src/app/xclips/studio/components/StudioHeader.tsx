@@ -1,9 +1,12 @@
 import React from "react";
 import Link from "next/link";
-import { Box, Typography, Button, IconButton, Chip, Tooltip } from "@mui/material";
+import { Box, Typography, Button, IconButton, Chip, Tooltip, CircularProgress } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import SettingsIcon from "@mui/icons-material/Settings";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import CloudDoneIcon from "@mui/icons-material/CloudDone";
 import { useStudioStore } from "../store/useStudioStore";
 import { formatTime } from "../types/studio.types";
 
@@ -12,6 +15,7 @@ export function StudioHeader() {
   const setExportModalOpen = useStudioStore((s) => s.setExportModalOpen);
   const setAiSettingsModalOpen = useStudioStore((s) => s.setAiSettingsModalOpen);
   const fetchAiSettings = useStudioStore((s) => s.fetchAiSettings);
+  const autoSaveStatus = useStudioStore((s) => s.autoSaveStatus);
 
   return (
     <Box
@@ -49,6 +53,55 @@ export function StudioHeader() {
                 borderRadius: 0.6,
               }}
             />
+            {/* Real-Time AutoSave Status Badge */}
+            {autoSaveStatus === "saving" && (
+              <Chip
+                icon={<CircularProgress size={10} sx={{ color: "#38bdf8 !important" }} />}
+                label="Menyimpan..."
+                size="small"
+                sx={{
+                  bgcolor: "rgba(56, 189, 248, 0.12)",
+                  color: "#38bdf8",
+                  fontWeight: 700,
+                  fontSize: "0.65rem",
+                  height: 20,
+                  borderRadius: 0.6,
+                  border: "1px solid rgba(56, 189, 248, 0.3)",
+                }}
+              />
+            )}
+            {autoSaveStatus === "saved" && (
+              <Chip
+                icon={<CheckCircleIcon sx={{ fontSize: "0.85rem !important", color: "#22c55e !important" }} />}
+                label="Tersimpan"
+                size="small"
+                sx={{
+                  bgcolor: "rgba(34, 197, 94, 0.12)",
+                  color: "#4ade80",
+                  fontWeight: 700,
+                  fontSize: "0.65rem",
+                  height: 20,
+                  borderRadius: 0.6,
+                  border: "1px solid rgba(34, 197, 94, 0.3)",
+                }}
+              />
+            )}
+            {autoSaveStatus === "error" && (
+              <Chip
+                icon={<WarningAmberIcon sx={{ fontSize: "0.85rem !important", color: "#ef4444 !important" }} />}
+                label="Gagal Simpan"
+                size="small"
+                sx={{
+                  bgcolor: "rgba(239, 68, 68, 0.12)",
+                  color: "#f87171",
+                  fontWeight: 700,
+                  fontSize: "0.65rem",
+                  height: 20,
+                  borderRadius: 0.6,
+                  border: "1px solid rgba(239, 68, 68, 0.3)",
+                }}
+              />
+            )}
           </Box>
           <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.72rem" }}>
             Duration: {project ? formatTime(project.durationSec) : "00:00"} &bull; {project?.width}x{project?.height} &bull; {project?.frameRate} fps

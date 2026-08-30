@@ -56,15 +56,25 @@ describe("xclips - Persistent SQLite Database Engine (bun:sqlite)", () => {
     expect(allProjects[0].id).toBe("proj_test_2");
     expect(allProjects[1].id).toBe("proj_test_1");
 
-    // Update project
+    // Update project with masterStyle
     db.saveProject({
       ...project1,
       name: "Podcast Episode 1 (Edited)",
       durationSec: 365,
+      masterStyleJson: JSON.stringify({
+        aspectRatio: "9:16",
+        layoutMode: "blur_bg",
+        videoScale: 1.25,
+        videoPanX: 0.1,
+        videoPanY: -0.05,
+        videoRotation: 5,
+      }),
     });
     const updated1 = db.getProject("proj_test_1");
     expect(updated1?.name).toBe("Podcast Episode 1 (Edited)");
     expect(updated1?.durationSec).toBe(365);
+    expect(updated1?.masterStyle?.videoScale).toBe(1.25);
+    expect(updated1?.masterStyle?.videoRotation).toBe(5);
   });
 
   it("should save and retrieve transcripts with complex word timestamps", () => {

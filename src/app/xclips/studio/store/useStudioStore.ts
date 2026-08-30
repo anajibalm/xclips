@@ -10,6 +10,7 @@ import {
   LayoutMode,
   SubtitleStyle,
   AiProviderType,
+  MasterStyleConfig,
 } from "@/lib/xclips/types";
 import { LogItem, ProjectAssets, FootageProgress, DEFAULT_SUBTITLE_STYLE } from "../types/studio.types";
 import { generateSrtFromWords } from "@/lib/xclips/phrase-segmentation";
@@ -59,7 +60,7 @@ interface StudioState {
   selectedSubtitleSource: string;
   subtitleTracks: XclipsTranscript[];
   isGenerateSubtitleModalOpen: boolean;
-  autoSaveStatus: "idle" | "saving" | "saved";
+  autoSaveStatus: "idle" | "saving" | "saved" | "error";
 
   assets: ProjectAssets | null;
   assetsLoading: boolean;
@@ -189,6 +190,9 @@ interface StudioState {
   handleSeek: (timeSec: number) => void;
   togglePlayPause: () => void;
   handleSaveClip: (updatedClip: XclipsClip) => Promise<void>;
+  saveActiveClipNow: (clipOverride?: XclipsClip) => Promise<void>;
+  saveMasterTemplateNow: () => Promise<void>;
+  saveStudioSession: () => void;
   handleDeleteClip: (clipId: string) => Promise<void>;
   handleTranscribe: (modelOverride?: string, label?: string, providerOverride?: AiProviderType) => Promise<{ ok: boolean; message?: string }>;
   handleFetchYouTubeSubtitles: () => Promise<{ ok: boolean; message?: string }>;
@@ -298,9 +302,27 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   setProject: (project) => set({ project }),
   setTranscript: (transcript) => set({ transcript }),
   setClips: (clips) => set({ clips }),
-  setSelectedClip: (selectedClip) => set({ selectedClip }),
+  setSelectedClip: (selectedClip) => {
+    set({ selectedClip });
+    if (selectedClip) {
+      set({
+        studioSubtitleStyle: selectedClip.subtitleStyle || get().studioSubtitleStyle || DEFAULT_SUBTITLE_STYLE,
+        studioLayoutMode: selectedClip.layoutMode || get().studioLayoutMode || "blur_bg",
+        studioAspectRatio: selectedClip.aspectRatio || get().studioAspectRatio || "9:16",
+        studioPanOffsetX: selectedClip.panOffsetX ?? 0,
+        studioVideoScale: selectedClip.videoScale ?? 1.0,
+        studioVideoPanX: selectedClip.videoPanX ?? selectedClip.panOffsetX ?? 0,
+        studioVideoPanY: selectedClip.videoPanY ?? 0,
+        studioVideoRotation: selectedClip.videoRotation ?? 0,
+      });
+    }
+    get().saveStudioSession();
+  },
 
-  setActiveTab: (activeTab) => set({ activeTab }),
+  setActiveTab: (activeTab) => {
+    set({ activeTab });
+    get().saveStudioSession();
+  },
   setIsPlaying: (updater) =>
     set((state) => ({
       isPlaying: typeof updater === "function" ? updater(state.isPlaying) : updater,
@@ -310,97 +332,99 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       currentTime: typeof updater === "function" ? updater(state.currentTime) : updater,
     })),
   setStudioAspectRatio: (ratio) => {
-    set({ studioAspectRatio: ratio });
-    const { selectedClip } = get();
-    if (selectedClip) {
-      get().handleSaveClip({
-        ...selectedClip,
-        aspectRatio: ratio,
-      });
-    }
+    set((state) => {
+      const nextClip = state.selectedClip ? { ...state.selectedClip, aspectRatio: ratio } : null;
+      return {
+        studioAspectRatio: ratio,
+        selectedClip: nextClip,
+        clips: nextClip ? state.clips.map((c) => (c.id === nextClip.id ? nextClip : c)) : state.clips,
+      };
+    });
   },
   setStudioLayoutMode: (mode) => {
-    set({ studioLayoutMode: mode });
-    const { selectedClip } = get();
-    if (selectedClip) {
-      get().handleSaveClip({
-        ...selectedClip,
-        layoutMode: mode,
-      });
-    }
+    set((state) => {
+      const nextClip = state.selectedClip ? { ...state.selectedClip, layoutMode: mode } : null;
+      return {
+        studioLayoutMode: mode,
+        selectedClip: nextClip,
+        clips: nextClip ? state.clips.map((c) => (c.id === nextClip.id ? nextClip : c)) : state.clips,
+      };
+    });
   },
   setStudioPanOffsetX: (pan) => {
-    set({ studioPanOffsetX: pan, studioVideoPanX: pan });
-    const { selectedClip } = get();
-    if (selectedClip) {
-      get().handleSaveClip({
-        ...selectedClip,
-        panOffsetX: pan,
-        videoPanX: pan,
-      });
-    }
+    set((state) => {
+      const nextClip = state.selectedClip ? { ...state.selectedClip, panOffsetX: pan, videoPanX: pan } : null;
+      return {
+        studioPanOffsetX: pan,
+        studioVideoPanX: pan,
+        selectedClip: nextClip,
+        clips: nextClip ? state.clips.map((c) => (c.id === nextClip.id ? nextClip : c)) : state.clips,
+      };
+    });
   },
   setStudioVideoScale: (scale) => {
-    set({ studioVideoScale: scale });
-    const { selectedClip } = get();
-    if (selectedClip) {
-      get().handleSaveClip({
-        ...selectedClip,
-        videoScale: scale,
-      });
-    }
+    set((state) => {
+      const nextClip = state.selectedClip ? { ...state.selectedClip, videoScale: scale } : null;
+      return {
+        studioVideoScale: scale,
+        selectedClip: nextClip,
+        clips: nextClip ? state.clips.map((c) => (c.id === nextClip.id ? nextClip : c)) : state.clips,
+      };
+    });
   },
   setStudioVideoPanX: (x) => {
-    set({ studioVideoPanX: x, studioPanOffsetX: x });
-    const { selectedClip } = get();
-    if (selectedClip) {
-      get().handleSaveClip({
-        ...selectedClip,
-        videoPanX: x,
-        panOffsetX: x,
-      });
-    }
+    set((state) => {
+      const nextClip = state.selectedClip ? { ...state.selectedClip, videoPanX: x, panOffsetX: x } : null;
+      return {
+        studioVideoPanX: x,
+        studioPanOffsetX: x,
+        selectedClip: nextClip,
+        clips: nextClip ? state.clips.map((c) => (c.id === nextClip.id ? nextClip : c)) : state.clips,
+      };
+    });
   },
   setStudioVideoPanY: (y) => {
-    set({ studioVideoPanY: y });
-    const { selectedClip } = get();
-    if (selectedClip) {
-      get().handleSaveClip({
-        ...selectedClip,
-        videoPanY: y,
-      });
-    }
+    set((state) => {
+      const nextClip = state.selectedClip ? { ...state.selectedClip, videoPanY: y } : null;
+      return {
+        studioVideoPanY: y,
+        selectedClip: nextClip,
+        clips: nextClip ? state.clips.map((c) => (c.id === nextClip.id ? nextClip : c)) : state.clips,
+      };
+    });
   },
   setStudioVideoRotation: (rot) => {
-    set({ studioVideoRotation: rot });
-    const { selectedClip } = get();
-    if (selectedClip) {
-      get().handleSaveClip({
-        ...selectedClip,
-        videoRotation: rot,
-      });
-    }
+    set((state) => {
+      const nextClip = state.selectedClip ? { ...state.selectedClip, videoRotation: rot } : null;
+      return {
+        studioVideoRotation: rot,
+        selectedClip: nextClip,
+        clips: nextClip ? state.clips.map((c) => (c.id === nextClip.id ? nextClip : c)) : state.clips,
+      };
+    });
   },
   setStudioSubtitleStyle: (updater) =>
     set((state) => {
       const nextStyle = typeof updater === "function" ? updater(state.studioSubtitleStyle) : updater;
-      const { selectedClip } = state;
-      if (selectedClip) {
-        get().handleSaveClip({
-          ...selectedClip,
-          subtitleStyle: nextStyle,
-        });
-      }
-      return { studioSubtitleStyle: nextStyle };
+      const nextClip = state.selectedClip ? { ...state.selectedClip, subtitleStyle: nextStyle } : null;
+      return {
+        studioSubtitleStyle: nextStyle,
+        selectedClip: nextClip,
+        clips: nextClip ? state.clips.map((c) => (c.id === nextClip.id ? nextClip : c)) : state.clips,
+      };
     }),
   setVolume: (updater) =>
     set((state) => {
       const nextVol = typeof updater === "function" ? updater(state.volume) : updater;
       const clamped = Math.max(0, Math.min(100, nextVol));
-      return {
+      const res = {
         volume: clamped,
         isMuted: clamped === 0 ? true : state.isMuted,
       };
+      if (typeof window !== "undefined" && state.projectId) {
+        localStorage.setItem(`xclips_vol_${state.projectId}`, String(clamped));
+      }
+      return res;
     }),
   setIsMuted: (updater) =>
     set((state) => ({
@@ -408,9 +432,12 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     })),
   toggleMute: () => set((state) => ({ isMuted: !state.isMuted })),
   setIsFullSourceView: (updater) =>
-    set((state) => ({
-      isFullSourceView: typeof updater === "function" ? updater(state.isFullSourceView) : updater,
-    })),
+    set((state) => {
+      const nextVal = typeof updater === "function" ? updater(state.isFullSourceView) : updater;
+      const res = { isFullSourceView: nextVal };
+      setTimeout(() => get().saveStudioSession(), 0);
+      return res;
+    }),
 
   setIsTranscribing: (isTranscribing) => set({ isTranscribing }),
   setIsFetchingYtSubtitles: (isFetchingYtSubtitles) => set({ isFetchingYtSubtitles }),
@@ -529,14 +556,90 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           clips: loadedClips,
         });
 
-        if (loadedClips.length > 0 && !get().selectedClip) {
+        // Restore Master Style fallback if exists
+        let masterStyle = p.masterStyle;
+        if (!masterStyle && p.masterStyleJson) {
+          try {
+            masterStyle = JSON.parse(p.masterStyleJson);
+          } catch {
+            // ignore
+          }
+        }
+        if (!masterStyle && typeof window !== "undefined") {
+          try {
+            const cached = localStorage.getItem(`xclips_master_style_${id}`);
+            if (cached) masterStyle = JSON.parse(cached);
+          } catch {
+            // ignore
+          }
+        }
+
+        if (masterStyle) {
           set({
-            selectedClip: loadedClips[0],
-            currentTime: loadedClips[0].startSec,
-            studioSubtitleStyle: loadedClips[0].subtitleStyle || DEFAULT_SUBTITLE_STYLE,
-            studioLayoutMode: loadedClips[0].layoutMode || "blur_bg",
-            studioAspectRatio: loadedClips[0].aspectRatio || "9:16",
-            studioPanOffsetX: loadedClips[0].panOffsetX || 0,
+            studioAspectRatio: masterStyle.aspectRatio || "9:16",
+            studioLayoutMode: masterStyle.layoutMode || "blur_bg",
+            studioPanOffsetX: masterStyle.panOffsetX || 0,
+            studioVideoScale: masterStyle.videoScale ?? 1.0,
+            studioVideoPanX: masterStyle.videoPanX ?? masterStyle.panOffsetX ?? 0,
+            studioVideoPanY: masterStyle.videoPanY ?? 0,
+            studioVideoRotation: masterStyle.videoRotation ?? 0,
+            studioSubtitleStyle: masterStyle.subtitleStyle || DEFAULT_SUBTITLE_STYLE,
+          });
+        }
+
+        // Restore Session (Last Active Tab, Selected Clip, Volume, etc.)
+        let savedSession: {
+          activeTab?: number;
+          selectedClipId?: string | null;
+          selectedSubtitleSource?: string;
+          volume?: number;
+          isMuted?: boolean;
+          isFullSourceView?: boolean;
+        } | null = null;
+
+        if (typeof window !== "undefined") {
+          try {
+            const raw = localStorage.getItem(`xclips_studio_session_${id}`);
+            if (raw) savedSession = JSON.parse(raw);
+          } catch {
+            // ignore
+          }
+        }
+
+        if (savedSession?.activeTab !== undefined) {
+          set({ activeTab: savedSession.activeTab });
+        }
+        if (savedSession?.volume !== undefined) {
+          set({ volume: savedSession.volume });
+        }
+        if (savedSession?.isMuted !== undefined) {
+          set({ isMuted: savedSession.isMuted });
+        }
+        if (savedSession?.isFullSourceView !== undefined) {
+          set({ isFullSourceView: savedSession.isFullSourceView });
+        }
+
+        // Resolve Target Clip
+        let targetClip: XclipsClip | null = null;
+        if (savedSession?.selectedClipId) {
+          targetClip = loadedClips.find((c) => c.id === savedSession?.selectedClipId) || null;
+        }
+        if (!targetClip && loadedClips.length > 0) {
+          targetClip = loadedClips[0];
+        }
+
+        if (targetClip) {
+          set({
+            selectedClip: targetClip,
+            currentTime: targetClip.startSec,
+            studioSubtitleStyle: targetClip.subtitleStyle || DEFAULT_SUBTITLE_STYLE,
+            studioLayoutMode: targetClip.layoutMode || "blur_bg",
+            studioAspectRatio: targetClip.aspectRatio || "9:16",
+            studioPanOffsetX: targetClip.panOffsetX || 0,
+            studioVideoScale: targetClip.videoScale ?? 1.0,
+            studioVideoPanX: targetClip.videoPanX ?? targetClip.panOffsetX ?? 0,
+            studioVideoPanY: targetClip.videoPanY ?? 0,
+            studioVideoRotation: targetClip.videoRotation ?? 0,
           });
         }
 
@@ -682,16 +785,125 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     set((state) => ({ isPlaying: !state.isPlaying }));
   },
 
+  saveStudioSession: () => {
+    const state = get();
+    if (!state.projectId || typeof window === "undefined") return;
+    try {
+      const session = {
+        activeTab: state.activeTab,
+        selectedClipId: state.selectedClip?.id || null,
+        selectedSubtitleSource: state.selectedSubtitleSource,
+        volume: state.volume,
+        isMuted: state.isMuted,
+        isFullSourceView: state.isFullSourceView,
+      };
+      localStorage.setItem(`xclips_studio_session_${state.projectId}`, JSON.stringify(session));
+    } catch {
+      // ignore
+    }
+  },
+
+  saveActiveClipNow: async (clipOverride) => {
+    const clipToSave = clipOverride || get().selectedClip;
+    if (!clipToSave) {
+      await get().saveMasterTemplateNow();
+      return;
+    }
+
+    set({ autoSaveStatus: "saving" });
+    try {
+      const res = await apiFetch<{ ok: boolean; clip?: XclipsClip; message?: string }>(
+        `/api/xclips/clips/${clipToSave.id}`,
+        {
+          method: "PUT",
+          body: JSON.stringify(clipToSave),
+        }
+      );
+
+      if (res.ok && res.data?.clip) {
+        const saved = res.data.clip;
+        set((state) => ({
+          selectedClip: saved,
+          clips: state.clips.map((c) => (c.id === saved.id ? saved : c)),
+          autoSaveStatus: "saved",
+        }));
+        get().saveStudioSession();
+        setTimeout(() => {
+          if (get().autoSaveStatus === "saved") {
+            set({ autoSaveStatus: "idle" });
+          }
+        }, 2500);
+      } else {
+        set({ autoSaveStatus: "error" });
+        setTimeout(() => {
+          if (get().autoSaveStatus === "error") {
+            set({ autoSaveStatus: "idle" });
+          }
+        }, 4000);
+      }
+    } catch {
+      set({ autoSaveStatus: "error" });
+    }
+  },
+
+  saveMasterTemplateNow: async () => {
+    const state = get();
+    const projectId = state.projectId;
+    if (!projectId) return;
+
+    const masterStyle: MasterStyleConfig = {
+      aspectRatio: state.studioAspectRatio,
+      layoutMode: state.studioLayoutMode,
+      panOffsetX: state.studioPanOffsetX,
+      videoScale: state.studioVideoScale,
+      videoPanX: state.studioVideoPanX,
+      videoPanY: state.studioVideoPanY,
+      videoRotation: state.studioVideoRotation,
+      subtitleStyle: state.studioSubtitleStyle,
+    };
+
+    set({ autoSaveStatus: "saving" });
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(`xclips_master_style_${projectId}`, JSON.stringify(masterStyle));
+      } catch {
+        // ignore
+      }
+    }
+
+    try {
+      const res = await apiFetch<{ ok: boolean; project?: XclipsProject }>(
+        `/api/xclips/projects/${projectId}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            masterStyle,
+            masterStyleJson: JSON.stringify(masterStyle),
+          }),
+        }
+      );
+
+      if (res.ok) {
+        set({ autoSaveStatus: "saved" });
+        setTimeout(() => {
+          if (get().autoSaveStatus === "saved") {
+            set({ autoSaveStatus: "idle" });
+          }
+        }, 2500);
+      } else {
+        set({ autoSaveStatus: "error" });
+      }
+    } catch {
+      set({ autoSaveStatus: "error" });
+    }
+  },
+
   handleSaveClip: async (updatedClip) => {
     set({ selectedClip: updatedClip });
     set((state) => ({
       clips: state.clips.map((c) => (c.id === updatedClip.id ? updatedClip : c)),
     }));
-
-    await apiFetch(`/api/xclips/clips/${updatedClip.id}`, {
-      method: "PUT",
-      body: JSON.stringify(updatedClip),
-    });
+    await get().saveActiveClipNow(updatedClip);
   },
 
   handleDeleteClip: async (clipId) => {
