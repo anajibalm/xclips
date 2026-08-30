@@ -100,7 +100,9 @@ export class XclipsService {
       apiKeys: defaultApiKeys,
       transcribeModel: "gemini-3-7-flash",
       highlightModel: "gemini-3-7-flash",
+      lightModel: "muse-glimmer-30b",
       topicPrompt: "",
+      hookFormula: "auto",
       targetDuration: "standard",
       maxClipsCount: 5,
       strictBoundary: true,
@@ -141,7 +143,7 @@ export class XclipsService {
       aiLogger.info({ provider: validated.provider, highlightModel: validated.highlightModel }, "Saved xclips AI settings with provider-specific API keys");
       return { success: true, data: validated };
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Gagal menyimpan konfigurasi AI";
+      const msg = err instanceof Error ? err.message : "Failed to save AI configuration";
       aiLogger.error({ err }, "Failed to save AI configuration");
       return { success: false, error: msg };
     }
@@ -303,13 +305,13 @@ export class XclipsService {
           ) {
             return {
               success: false,
-              error: json.error?.message || "Autentikasi Claude gagal",
+              error: json.error?.message || "Claude authentication failed",
             };
           }
-          return { success: true, data: { status: "ok", message: "API Key Claude Valid!" } };
+          return { success: true, data: { status: "ok", message: "Claude API Key is valid!" } };
         }
         if (res.status === 401 || res.status === 403) {
-          return { success: false, error: "API Key Claude tidak valid (401/403)" };
+          return { success: false, error: "Claude API Key is invalid (401/403)" };
         }
         const errText = await res.text().catch(() => "");
         return { success: false, error: `Error (${res.status}): ${errText.slice(0, 100)}` };
@@ -406,16 +408,16 @@ export class XclipsService {
           });
 
           if (res.ok) {
-            return { success: true, data: { status: "ok", message: "API Key OpenAI Valid & Terhubung!" } };
+            return { success: true, data: { status: "ok", message: "OpenAI API Key is valid & connected!" } };
           }
           if (res.status === 401 || res.status === 403) {
-            return { success: false, error: "API Key OpenAI tidak valid / unauthorized (401/403)" };
+            return { success: false, error: "OpenAI API Key is invalid / unauthorized (401/403)" };
           }
           const errJson = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
           return { success: false, error: errJson?.error?.message || `OpenAI Auth Error (${res.status})` };
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          return { success: false, error: `Gagal terhubung ke OpenAI: ${errMsg}` };
+          return { success: false, error: `Failed to connect to OpenAI: ${errMsg}` };
         }
       }
 
@@ -441,14 +443,14 @@ export class XclipsService {
       });
 
       if (res.ok) {
-        return { success: true, data: { status: "ok", message: "API Key Valid & Terhubung!" } };
+        return { success: true, data: { status: "ok", message: "API Key is valid & connected!" } };
       }
 
       const errJson = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
-      const errMsg = errJson?.error?.message || `HTTP ${res.status}: Autentikasi Gagal`;
+      const errMsg = errJson?.error?.message || `HTTP ${res.status}: Authentication failed`;
       return { success: false, error: errMsg };
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Gagal menghubungi server API";
+      const msg = err instanceof Error ? err.message : "Failed to connect to API server";
       return { success: false, error: msg };
     }
   }
@@ -530,6 +532,15 @@ export class XclipsService {
       isVfr: metadata.isVfr,
       normalizedPath,
       audioPath: audioRes.success ? audioRes.data : undefined,
+      sourceMeta: {
+        videoId: info.id,
+        title: info.title,
+        channel: info.channel,
+        uploader: info.uploader,
+        description: info.description,
+        webpageUrl: info.webpageUrl,
+        thumbnail: info.thumbnail,
+      },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -812,11 +823,15 @@ export class XclipsService {
         messages.push({ role: "user", content: userPrompt });
       }
 
-      const payload = {
+      // OpenAI API requires "max_completion_tokens" for newer reasoning models (GPT-5.x / o-series)
+      const needsCompletionTokens = /^(gpt-5|o[134])/i.test(model);
+      const tokenParam = needsCompletionTokens ? "max_completion_tokens" : "max_tokens";
+
+      const payload: Record<string, unknown> = {
         model,
         messages,
         temperature: 0.1,
-        max_tokens: 8192,
+        [tokenParam]: 8192,
       };
 
       const response = await fetch(targetUrl, {
@@ -828,6 +843,31 @@ export class XclipsService {
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(timeoutMs),
       });
+
+      // Adaptive retry: if provider rejects the token parameter name, swap and retry once
+      if (!response.ok && response.status === 400) {
+        const errText = await response.text().catch(() => "");
+        const isTokenParamError = /max_tokens|max_completion_tokens/i.test(errText) &&
+          /not supported|unsupported parameter|use 'max_completion_tokens'|use 'max_tokens'/i.test(errText);
+        if (isTokenParamError) {
+          const retryPayload: Record<string, unknown> = { ...payload };
+          delete retryPayload[tokenParam];
+          retryPayload[needsCompletionTokens ? "max_tokens" : "max_completion_tokens"] = 8192;
+          const retryRes = await fetch(targetUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify(retryPayload),
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          if (retryRes.ok) {
+            const retryJson = await retryRes.json();
+            return { success: true, data: retryJson.choices?.[0]?.message?.content || "" };
+          }
+        }
+      }
 
       if (!response.ok) {
         const errText = await response.text().catch(() => "");
@@ -841,8 +881,151 @@ export class XclipsService {
       const textContent = resJson.choices?.[0]?.message?.content || "";
       return { success: true, data: textContent };
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Gagal memproses request AI";
+      const msg = err instanceof Error ? err.message : "Failed to process AI request";
       return { success: false, error: msg };
+    }
+  }
+
+  /**
+   * Detects and synthesizes a high-retention viral narrative topic from video title and transcript sample
+   * using the built-in Requesty Light Model Helper (Zero-Config)
+   */
+  async detectNarrativeTopic(options: {
+    projectId?: string;
+    title?: string;
+    transcriptText?: string;
+    lightModel?: string;
+  }): Promise<Result<{ topicPrompt: string; modelUsed: string }>> {
+    const REQUESTY_BUILTIN_API_KEY =
+      "rqsty-sk-yDRXwua9Q0eFIjeidKgP1tYPL2DhE/0QFk9ThwKT4aosEfROhA+ObqyF40yN0BFxQN1glbx6SfvfS2IusK8PQbbvnxiqMBBnk7L7Jjkp4gM=";
+    const REQUESTY_ROUTER_BASE_URL = "https://router.requesty.ai/v1";
+
+    try {
+      let title = options.title || "";
+      let transcriptSample = options.transcriptText || "";
+      let metadataContext = "";
+
+      if (options.projectId) {
+        const project = xclipsDb.getProject(options.projectId);
+        if (project) {
+          if (!title) title = project.name;
+        }
+        // Prefer the YouTube CC transcript (original platform subtitles) over AI-generated tracks
+        const allTracks = xclipsDb.getProjectTranscripts(options.projectId);
+        const ytTrack =
+          allTracks.find((t) => t.sourceType === "youtube_cc" && (t.rawText || "").trim().length > 0) ||
+          null;
+        const transcript = ytTrack || xclipsDb.getTranscript(options.projectId);
+        if (transcript && !transcriptSample) {
+          transcriptSample = transcript.rawText || "";
+        }
+        // Enrich with persisted platform metadata
+        const meta = project?.sourceMeta;
+        if (meta) {
+          if (!title && meta.title) title = meta.title;
+          metadataContext = [
+            meta.title ? `Title: ${meta.title}` : "",
+            meta.channel || meta.uploader ? `Channel / Creator: ${meta.channel || meta.uploader}` : "",
+            meta.webpageUrl ? `Source URL: ${meta.webpageUrl}` : "",
+            meta.description ? `Description: ${meta.description.slice(0, 800).replace(/[\r\n]+/g, " ")}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n");
+        }
+      }
+
+      // Clean up title
+      const cleanTitle = title
+        .replace(/\.(mp4|mkv|webm|mov|avi)$/i, "")
+        .replace(/\[[a-zA-Z0-9_-]{11}\]/g, "")
+        .replace(/[_-]/g, " ")
+        .trim();
+
+      // Sample first ~6000 chars of transcript (original CC preferred)
+      const sample = transcriptSample.slice(0, 6000).trim();
+
+      const settings = this.getAiSettings();
+      const modelToUse = options.lightModel || settings.lightModel || "muse-glimmer-30b";
+
+      const systemPrompt = `You are a viral short-form video strategist and content editor (TikTok, Reels, Shorts).
+Your goal is to extract the single most compelling core topic / narrative direction from the video metadata (title, channel, description) and the transcript excerpt (the original YouTube closed captions when available).
+Output ONLY a concise, high-impact instruction (1-2 sentences) starting with "Focus on...".
+Do not include quotation marks, markdown headings, or conversational filler.
+Example output: Focus on the contrarian investment thesis, common beginner traps, and risk management rules discussed in the video.`;
+
+      const userPrompt = `Video Title: "${cleanTitle || "Untitled Video"}"
+${metadataContext ? `\nSOURCE VIDEO METADATA (YOUTUBE / PLATFORM):\n${metadataContext}\n` : ""}
+Transcript Excerpt (original platform captions when available):
+"""
+${sample || "No transcript available. Infer from title, channel, and description."}
+"""
+
+Synthesize the single best viral narrative focus prompt:`;
+
+      const response = await fetch(`${REQUESTY_ROUTER_BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${REQUESTY_BUILTIN_API_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://xclips.local",
+          "X-Title": "xClips Studio",
+        },
+        body: JSON.stringify({
+          model: modelToUse,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          temperature: 0.5,
+          max_tokens: 150,
+        }),
+        signal: AbortSignal.timeout(10000), // 10s timeout
+      });
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => "");
+        aiLogger.warn({ status: response.status, errText }, "Requesty Light Model returned non-OK status, using smart fallback");
+        return {
+          success: true,
+          data: {
+            topicPrompt: cleanTitle
+              ? `Focus on core takeaways, key strategies, and actionable insights from "${cleanTitle}".`
+              : "Focus on the most actionable insights, key lessons, and memorable moments from this video.",
+            modelUsed: `${modelToUse} (fallback)`,
+          },
+        };
+      }
+
+      const resJson = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      let topicPrompt = resJson.choices?.[0]?.message?.content?.trim() || "";
+
+      // Clean prompt
+      topicPrompt = topicPrompt.replace(/^["'`]+|["'`]+$/g, "").trim();
+      if (!topicPrompt.toLowerCase().startsWith("focus on")) {
+        topicPrompt = `Focus on ${topicPrompt.charAt(0).toLowerCase() + topicPrompt.slice(1)}`;
+      }
+
+      aiLogger.info({ modelToUse, topicPrompt }, "Successfully synthesized narrative topic using Requesty Light Model");
+      return {
+        success: true,
+        data: {
+          topicPrompt,
+          modelUsed: modelToUse,
+        },
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      aiLogger.warn({ err: msg }, "Requesty Light Model call failed/timeout, smart fallback generated");
+      const fallbackTitle = (options.title || "").replace(/\.(mp4|mkv|webm|mov|avi)$/i, "").trim();
+      return {
+        success: true,
+        data: {
+          topicPrompt: fallbackTitle
+            ? `Focus on key takeaways, core strategies, and valuable discussions from "${fallbackTitle}".`
+            : "Focus on key insights, memorable soundbites, and actionable takeaways from this video.",
+          modelUsed: "local-heuristic",
+        },
+      };
     }
   }
 
@@ -1101,7 +1284,7 @@ export class XclipsService {
       };
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      return { success: false, error: `Gagal memproses Whisper transcription: ${errMsg}` };
+      return { success: false, error: `Failed to process Whisper transcription: ${errMsg}` };
     }
   }
 
@@ -1113,7 +1296,7 @@ export class XclipsService {
     options?: { model?: string; apiKey?: string; label?: string; provider?: AiProviderType } | string
   ): Promise<Result<XclipsTranscript>> {
     const project = xclipsDb.getProject(projectId);
-    if (!project) return { success: false, error: "Proyek tidak ditemukan" };
+    if (!project) return { success: false, error: "Project not found" };
 
     const apiKeyOverride = typeof options === "string" ? options : options?.apiKey;
     const modelOverride = typeof options === "object" ? options?.model : undefined;
@@ -1167,7 +1350,7 @@ export class XclipsService {
       aiLogger.warn({ projectId, targetProvider }, "Transcription requested without API key for target provider");
       return {
         success: false,
-        error: `API Key untuk provider ${targetProvider.toUpperCase()} belum dikonfigurasi. Buka Pengaturan AI.`,
+        error: `API Key for provider ${targetProvider.toUpperCase()} is not configured. Please open AI Settings.`,
       };
     }
 
@@ -1187,7 +1370,7 @@ export class XclipsService {
 
     if (!audioToUse) {
       aiLogger.error({ projectId }, "Audio file not found for transcription");
-      return { success: false, error: "File audio proyek tidak ditemukan" };
+      return { success: false, error: "Project audio file not found" };
     }
 
     try {
@@ -1398,7 +1581,7 @@ Format output WAJIB HANYA berupa JSON valid:
       aiLogger.info({ projectId, wordsCount: allWords.length, model: modelToUse, trackId: transcript.id }, "Audio transcribed and saved as active subtitle track");
       return { success: true, data: transcript };
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Gagal melakukan transkripsi AI";
+      const msg = err instanceof Error ? err.message : "Failed to perform AI transcription";
       const stack = err instanceof Error ? err.stack : undefined;
       aiLogger.error({ projectId, err: msg, stack }, "Failed to perform AI transcription");
       return { success: false, error: msg };
@@ -1410,10 +1593,10 @@ Format output WAJIB HANYA berupa JSON valid:
    */
   async fetchYouTubeSubtitles(projectId: string): Promise<Result<XclipsTranscript>> {
     const project = xclipsDb.getProject(projectId);
-    if (!project) return { success: false, error: "Proyek tidak ditemukan" };
+    if (!project) return { success: false, error: "Project not found" };
 
     if (!project.sourcePath) {
-      return { success: false, error: "File sumber video tidak ditemukan" };
+      return { success: false, error: "Source video file not found" };
     }
 
     try {
@@ -1474,7 +1657,7 @@ Format output WAJIB HANYA berupa JSON valid:
       if (!srtPath || !fs.existsSync(srtPath)) {
         return {
           success: false,
-          error: "Subtitle YouTube (CC) tidak ditemukan untuk video ini. Gunakan fitur AI Transcribe.",
+          error: "YouTube CC subtitles not found for this video. Use AI Transcribe instead.",
         };
       }
 
@@ -1484,7 +1667,7 @@ Format output WAJIB HANYA berupa JSON valid:
       if (words.length === 0) {
         return {
           success: false,
-          error: "Gagal mem-parsing subtitle YouTube. Gunakan fitur AI Transcribe.",
+          error: "Failed to parse YouTube subtitles. Use AI Transcribe instead.",
         };
       }
 
@@ -1508,7 +1691,7 @@ Format output WAJIB HANYA berupa JSON valid:
       aiLogger.info({ projectId, wordsCount: words.length, trackId: transcript.id }, "YouTube subtitles loaded and saved as active track");
       return { success: true, data: transcript };
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Gagal memuat subtitle YouTube";
+      const msg = err instanceof Error ? err.message : "Failed to load YouTube subtitles";
       return { success: false, error: msg };
     }
   }
@@ -1526,10 +1709,10 @@ Format output WAJIB HANYA berupa JSON valid:
    */
   switchActiveSubtitle(projectId: string, transcriptId: string): Result<XclipsTranscript> {
     const ok = xclipsDb.setActiveTranscript(projectId, transcriptId);
-    if (!ok) return { success: false, error: "Gagal mengaktifkan track subtitle" };
+    if (!ok) return { success: false, error: "Failed to switch active subtitle track" };
 
     const active = xclipsDb.getTranscript(projectId, transcriptId);
-    if (!active) return { success: false, error: "Track subtitle tidak ditemukan" };
+    if (!active) return { success: false, error: "Subtitle track not found" };
 
     return { success: true, data: active };
   }
@@ -1542,7 +1725,7 @@ Format output WAJIB HANYA berupa JSON valid:
     transcriptId: string
   ): Result<{ remaining: XclipsTranscript[]; active: XclipsTranscript | null }> {
     const ok = xclipsDb.deleteTranscript(projectId, transcriptId);
-    if (!ok) return { success: false, error: "Gagal menghapus track subtitle" };
+    if (!ok) return { success: false, error: "Failed to delete subtitle track" };
 
     const remaining = xclipsDb.getProjectTranscripts(projectId);
     const active = xclipsDb.getTranscript(projectId);
@@ -1558,7 +1741,7 @@ Format output WAJIB HANYA berupa JSON valid:
     transcriptId?: string
   ): Result<XclipsTranscript> {
     const current = xclipsDb.getTranscript(projectId, transcriptId);
-    if (!current) return { success: false, error: "Transkrip tidak ditemukan" };
+    if (!current) return { success: false, error: "Transcript not found" };
 
     const updated: XclipsTranscript = {
       ...current,
@@ -1577,42 +1760,68 @@ Format output WAJIB HANYA berupa JSON valid:
    */
   async discoverHighlights(
     projectId: string,
-    apiKeyOverride?: string
+    optionsOverride?: {
+      apiKey?: string;
+      provider?: AiProviderType;
+      model?: string;
+      topicPrompt?: string;
+      hookFormula?: string;
+      targetDuration?: "short" | "standard" | "long" | "extended";
+      maxClipsCount?: number;
+      transcriptId?: string;
+    } | string
   ): Promise<Result<XclipsClip[]>> {
     const project = xclipsDb.getProject(projectId);
-    const transcript = xclipsDb.getTranscript(projectId);
+    const options = typeof optionsOverride === "string" ? { apiKey: optionsOverride } : optionsOverride;
+    // Resolve the selected transcript track (falls back to the active one)
+    const transcript = options?.transcriptId
+      ? xclipsDb.getTranscript(projectId, options.transcriptId) || xclipsDb.getTranscript(projectId)
+      : xclipsDb.getTranscript(projectId);
 
     if (!project || !transcript) {
-      return { success: false, error: "Proyek atau transkrip belum tersedia" };
+      return { success: false, error: "Project or transcript not available yet" };
     }
 
     const settings = this.getAiSettings();
+    const providerToUse = options?.provider || settings.provider;
     const apiKey =
-      apiKeyOverride ||
-      settings.apiKeys?.[settings.provider] ||
+      options?.apiKey ||
+      settings.apiKeys?.[providerToUse] ||
       settings.apiKey ||
       process.env.KIE_AI_API_KEY;
     if (!apiKey) {
       return { success: false, error: "API Key AI belum dikonfigurasi. Buka Settings pada tab Autoclip." };
     }
 
+    const effectiveTopic = options?.topicPrompt !== undefined ? options.topicPrompt : settings.topicPrompt;
+    const effectiveFormula = options?.hookFormula !== undefined ? options.hookFormula : settings.hookFormula;
+    const effectiveDuration = options?.targetDuration !== undefined ? options.targetDuration : settings.targetDuration;
+    const maxResults = options?.maxClipsCount || settings.maxClipsCount || 5;
+
     const chunks = chunkTranscript(transcript.words);
-    aiLogger.info({ projectId, chunksCount: chunks.length, totalWords: transcript.words.length, topic: settings.topicPrompt }, "Starting Map-Reduce highlight discovery");
+    aiLogger.info({ projectId, chunksCount: chunks.length, totalWords: transcript.words.length, topic: effectiveTopic, formula: effectiveFormula }, "Starting Map-Reduce highlight discovery");
     const allRawHighlights: CandidateHighlight[] = [];
 
     for (const chunk of chunks) {
       const prompt = buildHighlightPrompt(chunk, {
-        topicPrompt: settings.topicPrompt,
-        targetDuration: settings.targetDuration,
+        topicPrompt: effectiveTopic,
+        hookFormula: effectiveFormula,
+        targetDuration: effectiveDuration,
         strictBoundary: settings.strictBoundary,
+        videoMetadata: {
+          title: project.sourceMeta?.title || project.name,
+          channel: project.sourceMeta?.channel || project.sourceMeta?.uploader,
+          description: project.sourceMeta?.description,
+          webpageUrl: project.sourceMeta?.webpageUrl,
+        },
       });
       try {
-        const modelToUse = settings.provider === "kieai"
+        const modelToUse = options?.model || (providerToUse === "kieai"
           ? (settings.highlightModel || settings.transcribeModel || "gemini-3-7-flash")
-          : (settings.highlightModel || "gemini-3-7-flash");
+          : (settings.highlightModel || "gemini-3-7-flash"));
 
         const dispatchRes = await this.dispatchAiContent({
-          provider: settings.provider,
+          provider: providerToUse,
           baseUrl: settings.baseUrl,
           apiKey,
           model: modelToUse,
@@ -1636,7 +1845,6 @@ Format output WAJIB HANYA berupa JSON valid:
       }
     }
 
-    const maxResults = settings.maxClipsCount || 5;
     const ranked = reduceAndRankHighlights(allRawHighlights, maxResults);
     aiLogger.info({ projectId, rawCount: allRawHighlights.length, rankedCount: ranked.length, maxResults }, "Reduced and ranked viral candidate highlights");
 

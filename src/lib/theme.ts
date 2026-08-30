@@ -171,12 +171,88 @@ export const theme = createTheme({
         },
       },
     },
+    MuiCssBaseline: {
+      styleOverrides: {
+        // Uniform global scrollbar (Masagi Zinc Dark scheme)
+        "*": {
+          scrollbarWidth: "thin",
+          scrollbarColor: "#27272a transparent",
+        },
+        "*::-webkit-scrollbar": {
+          width: 6,
+          height: 6,
+        },
+        "*::-webkit-scrollbar-track": {
+          background: "transparent",
+        },
+        "*::-webkit-scrollbar-thumb": {
+          backgroundColor: "#27272a",
+          borderRadius: 3,
+        },
+        "*::-webkit-scrollbar-thumb:hover": {
+          backgroundColor: "#3f3f46",
+        },
+        "*::-webkit-scrollbar-corner": {
+          background: "transparent",
+        },
+      },
+    },
+    MuiMenu: {
+      styleOverrides: {
+        paper: {
+          backgroundColor: "#18181b",
+          backgroundImage: "none",
+          border: "1px solid #27272a",
+          borderRadius: 8,
+          boxShadow: "0 8px 24px rgba(0, 0, 0, 0.85)",
+          maxHeight: 320,
+        },
+        list: {
+          padding: 4,
+          "&::-webkit-scrollbar": {
+            width: 5,
+          },
+          "&::-webkit-scrollbar-thumb": {
+            backgroundColor: "#27272a",
+            borderRadius: 3,
+          },
+        },
+      },
+    },
+    MuiMenuItem: {
+      styleOverrides: {
+        root: {
+          minHeight: 36,
+          fontSize: "0.8rem",
+          fontWeight: 600,
+          color: "#e4e4e7",
+          borderRadius: 6,
+          "&:hover": {
+            backgroundColor: "#202026",
+          },
+          "&.Mui-selected": {
+            backgroundColor: "rgba(59, 130, 246, 0.12)",
+            color: "#ffffff",
+          },
+          "&.Mui-selected:hover": {
+            backgroundColor: "rgba(59, 130, 246, 0.18)",
+          },
+        },
+      },
+    },
     MuiDialog: {
       styleOverrides: {
         paper: {
           backgroundColor: "#121215",
           border: "1px solid #27272a",
           backgroundImage: "none",
+        },
+      },
+    },
+    MuiDialogContent: {
+      styleOverrides: {
+        root: {
+          paddingTop: "20px",
         },
       },
     },

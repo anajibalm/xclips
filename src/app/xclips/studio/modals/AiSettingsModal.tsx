@@ -29,9 +29,10 @@ import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import BoltIcon from "@mui/icons-material/Bolt";
 import { useStudioStore } from "../store/useStudioStore";
 import { apiFetch } from "@/lib/api-client";
-import { AiProviderType, XclipsAiSettings } from "@/lib/xclips/types";
+import { AiProviderType, XclipsAiSettings, REQUESTY_LIGHT_MODELS } from "@/lib/xclips/types";
 
 // Brand Icons
 function KieAiIcon(props: React.SVGProps<SVGSVGElement>) {
@@ -84,30 +85,30 @@ const PROVIDER_METADATA: Record<
     label: "KIE AI",
     keyTitle: "KIE AI API Key",
     getUrl: "https://kie.ai/api-key",
-    placeholder: "Masukkan KIE AI API key...",
+    placeholder: "Enter KIE AI API key...",
   },
   gemini: {
     label: "Gemini",
     keyTitle: "Google Gemini API Key",
     getUrl: "https://aistudio.google.com/api-keys",
-    placeholder: "Masukkan Google Gemini API key...",
+    placeholder: "Enter Google Gemini API key...",
   },
   openai: {
     label: "OpenAI",
     keyTitle: "OpenAI API Key",
     getUrl: "https://platform.openai.com/api-keys",
-    placeholder: "Masukkan OpenAI API key...",
+    placeholder: "Enter OpenAI API key...",
   },
   anthropic: {
     label: "Claude",
     keyTitle: "Anthropic Claude API Key",
     getUrl: "https://platform.claude.com/settings/workspaces/default/keys",
-    placeholder: "Masukkan Claude API key...",
+    placeholder: "Enter Claude API key...",
   },
   openai_compatible: {
     label: "Custom",
     keyTitle: "Custom Provider API Key",
-    placeholder: "Masukkan Custom API key...",
+    placeholder: "Enter Custom API key...",
   },
 };
 
@@ -179,7 +180,6 @@ export function AiSettingsModal() {
   const aiSettingsError = useStudioStore((s) => s.aiSettingsError);
   const saveAiSettings = useStudioStore((s) => s.saveAiSettings);
 
-  const [aiModalTab, setAiModalTab] = useState(0);
   const [showApiKey, setShowApiKey] = useState(false);
   const [testingApiKey, setTestingApiKey] = useState(false);
   const [testKeyStatus, setTestKeyStatus] = useState<"idle" | "success" | "error">("idle");
@@ -209,10 +209,10 @@ export function AiSettingsModal() {
     setTestingApiKey(false);
     if (res.ok) {
       setTestKeyStatus("success");
-      setTestKeyMessage("API Key Valid!");
+      setTestKeyMessage("API Key is valid!");
     } else {
       setTestKeyStatus("error");
-      setTestKeyMessage((res.data as unknown as { message?: string })?.message || "API Key Tidak Valid");
+      setTestKeyMessage((res.data as unknown as { message?: string })?.message || "Invalid API Key");
     }
   };
 
@@ -266,11 +266,11 @@ export function AiSettingsModal() {
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.3 }}>
             <TuneIcon sx={{ color: "#3b82f6", fontSize: "1.25rem" }} />
             <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#fafafa", fontSize: "1rem", letterSpacing: "-0.01em" }}>
-              Configuration
+              AI Provider &amp; Model Credentials
             </Typography>
           </Box>
           <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.75rem", display: "block" }}>
-            Configure LLM providers, model routing, and precision narrative boundaries for highlight discovery.
+            Configure AI providers (KIE AI, Gemini, OpenAI, Claude), validate API Keys, and setup model routing.
           </Typography>
         </Box>
         <IconButton size="small" onClick={() => setAiSettingsModalOpen(false)} sx={{ color: "#71717a", "&:hover": { color: "#ffffff", bgcolor: "#1f1f26" } }}>
@@ -278,37 +278,12 @@ export function AiSettingsModal() {
         </IconButton>
       </DialogTitle>
 
-      {/* Navigation Tabs for Modal */}
-      <Box sx={{ borderBottom: "1px solid #1f1f26", px: 2.5, bgcolor: "#0f0f14" }}>
-        <Tabs
-          value={aiModalTab}
-          onChange={(_, val) => setAiModalTab(val)}
-          sx={{
-            minHeight: 40,
-            "& .MuiTab-root": {
-              color: "#71717a",
-              fontWeight: 700,
-              textTransform: "none",
-              py: 1,
-              fontSize: "0.8rem",
-              minHeight: 40,
-            },
-            "& .Mui-selected": { color: "#3b82f6" },
-          }}
-        >
-          <Tab label="AI Provider & Model" icon={<TuneIcon sx={{ fontSize: "0.95rem" }} />} iconPosition="start" />
-          <Tab label="Content & Narrative Settings" icon={<VideoFileIcon sx={{ fontSize: "0.95rem" }} />} iconPosition="start" />
-        </Tabs>
-      </Box>
-
       <DialogContent sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 2.5 }}>
-        {/* TAB 0: AI PROVIDER & MODEL ROUTING */}
-        {aiModalTab === 0 && (
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2.2 }}>
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 2.2 }}>
             {/* PROVIDER SELECTION */}
             <Box>
               <Typography variant="caption" sx={{ color: "#a1a1aa", fontWeight: 700, display: "block", mb: 0.8, fontSize: "0.75rem" }}>
-                Pilih AI Provider
+                Select AI Provider
               </Typography>
               <Grid container spacing={1}>
                 {[
@@ -445,7 +420,7 @@ export function AiSettingsModal() {
               {aiSettings.provider === "openai_compatible" && (
                 <FormField
                   label="Base URL / API Endpoint"
-                  subLabel="Endpoint Kustom (Dapat Diedit)"
+                  subLabel="Custom Endpoint (Editable)"
                   value={aiSettings.baseUrl}
                   onChange={(e) => setAiSettings({ ...aiSettings, baseUrl: e.target.value })}
                   placeholder="https://api.openai.com/v1"
@@ -498,7 +473,7 @@ export function AiSettingsModal() {
                       },
                     });
                   }}
-                  placeholder={PROVIDER_METADATA[aiSettings.provider]?.placeholder || "Masukkan API Key..."}
+                  placeholder={PROVIDER_METADATA[aiSettings.provider]?.placeholder || "Enter API Key..."}
                   slotProps={{
                     input: {
                       endAdornment: (
@@ -506,13 +481,13 @@ export function AiSettingsModal() {
                           {testingApiKey ? (
                             <CircularProgress size={16} sx={{ color: "#3b82f6", mr: 0.4 }} />
                           ) : testKeyStatus === "success" ? (
-                            <Tooltip title={testKeyMessage || "API Key Valid & Terhubung!"}>
+                            <Tooltip title={testKeyMessage || "API Key is valid and connected!"}>
                               <IconButton size="small" onClick={handleTestApiKey} sx={{ color: "#22c55e", p: 0.4 }}>
                                 <CheckCircleIcon sx={{ fontSize: "1.15rem" }} />
                               </IconButton>
                             </Tooltip>
                           ) : testKeyStatus === "error" ? (
-                            <Tooltip title={testKeyMessage || "API Key Tidak Valid / Error"}>
+                            <Tooltip title={testKeyMessage || "Invalid API Key or connection error"}>
                               <IconButton size="small" onClick={handleTestApiKey} sx={{ color: "#ef4444", p: 0.4 }}>
                                 <CloseIcon sx={{ fontSize: "1.15rem" }} />
                               </IconButton>
@@ -568,7 +543,7 @@ export function AiSettingsModal() {
               {aiSettings.provider === "kieai" && (
                 <Box sx={{ display: "flex", flexDirection: "column", gap: 0.6 }}>
                   <Typography variant="caption" sx={{ color: "#d4d4d8", fontWeight: 700, fontSize: "0.75rem" }}>
-                    Model AI KIE (Pengolahan Narasi)
+                    KIE AI Model (Narrative &amp; Highlight)
                   </Typography>
                   <FormControl fullWidth size="small">
                     <Select
@@ -604,7 +579,7 @@ export function AiSettingsModal() {
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <Box sx={{ display: "flex", flexDirection: "column", gap: 0.6 }}>
                       <Typography variant="caption" sx={{ color: "#d4d4d8", fontWeight: 700, fontSize: "0.75rem" }}>
-                        Model Transkrip Audio (Speech-to-Text)
+                        Speech-to-Text Model (Audio)
                       </Typography>
                       <FormControl fullWidth size="small">
                         <Select
@@ -635,7 +610,7 @@ export function AiSettingsModal() {
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <Box sx={{ display: "flex", flexDirection: "column", gap: 0.6 }}>
                       <Typography variant="caption" sx={{ color: "#d4d4d8", fontWeight: 700, fontSize: "0.75rem" }}>
-                        Model Pengolahan Narasi &amp; Hook (LLM)
+                        Narrative &amp; Hook Model (LLM)
                       </Typography>
                       <FormControl fullWidth size="small">
                         <Select
@@ -672,7 +647,7 @@ export function AiSettingsModal() {
               {aiSettings.provider === "anthropic" && (
                 <Box sx={{ display: "flex", flexDirection: "column", gap: 0.6 }}>
                   <Typography variant="caption" sx={{ color: "#d4d4d8", fontWeight: 700, fontSize: "0.75rem" }}>
-                    Model Claude (Pengolahan Narasi)
+                    Claude Model (Narrative &amp; Highlight)
                   </Typography>
                   <FormControl fullWidth size="small">
                     <Select
@@ -706,7 +681,7 @@ export function AiSettingsModal() {
               {aiSettings.provider === "gemini" && (
                 <Box sx={{ display: "flex", flexDirection: "column", gap: 0.6 }}>
                   <Typography variant="caption" sx={{ color: "#d4d4d8", fontWeight: 700, fontSize: "0.75rem" }}>
-                    Model Google Gemini (Transkrip &amp; Pengolahan Narasi)
+                    Google Gemini Model (Transcript &amp; Narrative)
                   </Typography>
                   <FormControl fullWidth size="small">
                     <Select
@@ -745,7 +720,7 @@ export function AiSettingsModal() {
                       value={aiSettings.transcribeModel}
                       onChange={(e) => setAiSettings({ ...aiSettings, transcribeModel: e.target.value })}
                       placeholder="gemini-2.0-flash / whisper-1"
-                      helperText="Digunakan untuk memproses kata-per-kata"
+                      helperText="Used for word-level speech-to-text processing"
                     />
                   </Grid>
 
@@ -755,99 +730,69 @@ export function AiSettingsModal() {
                       value={aiSettings.highlightModel}
                       onChange={(e) => setAiSettings({ ...aiSettings, highlightModel: e.target.value })}
                       placeholder="gpt-4o / gemini-1.5-pro / claude-3-5-sonnet"
-                      helperText="Digunakan untuk menemukan topik narasi & hook"
+                      helperText="Used for viral hook and highlight discovery"
                     />
                   </Grid>
                 </Grid>
               )}
             </Box>
-          </Box>
-        )}
 
-        {/* TAB 1: CONTENT & NARRATIVE SETTINGS */}
-        {aiModalTab === 1 && (
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <FormField
-              label="Target Topic / Narrative Prompt (Opsional)"
-              multiline
-              rows={3}
-              placeholder="Contoh: Fokus pada strategi analisis teknikal, manajemen risiko, atau insight motivasi praktis..."
-              value={aiSettings.topicPrompt}
-              onChange={(e) => setAiSettings({ ...aiSettings, topicPrompt: e.target.value })}
-              helperText="Mengarahkan AI agar memprioritaskan topik atau poin narasi spesifik dari transkrip."
-            />
-
-            {/* Target Duration & Max Clips */}
-            <Grid container spacing={2}>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <Typography variant="caption" sx={{ color: "#a1a1aa", fontWeight: 700, display: "block", mb: 0.6 }}>
-                  Target Durasi per Klip
-                </Typography>
-                <Box sx={{ display: "flex", gap: 0.6 }}>
-                  {[
-                    { id: "short", label: "Short", sub: "30-45s" },
-                    { id: "standard", label: "Standard", sub: "45-75s" },
-                    { id: "long", label: "Long", sub: "75-120s" },
-                  ].map((dur) => {
-                    const isSel = aiSettings.targetDuration === dur.id;
-                    return (
-                      <Box
-                        key={dur.id}
-                        onClick={() => setAiSettings({ ...aiSettings, targetDuration: dur.id as "short" | "standard" | "long" })}
-                        sx={{
-                          flex: 1,
-                          py: 1,
-                          px: 0.5,
-                          textAlign: "center",
-                          borderRadius: 0.8,
-                          border: isSel ? "1.5px solid #3b82f6" : "1px solid #23232b",
-                          bgcolor: isSel ? "rgba(59, 130, 246, 0.12)" : "#16161c",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <Typography variant="body2" sx={{ fontWeight: 800, fontSize: "0.74rem", color: isSel ? "#ffffff" : "#d4d4d8" }}>
-                          {dur.label}
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: isSel ? "#93c5fd" : "#71717a", fontSize: "0.64rem", display: "block" }}>
-                          {dur.sub}
-                        </Typography>
+            {/* ZERO-CONFIG LIGHT MODEL / HELPER (REQUESTY) */}
+            <Box sx={{ mt: 2.5, p: 2, bgcolor: "#111116", border: "1px solid #23232b", borderRadius: 1.2 }}>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
+                  <BoltIcon sx={{ color: "#facc15", fontSize: "1.1rem" }} />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#fafafa", fontSize: "0.85rem" }}>
+                    Light / Helper AI Model (Zero-Config)
+                  </Typography>
+                </Box>
+                <Chip
+                  label="Requesty Built-in"
+                  size="small"
+                  sx={{
+                    height: 20,
+                    fontSize: "0.65rem",
+                    fontWeight: 800,
+                    bgcolor: "rgba(250, 204, 21, 0.12)",
+                    color: "#facc15",
+                    border: "1px solid rgba(250, 204, 21, 0.25)",
+                    borderRadius: 0.6,
+                  }}
+                />
+              </Box>
+              <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.72rem", display: "block", mb: 1.5 }}>
+                Used for lightweight helper utilities such as AI Topic Auto-Detection and keyword extraction. Pre-configured and ready to use without entering an API key.
+              </Typography>
+              <FormControl fullWidth size="small">
+                <Select
+                  value={aiSettings.lightModel || "muse-glimmer-30b"}
+                  onChange={(e) => {
+                    setAiSettings({
+                      ...aiSettings,
+                      lightModel: e.target.value,
+                    });
+                  }}
+                  sx={{
+                    bgcolor: "#14141a",
+                    color: "#ffffff",
+                    borderRadius: 1,
+                    fontSize: "0.8rem",
+                    "& .MuiOutlinedInput-notchedOutline": { borderColor: "#27272a" },
+                    "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: "#3f3f46" },
+                  }}
+                >
+                  {REQUESTY_LIGHT_MODELS.map((m) => (
+                    <MenuItem key={m.id} value={m.id}>
+                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", gap: 1 }}>
+                        <span style={{ fontWeight: 700 }}>{m.name}</span>
+                        <span style={{ fontSize: "0.7rem", color: "#71717a" }}>{m.desc}</span>
                       </Box>
-                    );
-                  })}
-                </Box>
-              </Grid>
-
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <Typography variant="caption" sx={{ color: "#a1a1aa", fontWeight: 700, display: "block", mb: 0.6 }}>
-                  Jumlah Maksimal Klip
-                </Typography>
-                <Box sx={{ display: "flex", gap: 0.6 }}>
-                  {[3, 5, 8, 12].map((num) => {
-                    const isSel = aiSettings.maxClipsCount === num;
-                    return (
-                      <Button
-                        key={num}
-                        variant={isSel ? "contained" : "outlined"}
-                        size="small"
-                        onClick={() => setAiSettings({ ...aiSettings, maxClipsCount: num })}
-                        sx={{
-                          flex: 1,
-                          fontWeight: 800,
-                          fontSize: "0.78rem",
-                          bgcolor: isSel ? "#3b82f6" : "#16161c",
-                          borderColor: isSel ? "#3b82f6" : "#23232b",
-                          color: isSel ? "#ffffff" : "#a1a1aa",
-                        }}
-                      >
-                        {num}
-                      </Button>
-                    );
-                  })}
-                </Box>
-              </Grid>
-            </Grid>
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
           </Box>
-        )}
 
         {aiSettingsSuccess && (
           <Alert severity="success" sx={{ bgcolor: "rgba(16, 185, 129, 0.1)", color: "#34d399" }}>
@@ -864,7 +809,7 @@ export function AiSettingsModal() {
 
       <DialogActions sx={{ px: 2.5, py: 1.8, borderTop: "1px solid #1f1f26", bgcolor: "#0f0f14" }}>
         <Button onClick={() => setAiSettingsModalOpen(false)} sx={{ color: "#a1a1aa", textTransform: "none" }}>
-          Batal
+          Cancel
         </Button>
         <Button
           variant="contained"
@@ -877,7 +822,7 @@ export function AiSettingsModal() {
           disabled={aiSettingsSaving}
           sx={{ bgcolor: "#3b82f6", textTransform: "none", fontWeight: 800 }}
         >
-          {aiSettingsSaving ? "Menyimpan..." : "Simpan Pengaturan"}
+          {aiSettingsSaving ? "Saving..." : "Save Settings"}
         </Button>
       </DialogActions>
     </Dialog>

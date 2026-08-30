@@ -119,7 +119,7 @@ export default function XclipsDashboardPage() {
         setYtInfo(null);
         setYtInfoError(
           res.message ||
-            `Gagal mengambil info video (API tidak terjangkau). Pastikan API server berjalan di port 3351.`
+            `Failed to fetch video info (API unreachable). Ensure the API server is running on port 3351.`
         );
       }
       setFetchingYtInfo(false);
@@ -149,7 +149,7 @@ export default function XclipsDashboardPage() {
       resetIngestForm();
       router.push(`/xclips/studio?id=${res.data.project.id}`);
     } else {
-      setIngestError(res.data?.message || "Gagal mengimpor file media lokal");
+      setIngestError(res.data?.message || "Failed to import local media file");
     }
   };
 
@@ -162,7 +162,7 @@ export default function XclipsDashboardPage() {
     setDownloadSize("");
     setDownloadSpeed("");
     setDownloadEta("");
-    setDownloadPhase("Menghubungkan ke YouTube...");
+    setDownloadPhase("Connecting to YouTube...");
 
     try {
       const initRes = await apiFetch<{ ok: boolean; taskId: string; message?: string }>(
@@ -180,7 +180,7 @@ export default function XclipsDashboardPage() {
 
       if (!initRes.ok || !initRes.data?.taskId) {
         setIngesting(false);
-        setIngestError(initRes.data?.message || "Gagal memulai tugas download YouTube");
+        setIngestError(initRes.data?.message || "Failed to start YouTube download task");
         return;
       }
 
@@ -209,13 +209,13 @@ export default function XclipsDashboardPage() {
           if (prog.etaStr) setDownloadEta(prog.etaStr);
 
           if (prog.status === "downloading") {
-            setDownloadPhase(`Mengunduh stream video & audio (${prog.percent.toFixed(1)}%)...`);
+            setDownloadPhase(`Downloading video & audio streams (${prog.percent.toFixed(1)}%)...`);
           } else if (prog.status === "merging") {
-            setDownloadPhase("Menggabungkan container MP4 & subtitle...");
+            setDownloadPhase("Merging MP4 container & subtitles...");
           } else if (prog.status === "completed" && prog.project) {
             clearInterval(pollInterval);
             setDownloadPercent(100);
-            setDownloadPhase("Selesai! Mengarahkan ke Studio...");
+            setDownloadPhase("Completed! Redirecting to Studio...");
             setTimeout(() => {
               setIngesting(false);
               setOpenIngestModal(false);
@@ -225,13 +225,13 @@ export default function XclipsDashboardPage() {
           } else if (prog.status === "error") {
             clearInterval(pollInterval);
             setIngesting(false);
-            setIngestError(prog.error || "Gagal mengunduh video dari YouTube");
+            setIngestError(prog.error || "Failed to download video from YouTube");
           }
         }
       }, 350);
     } catch (err: unknown) {
       setIngesting(false);
-      setIngestError(err instanceof Error ? err.message : "Kesalahan koneksi saat download");
+      setIngestError(err instanceof Error ? err.message : "Connection error during download");
     }
   };
 
@@ -326,7 +326,7 @@ export default function XclipsDashboardPage() {
               "&:hover": { bgcolor: "#2563eb" },
             }}
           >
-            Import Video Baru
+            Import New Video
           </Button>
         </Box>
       </Box>
@@ -336,7 +336,7 @@ export default function XclipsDashboardPage() {
         <Box sx={{ py: 8, textAlign: "center" }}>
           <CircularProgress sx={{ color: "#3b82f6", mb: 2 }} />
           <Typography variant="body2" sx={{ color: "#71717a" }}>
-            Memuat daftar proyek...
+            Loading projects...
           </Typography>
         </Box>
       ) : projects.length === 0 ? (
@@ -351,10 +351,10 @@ export default function XclipsDashboardPage() {
         >
           <VideoLibraryIcon sx={{ fontSize: 56, color: "#52525b", mb: 2 }} />
           <Typography variant="h6" sx={{ fontWeight: 700, mb: 1, color: "#e4e4e7" }}>
-            Belum Ada Proyek xclips
+            No xclips Projects Yet
           </Typography>
           <Typography variant="body2" sx={{ color: "#a1a1aa", mb: 3, maxWidth: 440, mx: "auto" }}>
-            Mulai dengan mengimpor video panjang dari YouTube atau file lokal untuk mendeteksi klip viral secara otomatis.
+            Get started by importing long-form video from YouTube or a local file to automatically discover viral clips.
           </Typography>
           <Button
             variant="contained"
@@ -362,7 +362,7 @@ export default function XclipsDashboardPage() {
             onClick={() => setOpenIngestModal(true)}
             sx={{ bgcolor: "#3b82f6", textTransform: "none", fontWeight: 700, borderRadius: 1 }}
           >
-            Import Video Pertama
+            Import First Video
           </Button>
         </Card>
       ) : (
@@ -404,7 +404,7 @@ export default function XclipsDashboardPage() {
                       </Typography>
                     </Box>
 
-                    <Tooltip title="Hapus Proyek">
+                    <Tooltip title="Delete Project">
                       <IconButton
                         size="small"
                         onClick={(e) => {
@@ -421,7 +421,7 @@ export default function XclipsDashboardPage() {
                   <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 2 }}>
                     <Chip
                       size="small"
-                      label={`Durasi: ${formatDuration(proj.durationSec)}`}
+                      label={`Duration: ${formatDuration(proj.durationSec)}`}
                       sx={{ bgcolor: "#18181b", color: "#a1a1aa", fontSize: "0.75rem", borderRadius: 0.8 }}
                     />
                     <Chip
@@ -439,14 +439,13 @@ export default function XclipsDashboardPage() {
                   </Box>
 
                   <Typography variant="caption" sx={{ color: "#71717a" }}>
-                    Dibuat: {new Date(proj.createdAt).toLocaleDateString("id-ID")}
+                    Created: {new Date(proj.createdAt).toLocaleDateString("en-US")}
                   </Typography>
                 </Box>
               </Card>
             </Grid>
           ))}
         </Grid>
-
       )}
 
       {/* Delete Confirmation Modal (Replaces native window.alert/confirm) */}
@@ -462,11 +461,11 @@ export default function XclipsDashboardPage() {
         }}
       >
         <DialogTitle sx={{ fontWeight: 800, fontSize: "0.95rem", pb: 1, color: "#fafafa" }}>
-          Hapus Proyek xclips?
+          Delete xclips Project?
         </DialogTitle>
         <DialogContent sx={{ pb: 1.5 }}>
           <Typography variant="body2" sx={{ color: "#a1a1aa", fontSize: "0.82rem" }}>
-            Apakah Anda yakin ingin menghapus proyek <strong style={{ color: "#ffffff" }}>{projectToDelete?.name}</strong>? Tindakan ini tidak dapat dibatalkan.
+            Are you sure you want to delete project <strong style={{ color: "#ffffff" }}>{projectToDelete?.name}</strong>? This action cannot be undone.
           </Typography>
         </DialogContent>
         <DialogActions sx={{ p: 2, pt: 0, gap: 1 }}>
@@ -476,7 +475,7 @@ export default function XclipsDashboardPage() {
             disabled={deleting}
             sx={{ color: "#a1a1aa", textTransform: "none", fontSize: "0.8rem" }}
           >
-            Batal
+            Cancel
           </Button>
           <Button
             variant="contained"
@@ -486,7 +485,7 @@ export default function XclipsDashboardPage() {
             startIcon={deleting ? <CircularProgress size={14} sx={{ color: "#ffffff" }} /> : <DeleteIcon fontSize="small" />}
             sx={{ bgcolor: "#ef4444", textTransform: "none", fontWeight: 800, fontSize: "0.8rem", borderRadius: 0.8, "&:hover": { bgcolor: "#dc2626" } }}
           >
-            {deleting ? "Menghapus..." : "Hapus Proyek"}
+            {deleting ? "Deleting..." : "Delete Project"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -504,7 +503,7 @@ export default function XclipsDashboardPage() {
         }}
       >
         <DialogTitle sx={{ fontWeight: 800, color: "#fafafa", pb: 1 }}>
-          Import Media ke xclips
+          Import Media to xclips
         </DialogTitle>
 
         <Box sx={{ borderBottom: 1, borderColor: "#27272a", px: 3 }}>
@@ -526,7 +525,7 @@ export default function XclipsDashboardPage() {
             }}
           >
             <Tab icon={<YouTubeIcon sx={{ fontSize: 18, mr: 0.5 }} />} iconPosition="start" label="YouTube URL" />
-            <Tab icon={<FolderOpenIcon sx={{ fontSize: 18, mr: 0.5 }} />} iconPosition="start" label="File Lokal" />
+            <Tab icon={<FolderOpenIcon sx={{ fontSize: 18, mr: 0.5 }} />} iconPosition="start" label="Local File" />
           </Tabs>
         </Box>
 
@@ -554,7 +553,7 @@ export default function XclipsDashboardPage() {
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 2, p: 1.5, bgcolor: "#18181b", borderRadius: 1 }}>
                   <CircularProgress size={18} sx={{ color: "#3b82f6" }} />
                   <Typography variant="caption" sx={{ color: "#a1a1aa" }}>
-                    Mengambil info video YouTube...
+                    Fetching YouTube video info...
                   </Typography>
                 </Box>
               )}
@@ -624,18 +623,18 @@ export default function XclipsDashboardPage() {
               <Grid container spacing={2} sx={{ mb: 2 }}>
                 <Grid size={{ xs: 6 }}>
                   <FormControl fullWidth size="small">
-                    <InputLabel sx={{ color: "#a1a1aa" }}>Kualitas Video</InputLabel>
+                    <InputLabel sx={{ color: "#a1a1aa" }}>Video Quality</InputLabel>
                     <Select
                       value={youtubeQuality}
-                      label="Kualitas Video"
+                      label="Video Quality"
                       onChange={(e) => setYoutubeQuality(e.target.value as "1080p" | "720p" | "480p" | "best")}
                       disabled={ingesting}
                       sx={{ bgcolor: "#18181b", color: "#f4f4f5", borderRadius: 1 }}
                     >
-                      <MenuItem value="1080p">1080p (Rekomendasi)</MenuItem>
-                      <MenuItem value="720p">720p (Cepat)</MenuItem>
-                      <MenuItem value="480p">480p (Hemat)</MenuItem>
-                      <MenuItem value="best">Best / 4K Asli</MenuItem>
+                      <MenuItem value="1080p">1080p (Recommended)</MenuItem>
+                      <MenuItem value="720p">720p (Fast)</MenuItem>
+                      <MenuItem value="480p">480p (Lightweight)</MenuItem>
+                      <MenuItem value="best">Best / Native 4K</MenuItem>
                     </Select>
                   </FormControl>
                 </Grid>
@@ -643,8 +642,8 @@ export default function XclipsDashboardPage() {
                   <TextField
                     fullWidth
                     size="small"
-                    label="Nama Proyek (Opsional)"
-                    placeholder="Judul Proyek"
+                    label="Project Name (Optional)"
+                    placeholder="Project Title"
                     value={projectName}
                     onChange={(e) => setProjectName(e.target.value)}
                     disabled={ingesting}
@@ -663,7 +662,7 @@ export default function XclipsDashboardPage() {
                 }
                 label={
                   <Typography variant="body2" sx={{ color: "#e4e4e7" }}>
-                    Include Youtube Subtitle
+                    Include YouTube Subtitles
                   </Typography>
                 }
               />
@@ -674,12 +673,12 @@ export default function XclipsDashboardPage() {
           {ingestTab === 1 && (
             <Box>
               <Typography variant="body2" sx={{ color: "#a1a1aa", mb: 2 }}>
-                Masukkan path absolut file video/audio lokal (misal: <code>D:\videos\webinar.mp4</code>).
+                Enter absolute path to local video/audio file (e.g. <code>D:\videos\webinar.mp4</code>).
               </Typography>
 
               <TextField
                 fullWidth
-                label="Path File Video / Audio"
+                label="Video / Audio File Path"
                 placeholder="D:\@eggafx\live-assist\sample.mp4"
                 value={sourcePath}
                 onChange={(e) => setSourcePath(e.target.value)}
@@ -689,7 +688,7 @@ export default function XclipsDashboardPage() {
 
               <TextField
                 fullWidth
-                label="Nama Proyek (Opsional)"
+                label="Project Name (Optional)"
                 placeholder="BAKOM Webinar Trading Eps 12"
                 value={projectName}
                 onChange={(e) => setProjectName(e.target.value)}
@@ -703,7 +702,7 @@ export default function XclipsDashboardPage() {
             <Box sx={{ mt: 3, p: 2, bgcolor: "#18181b", borderRadius: 1, border: "1px solid #27272a" }}>
               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
                 <Typography variant="subtitle2" sx={{ color: "#60a5fa", fontWeight: 700 }}>
-                  {ingestTab === 0 ? downloadPhase : "Memproses media lokal (Probe & Audio Extraction)..."}
+                  {ingestTab === 0 ? downloadPhase : "Processing local media (Probe & Audio Extraction)..."}
                 </Typography>
                 {ingestTab === 0 && (
                   <Typography variant="body2" sx={{ color: "#fbbf24", fontWeight: 800 }}>
@@ -764,7 +763,7 @@ export default function XclipsDashboardPage() {
             disabled={ingesting}
             sx={{ color: "#a1a1aa", textTransform: "none" }}
           >
-            Batal
+            Cancel
           </Button>
           <Button
             variant="contained"
@@ -772,7 +771,7 @@ export default function XclipsDashboardPage() {
             disabled={ingesting || (ingestTab === 0 ? !youtubeUrl : !sourcePath)}
             sx={{ bgcolor: "#3b82f6", textTransform: "none", fontWeight: 700, px: 3 }}
           >
-            {ingesting ? (ingestTab === 0 ? "Mengunduh..." : "Memproses...") : (ingestTab === 0 ? "Download & Import" : "Mulai Analisis")}
+            {ingesting ? (ingestTab === 0 ? "Downloading..." : "Processing...") : (ingestTab === 0 ? "Download & Import" : "Start Ingestion")}
           </Button>
         </DialogActions>
       </Dialog>

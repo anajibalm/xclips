@@ -218,12 +218,12 @@ export function StudioCanvas({
       index: 0,
       startSec: 0,
       endSec: 3,
-      text: "CONTOH SUBTITLE VIRAL HOOK",
+      text: "SAMPLE VIRAL HOOK SUBTITLE",
       words: [
-        { word: "CONTOH", start: 0, end: 0.8, confidence: 1, isFiller: false, excluded: false },
-        { word: "SUBTITLE", start: 0.8, end: 1.6, confidence: 1, isFiller: false, excluded: false },
-        { word: "VIRAL", start: 1.6, end: 2.2, confidence: 1, isFiller: false, excluded: false },
-        { word: "HOOK", start: 2.2, end: 3.0, confidence: 1, isFiller: false, excluded: false },
+        { word: "SAMPLE", start: 0, end: 0.8, confidence: 1, isFiller: false, excluded: false },
+        { word: "VIRAL", start: 0.8, end: 1.6, confidence: 1, isFiller: false, excluded: false },
+        { word: "HOOK", start: 1.6, end: 2.2, confidence: 1, isFiller: false, excluded: false },
+        { word: "SUBTITLE", start: 2.2, end: 3.0, confidence: 1, isFiller: false, excluded: false },
       ],
     };
   }, [liveActivePhrase, isPlaying, phraseSegments, effectiveSubtitleTime]);

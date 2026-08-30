@@ -124,7 +124,7 @@ app.get("/api/xclips/projects", (c) => {
     const projects = xclipsDb.getAllProjects();
     return c.json({ ok: true, projects });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Gagal memuat proyek xclips";
+    const message = err instanceof Error ? err.message : "Failed to load xclips projects";
     return c.json({ ok: false, message }, 500);
   }
 });
@@ -135,7 +135,7 @@ app.post("/api/xclips/youtube/info", async (c) => {
     const body = await c.req.json();
     const { url } = body;
     if (!url) {
-      return c.json({ ok: false, message: "URL YouTube wajib diisi" }, 400);
+      return c.json({ ok: false, message: "YouTube URL is required" }, 400);
     }
 
     const res = await xclipsService.getYouTubeMetadata(url);
@@ -145,7 +145,7 @@ app.post("/api/xclips/youtube/info", async (c) => {
 
     return c.json({ ok: true, info: res.data });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Gagal mengambil metadata YouTube";
+    const message = err instanceof Error ? err.message : "Failed to fetch YouTube metadata";
     return c.json({ ok: false, message }, 500);
   }
 });
@@ -236,7 +236,7 @@ app.post("/api/xclips/youtube/ingest-async", async (c) => {
 
     return c.json({ ok: true, taskId });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Gagal memulai download YouTube";
+    const message = err instanceof Error ? err.message : "Failed to start YouTube download";
     return c.json({ ok: false, message }, 500);
   }
 });
@@ -246,7 +246,7 @@ app.get("/api/xclips/youtube/progress/:taskId", (c) => {
   const taskId = c.req.param("taskId");
   const task = activeDownloads.get(taskId);
   if (!task) {
-    return c.json({ ok: false, message: "Task tidak ditemukan" }, 404);
+    return c.json({ ok: false, message: "Task not found" }, 404);
   }
   return c.json({ ok: true, progress: task });
 });
@@ -423,7 +423,7 @@ app.post("/api/xclips/youtube/ingest", async (c) => {
 
     return c.json({ ok: true, project: res.data });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Gagal mengunduh video YouTube";
+    const message = err instanceof Error ? err.message : "Failed to download YouTube video";
     return c.json({ ok: false, message }, 500);
   }
 });
@@ -433,7 +433,7 @@ app.post("/api/xclips/projects/ingest", async (c) => {
     const body = await c.req.json();
     const { sourcePath, name } = body;
     if (!sourcePath) {
-      return c.json({ ok: false, message: "sourcePath wajib diisi" }, 400);
+      return c.json({ ok: false, message: "sourcePath is required" }, 400);
     }
 
     const res = await xclipsService.ingestLocalFile(sourcePath, name);
@@ -443,7 +443,7 @@ app.post("/api/xclips/projects/ingest", async (c) => {
 
     return c.json({ ok: true, project: res.data });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Gagal mengimpor file media";
+    const message = err instanceof Error ? err.message : "Failed to import media file";
     return c.json({ ok: false, message }, 500);
   }
 });
@@ -452,10 +452,10 @@ app.post("/api/xclips/projects/ingest", async (c) => {
 app.get("/api/xclips/media/:id/stream", (c) => {
   const id = c.req.param("id");
   const project = xclipsDb.getProject(id);
-  if (!project) return c.text("Proyek tidak ditemukan", 404);
+  if (!project) return c.text("Project not found", 404);
 
   const videoPath = project.normalizedPath || project.sourcePath;
-  if (!fs.existsSync(videoPath)) return c.text("File video tidak ditemukan di disk", 404);
+  if (!fs.existsSync(videoPath)) return c.text("Video file not found on disk", 404);
 
   const stat = fs.statSync(videoPath);
   const fileSize = stat.size;
@@ -616,7 +616,7 @@ function extractYouTubeId(sourcePath: string): string | null {
 app.get("/api/xclips/projects/:id/assets", async (c) => {
   const id = c.req.param("id");
   const project = xclipsDb.getProject(id);
-  if (!project) return c.json({ ok: false, message: "Proyek tidak ditemukan" }, 404);
+  if (!project) return c.json({ ok: false, message: "Project not found" }, 404);
 
   const transcript = xclipsDb.getTranscript(id);
   const videoPath = project.normalizedPath || project.sourcePath;
@@ -731,7 +731,7 @@ app.get("/api/xclips/projects/:id/assets", async (c) => {
 app.get("/api/xclips/media/:id/audio", async (c) => {
   const id = c.req.param("id");
   const project = xclipsDb.getProject(id);
-  if (!project) return c.text("Proyek tidak ditemukan", 404);
+  if (!project) return c.text("Project not found", 404);
 
   const cacheDir = path.resolve(process.cwd(), "vault", "xclips", "cache", id);
   let audioPath = project.audioPath || path.join(cacheDir, "audio_16k.wav");
@@ -740,10 +740,10 @@ app.get("/api/xclips/media/:id/audio", async (c) => {
     const videoPath = project.normalizedPath || project.sourcePath;
     if (fs.existsSync(videoPath)) {
       const res = await extractAudioWav(videoPath, audioPath);
-      if (!res.success) return c.text("Gagal mengekstrak audio", 500);
+      if (!res.success) return c.text("Failed to extract audio", 500);
       audioPath = res.data;
     } else {
-      return c.text("Audio tidak ditemukan", 404);
+      return c.text("Audio not found", 404);
     }
   }
 
@@ -824,9 +824,9 @@ app.get("/api/xclips/media/:id/thumbnail", async (c) => {
       const videoPath = project.normalizedPath || project.sourcePath;
       if (fs.existsSync(videoPath)) {
         const res = await extractFrameImage(videoPath, thumbPath, 1.0);
-        if (!res.success) return c.text("Gagal mengekstrak thumbnail", 500);
+        if (!res.success) return c.text("Failed to extract thumbnail", 500);
       } else {
-        return c.text("Thumbnail tidak ditemukan", 404);
+        return c.text("Thumbnail not found", 404);
       }
     }
   }
@@ -855,7 +855,7 @@ app.get("/api/xclips/media/:id/thumbnail", async (c) => {
 app.post("/api/xclips/media/:id/thumbnail/capture", async (c) => {
   const id = c.req.param("id");
   const project = xclipsDb.getProject(id);
-  if (!project) return c.json({ ok: false, message: "Proyek tidak ditemukan" }, 404);
+  if (!project) return c.json({ ok: false, message: "Project not found" }, 404);
 
   try {
     const body = await c.req.json();
@@ -866,11 +866,11 @@ app.post("/api/xclips/media/:id/thumbnail/capture", async (c) => {
 
     const res = await extractFrameImage(videoPath, thumbPath, timeSec);
     if (res.success) {
-      return c.json({ ok: true, message: "Thumbnail berhasil di-capture", timeSec });
+      return c.json({ ok: true, message: "Thumbnail captured successfully", timeSec });
     }
     return c.json({ ok: false, message: res.error }, 500);
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Error capture thumbnail";
+    const msg = err instanceof Error ? err.message : "Error capturing thumbnail";
     return c.json({ ok: false, message: msg }, 500);
   }
 });
@@ -880,7 +880,7 @@ app.get("/api/xclips/media/:id/download", async (c) => {
   const id = c.req.param("id");
   const type = c.req.query("type") || "video";
   const project = xclipsDb.getProject(id);
-  if (!project) return c.text("Proyek tidak ditemukan", 404);
+  if (!project) return c.text("Project not found", 404);
 
   if (type === "srt") {
     const transcript = xclipsDb.getTranscript(id);
@@ -959,13 +959,13 @@ app.get("/api/xclips/media/:id/download", async (c) => {
     });
   }
 
-  return c.text("File tidak ditemukan", 404);
+  return c.text("File not found", 404);
 });
 
 app.get("/api/xclips/projects/:id", (c) => {
   const id = c.req.param("id");
   const project = xclipsDb.getProject(id);
-  if (!project) return c.json({ ok: false, message: "Proyek tidak ditemukan" }, 404);
+  if (!project) return c.json({ ok: false, message: "Project not found" }, 404);
 
   const transcript = xclipsDb.getTranscript(id);
   const clips = xclipsDb.getClips(id);
@@ -977,7 +977,7 @@ app.put("/api/xclips/projects/:id", async (c) => {
   try {
     const id = c.req.param("id");
     const existing = xclipsDb.getProject(id);
-    if (!existing) return c.json({ ok: false, message: "Proyek tidak ditemukan" }, 404);
+    if (!existing) return c.json({ ok: false, message: "Project not found" }, 404);
 
     const body = await c.req.json();
     const updatedProject: XclipsProject = {
@@ -989,7 +989,7 @@ app.put("/api/xclips/projects/:id", async (c) => {
     xclipsDb.saveProject(updatedProject);
     return c.json({ ok: true, project: updatedProject });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Gagal memperbarui proyek";
+    const message = err instanceof Error ? err.message : "Failed to update project";
     return c.json({ ok: false, message }, 500);
   }
 });
@@ -1017,7 +1017,7 @@ app.post("/api/xclips/settings", async (c) => {
     }
     return c.json({ ok: true, settings: res.data });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Gagal menyimpan konfigurasi";
+    const message = err instanceof Error ? err.message : "Failed to save configuration";
     return c.json({ ok: false, message }, 500);
   }
 });
@@ -1032,7 +1032,7 @@ app.post("/api/xclips/ai/models", async (c) => {
     }
     return c.json({ ok: true, models: res.data });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Gagal mengambil daftar model";
+    const message = err instanceof Error ? err.message : "Failed to fetch models list";
     return c.json({ ok: false, message }, 500);
   }
 });
@@ -1047,7 +1047,7 @@ app.post("/api/xclips/settings/test-key", async (c) => {
     }
     return c.json({ ok: true, message: res.data.message });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Gagal memvalidasi API Key";
+    const message = err instanceof Error ? err.message : "Failed to validate API Key";
     return c.json({ ok: false, message }, 500);
   }
 });
@@ -1062,7 +1062,35 @@ app.post("/api/xclips/ai/validate", async (c) => {
     }
     return c.json({ ok: true, data: res.data, message: res.data.message });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Gagal memvalidasi API Key";
+    const message = err instanceof Error ? err.message : "Failed to validate API Key";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
+// AI-Powered Topic Detection using Requesty Light Model Helper
+app.post("/api/xclips/ai/detect-topic", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const { projectId, title, transcriptText, lightModel } = body as {
+      projectId?: string;
+      title?: string;
+      transcriptText?: string;
+      lightModel?: string;
+    };
+
+    const res = await xclipsService.detectNarrativeTopic({
+      projectId,
+      title,
+      transcriptText,
+      lightModel,
+    });
+
+    if (!res.success) {
+      return c.json({ ok: false, message: res.error }, 400);
+    }
+    return c.json({ ok: true, data: res.data, topicPrompt: res.data.topicPrompt, model: res.data.modelUsed });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Failed to detect topic";
     return c.json({ ok: false, message }, 500);
   }
 });
@@ -1101,7 +1129,7 @@ app.post("/api/xclips/projects/:id/subtitles/switch", async (c) => {
   const id = c.req.param("id");
   const body = await c.req.json().catch(() => ({}));
   const { transcriptId } = body as { transcriptId: string };
-  if (!transcriptId) return c.json({ ok: false, message: "transcriptId diperlukan" }, 400);
+  if (!transcriptId) return c.json({ ok: false, message: "transcriptId is required" }, 400);
 
   const res = xclipsService.switchActiveSubtitle(id, transcriptId);
   if (!res.success) {
@@ -1125,7 +1153,7 @@ app.put("/api/xclips/projects/:id/transcript", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { words, transcriptId } = body as { words?: any[]; transcriptId?: string };
   if (!words || !Array.isArray(words)) {
-    return c.json({ ok: false, message: "Kata-kata transkrip tidak valid" }, 400);
+    return c.json({ ok: false, message: "Invalid transcript words array" }, 400);
   }
 
   const res = xclipsService.saveTranscriptWords(id, words, transcriptId);
@@ -1138,9 +1166,8 @@ app.put("/api/xclips/projects/:id/transcript", async (c) => {
 app.post("/api/xclips/projects/:id/discover", async (c) => {
   const id = c.req.param("id");
   const body = await c.req.json().catch(() => ({}));
-  const apiKey = body?.apiKey;
 
-  const res = await xclipsService.discoverHighlights(id, apiKey);
+  const res = await xclipsService.discoverHighlights(id, body);
   if (!res.success) {
     return c.json({ ok: false, message: res.error }, 400);
   }
@@ -1151,12 +1178,12 @@ app.post("/api/xclips/clips", async (c) => {
   try {
     const clip = await c.req.json();
     if (!clip.id || !clip.projectId) {
-      return c.json({ ok: false, message: "Klip tidak valid" }, 400);
+      return c.json({ ok: false, message: "Invalid clip object" }, 400);
     }
     xclipsDb.saveClip(clip);
     return c.json({ ok: true, clip });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Gagal menyimpan klip";
+    const message = err instanceof Error ? err.message : "Failed to save clip";
     return c.json({ ok: false, message }, 500);
   }
 });
@@ -1166,12 +1193,12 @@ app.put("/api/xclips/clips/:id", async (c) => {
     const id = c.req.param("id");
     const clip = await c.req.json();
     if (!clip || !clip.id || clip.id !== id) {
-      return c.json({ ok: false, message: "Payload klip tidak valid" }, 400);
+      return c.json({ ok: false, message: "Invalid clip payload" }, 400);
     }
     xclipsDb.saveClip(clip);
     return c.json({ ok: true, clip });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Gagal memperbarui klip";
+    const message = err instanceof Error ? err.message : "Failed to update clip";
     return c.json({ ok: false, message }, 500);
   }
 });
@@ -1185,7 +1212,7 @@ app.delete("/api/xclips/clips/:id", (c) => {
 app.post("/api/xclips/clips/:id/render", (c) => {
   const id = c.req.param("id");
   const clip = xclipsDb.getClip(id);
-  if (!clip) return c.json({ ok: false, message: "Klip tidak ditemukan" }, 404);
+  if (!clip) return c.json({ ok: false, message: "Clip not found" }, 404);
 
   const job = xclipsService.enqueueRender(clip.id, clip.projectId);
   return c.json({ ok: true, job });
@@ -1194,7 +1221,7 @@ app.post("/api/xclips/clips/:id/render", (c) => {
 app.get("/api/xclips/jobs/:id", (c) => {
   const id = c.req.param("id");
   const job = xclipsDb.getJob(id);
-  if (!job) return c.json({ ok: false, message: "Job tidak ditemukan" }, 404);
+  if (!job) return c.json({ ok: false, message: "Job not found" }, 404);
   return c.json({ ok: true, job });
 });
 // Start Server

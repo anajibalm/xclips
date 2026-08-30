@@ -144,7 +144,7 @@ export function ExportModal() {
       <DialogContent sx={{ p: 2.5 }}>
         {!selectedClip ? (
           <Alert severity="warning" sx={{ bgcolor: "rgba(234, 179, 8, 0.1)", color: "#facc15", borderRadius: 1 }}>
-            Pilih salah satu klip di tab <strong>Autoclip</strong> terlebih dahulu sebelum melakukan export.
+            Select a clip in the <strong>Autoclip</strong> tab before exporting.
           </Alert>
         ) : (
           <>
@@ -166,7 +166,7 @@ export function ExportModal() {
                   {selectedClip.title || selectedClip.hookText || "Clip Target"}
                 </Typography>
                 <Typography variant="caption" sx={{ color: "#71717a", display: "block" }}>
-                  Durasi: {formatTime(selectedClip.startSec)} - {formatTime(selectedClip.endSec)} ({(selectedClip.endSec - selectedClip.startSec).toFixed(1)}s) &bull; Layout: {selectedClip.layoutMode}
+                  Duration: {formatTime(selectedClip.startSec)} - {formatTime(selectedClip.endSec)} ({(selectedClip.endSec - selectedClip.startSec).toFixed(1)}s) &bull; Layout: {selectedClip.layoutMode}
                 </Typography>
               </Box>
               <Chip
@@ -275,7 +275,7 @@ export function ExportModal() {
               <Box sx={{ mb: 2, p: 2, bgcolor: "#18181c", borderRadius: 1, border: "1px solid #3b82f6" }}>
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
                   <Typography variant="body2" sx={{ color: "#60a5fa", fontWeight: 700, fontSize: "0.82rem" }}>
-                    Sedang me-render video lokal...
+                    Rendering video locally...
                   </Typography>
                   <Typography variant="caption" sx={{ color: "#93c5fd", fontWeight: 800, fontFamily: "monospace" }}>
                     {renderProgress}%
@@ -318,7 +318,7 @@ export function ExportModal() {
                   border: "1px solid rgba(16, 185, 129, 0.3)",
                 }}
               >
-                Render berhasil! File siap: <code style={{ fontSize: "0.75rem" }}>{selectedClip.outputPath}</code>
+                Render completed! File ready: <code style={{ fontSize: "0.75rem" }}>{selectedClip.outputPath}</code>
               </Alert>
             )}
           </>
@@ -340,7 +340,7 @@ export function ExportModal() {
             "&:hover": { color: "#ffffff", bgcolor: "#18181b" },
           }}
         >
-          Tutup
+          Close
         </Button>
 
         {selectedClip && (

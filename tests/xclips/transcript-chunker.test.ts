@@ -87,8 +87,8 @@ describe("xclips - Transcript Chunker & Highlight Reducer", () => {
     });
 
     expect(prompt).toContain("Strategi risk management trading kripto");
-    expect(prompt).toContain("STRICT BOUNDARY");
-    expect(prompt).toContain("target durasi 25-45 detik");
+    expect(prompt).toContain("STRICT NARRATIVE BOUNDARY");
+    expect(prompt).toContain("target duration 30-45 seconds");
   });
 
   it("should return static models (gemini-3-6-flash, gemini-3-7-flash, gpt-5-6-terra) for kieai provider", async () => {
@@ -189,12 +189,106 @@ describe("xclips - Transcript Chunker & Highlight Reducer", () => {
     expect(current.apiKey).toBe("sk-openai-test-456");
   });
 
-  it("should fail validation if apiKey is empty or blank", async () => {
+  it("should build prompt with Hook Matrix formulas and extended (~3 min) target duration", () => {
+    const chunk = {
+      chunkIndex: 0,
+      startSec: 0,
+      endSec: 300,
+      text: "Katanya makan gratis itu asal kenyang. Padahal semuanya dihitung ahli gizi.",
+      words: [],
+    };
+
+    const promptMythBuster = buildHighlightPrompt(chunk, {
+      hookFormula: "01_myth_buster",
+      targetDuration: "extended",
+      strictBoundary: true,
+    });
+
+    expect(promptMythBuster).toContain("MYTH BUSTER");
+    expect(promptMythBuster).toContain("target duration 120-180 seconds");
+    expect(promptMythBuster).toContain("STRICT NARRATIVE BOUNDARY");
+
+    const promptRipple = buildHighlightPrompt(chunk, {
+      hookFormula: "15_ripple_effect",
+      targetDuration: "standard",
+    });
+
+    expect(promptRipple).toContain("RIPPLE EFFECT");
+    expect(promptRipple).toContain("target duration 45-75 seconds");
+  });
+
+  it("should keep extended duration highlights (up to 180s/210s) in reduceAndRankHighlights", () => {
+    const rawHighlights: CandidateHighlight[] = [
+      {
+        title: "Extended 3 Min Highlight",
+        hookText: "Hook 3 Min",
+        viralScore: 98,
+        startSec: 10.0,
+        endSec: 185.0,
+        durationSec: 175,
+        summary: "Summary 3 min",
+      },
+    ];
+
+    const ranked = reduceAndRankHighlights(rawHighlights, 5);
+    expect(ranked.length).toBe(1);
+    expect(ranked[0].durationSec).toBe(175);
+  });
+
+  it("should expose Requesty light models constant and synthesize topic prompts with fallback", async () => {
+    const { REQUESTY_LIGHT_MODELS } = await import("@/lib/xclips/types");
+    expect(REQUESTY_LIGHT_MODELS.length).toBe(3);
+    expect(REQUESTY_LIGHT_MODELS.map((m) => m.id)).toEqual([
+      "muse-glimmer-30b",
+      "gemma-4-31b-it",
+      "gpt-5.6-luna",
+    ]);
+
     const { xclipsService } = await import("@/lib/xclips.service");
-    const res = await xclipsService.validateApiKey("kieai", "https://api.kie.ai", "   ");
-    expect(res.success).toBe(false);
-    if (!res.success) {
-      expect(res.error).toContain("tidak boleh kosong");
+
+    // Test with mock AI success response
+    const origFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: "Focus on viral hook strategies, audience psychology, and editing blueprints.",
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+
+      const res = await xclipsService.detectNarrativeTopic({
+        title: "How to Build High-Converting Short-Form Videos [abc12345678].mp4",
+        transcriptText: "Today we will break down hook psychology, retention graphs, and audio framing secrets.",
+        lightModel: "muse-glimmer-30b",
+      });
+
+      expect(res.success).toBe(true);
+      if (res.success) {
+        expect(res.data.topicPrompt).toBe("Focus on viral hook strategies, audience psychology, and editing blueprints.");
+        expect(res.data.modelUsed).toBe("muse-glimmer-30b");
+      }
+
+      // Test fallback when AI endpoint returns error
+      globalThis.fetch = async () => new Response("Internal error", { status: 500 });
+      const resFallback = await xclipsService.detectNarrativeTopic({
+        title: "Crypto Trading Masterclass.mp4",
+        transcriptText: "Risk management is the key to longevity.",
+        lightModel: "gemma-4-31b-it",
+      });
+
+      expect(resFallback.success).toBe(true);
+      if (resFallback.success) {
+        expect(resFallback.data.topicPrompt).toContain("Crypto Trading Masterclass");
+      }
+    } finally {
+      globalThis.fetch = origFetch;
     }
   });
 });

@@ -104,6 +104,16 @@ export interface XclipsProject {
   audioPath?: string;
   masterStyleJson?: string;
   masterStyle?: MasterStyleConfig;
+  /** Original platform metadata (yt-dlp info: title, channel, description, url, etc.) */
+  sourceMeta?: {
+    videoId?: string;
+    title?: string;
+    channel?: string;
+    uploader?: string;
+    description?: string;
+    webpageUrl?: string;
+    thumbnail?: string;
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -186,6 +196,36 @@ export interface RenderJob {
 export const AiProviderTypeSchema = z.enum(["kieai", "gemini", "openai", "anthropic", "openai_compatible"]);
 export type AiProviderType = z.infer<typeof AiProviderTypeSchema>;
 
+export const HOOK_FORMULAS = [
+  { id: "auto", name: "Auto (AI Best Fit)", sub: "Smart Virality & Retention Engine", emotion: "Optimal for All Topics" },
+  { id: "none", name: "No Specific Formula", sub: "Natural Context Segments", emotion: "Neutral / Documentary" },
+  { id: "01_myth_buster", name: "01. Myth Buster", sub: "Common Myths Debunked", emotion: "Enlightened, Surprised" },
+  { id: "02_data_speaks", name: "02. Data Speaks", sub: "Eye-Opening Numbers & Stats", emotion: "Amazed, Conscious" },
+  { id: "03_hidden_right", name: "03. Hidden Right", sub: "Overlooked Rights & Opportunities", emotion: "Relieved, Empowered" },
+  { id: "04_silent_risk", name: "04. Silent Risk", sub: "Hidden Dangers & Warnings", emotion: "Alert, Concerned" },
+  { id: "05_speed_proof", name: "05. Speed Proof", sub: "Remarkable Rapid Progress", emotion: "Positively Surprised, Impressed" },
+  { id: "06_local_hero", name: "06. Local Hero", sub: "Small Grassroots, Massive Impact", emotion: "Proud, Inspired" },
+  { id: "07_little_known", name: "07. Little-Known", sub: "Behind-the-Scenes Insights", emotion: "Enlightened, Curious" },
+  { id: "08_plot_twist", name: "08. Plot Twist", sub: "Unexpected Contrarian Truth", emotion: "Shocked, Understanding" },
+  { id: "09_honest_talk", name: "09. Honest Talk", sub: "Candid Confession & Solution", emotion: "Trusting, Relatable" },
+  { id: "10_not_your_fault", name: "10. Not Your Fault", sub: "Empathetic Clarity & Guidance", emotion: "Relieved, Supported" },
+  { id: "11_step_by_step", name: "11. Step by Step", sub: "Actionable Practical Walkthrough", emotion: "Supported, Empowered" },
+  { id: "12_surprising_link", name: "12. Surprising Link", sub: "Unexpected Analogy & Comparison", emotion: "Reframed, Intrigued" },
+  { id: "13_near_future", name: "13. Near Future", sub: "Upcoming Roadmap & Vision", emotion: "Hopeful, Enthusiastic" },
+  { id: "14_are_you_in", name: "14. Are You In?", sub: "Direct Audience Qualification", emotion: "Relevant, Self-Aware" },
+  { id: "15_ripple_effect", name: "15. Ripple Effect", sub: "Domino Effect of Single Action", emotion: "Motivated, Empowered" },
+] as const;
+
+export type HookFormulaId = typeof HOOK_FORMULAS[number]["id"];
+
+export const REQUESTY_LIGHT_MODELS = [
+  { id: "muse-glimmer-30b", name: "Muse Glimmer 30B (Default)", desc: "Balanced & fast lightweight helper" },
+  { id: "gemma-4-31b-it", name: "Gemma 4 31B IT", desc: "Multilingual & structured topic synthesis" },
+  { id: "gpt-5.6-luna", name: "GPT 5.6 Luna", desc: "Advanced reasoning & high-retention cues" },
+] as const;
+
+export type RequestyLightModelId = typeof REQUESTY_LIGHT_MODELS[number]["id"];
+
 export const XclipsAiSettingsSchema = z.object({
   provider: AiProviderTypeSchema.default("kieai"),
   baseUrl: z.string().default("https://api.kie.ai"),
@@ -207,9 +247,11 @@ export const XclipsAiSettingsSchema = z.object({
     }),
   transcribeModel: z.string().default("gemini-3-7-flash"),
   highlightModel: z.string().default("gemini-3-7-flash"),
+  lightModel: z.string().default("muse-glimmer-30b"), // Built-in Requesty helper model
   // Autoclip Narrative Options
   topicPrompt: z.string().optional().default(""),
-  targetDuration: z.enum(["short", "standard", "long"]).default("standard"), // short: 30-45s, standard: 45-75s, long: 75-120s
+  hookFormula: z.string().optional().default("auto"),
+  targetDuration: z.enum(["short", "standard", "long", "extended"]).default("standard"), // short: 30-45s, standard: 45-75s, long: 75-120s, extended: 120-180s (~3 min)
   maxClipsCount: z.number().min(1).max(20).default(5),
   strictBoundary: z.boolean().default(true),
 });

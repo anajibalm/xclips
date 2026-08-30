@@ -78,7 +78,7 @@ function StudioContent() {
       <Box sx={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", height: "100vh", bgcolor: "#09090c" }}>
         <CircularProgress size={40} sx={{ color: "#3b82f6", mb: 2 }} />
         <Typography variant="body2" sx={{ color: "#a1a1aa" }}>
-          Menyiapkan Workspace Studio &amp; Stream Video...
+          Preparing Studio Workspace &amp; Video Streams...
         </Typography>
       </Box>
     );

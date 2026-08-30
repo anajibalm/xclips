@@ -364,7 +364,7 @@ export function GenerateSubtitleModal() {
   useEffect(() => {
     if (isBusy) {
       setProgress((prev) => (prev <= 0 ? 15 : prev));
-      setProgressStage(mode === "youtube" ? "Mengunduh subtitle YouTube..." : "Mengekstrak audio & mempersiapkan payload...");
+      setProgressStage(mode === "youtube" ? "Downloading YouTube subtitles..." : "Extracting audio & preparing payload...");
       const startTime = Date.now();
 
       progressTimerRef.current = setInterval(() => {
@@ -372,24 +372,24 @@ export function GenerateSubtitleModal() {
         if (mode === "youtube") {
           if (elapsed < 2) {
             setProgress((prev) => Math.max(prev, Math.min(50, 15 + elapsed * 20)));
-            setProgressStage("Mengunduh berkas subtitle CC...");
+            setProgressStage("Downloading CC subtitle file...");
           } else {
             setProgress((prev) => Math.max(prev, Math.min(92, 50 + (elapsed - 2) * 8)));
-            setProgressStage("Mem-parsing word timestamps...");
+            setProgressStage("Parsing word timestamps...");
           }
         } else {
           if (elapsed < 3) {
             setProgress((prev) => Math.max(prev, Math.min(32, 15 + elapsed * 6)));
-            setProgressStage("Mengekstrak & mengompresi audio lokal...");
+            setProgressStage("Extracting & compressing local audio...");
           } else if (elapsed < 18) {
             setProgress((prev) => Math.max(prev, Math.min(76, 32 + (elapsed - 3) * 3)));
-            setProgressStage("Mentranskripsi kata-per-kata...");
+            setProgressStage("Transcribing word-level speech...");
           } else if (elapsed < 45) {
             setProgress((prev) => Math.max(prev, Math.min(94, 76 + (elapsed - 18) * 0.7)));
-            setProgressStage("Memproses timestamp & segmentasi kata...");
+            setProgressStage("Processing timestamps & segmentation...");
           } else {
             setProgress((prev) => Math.max(prev, Math.min(98, 94 + (elapsed - 45) * 0.1)));
-            setProgressStage("Menyimpan track subtitle baru...");
+            setProgressStage("Saving new subtitle track...");
           }
         }
       }, 250);
@@ -419,14 +419,14 @@ export function GenerateSubtitleModal() {
       const res = await handleFetchYouTubeSubtitles();
       if (res && !res.ok) {
         setProgress(0);
-        setModalError(res.message || "Gagal memuat subtitle YouTube. Pastikan video memiliki closed captions.");
+        setModalError(res.message || "Failed to load YouTube subtitles. Ensure the video has closed captions.");
       }
     } else {
       const label = customLabel.trim() || `Track-${subtitleTracks.length + 1}`;
       const res = await handleTranscribe(selectedModelId, label, selectedProvider);
       if (res && !res.ok) {
         setProgress(0);
-        setModalError(res.message || "Gagal melakukan transkripsi AI. Periksa koneksi atau API Key Anda.");
+        setModalError(res.message || "Failed to run AI transcription. Check your connection or API Key.");
       }
     }
   };
@@ -496,7 +496,7 @@ export function GenerateSubtitleModal() {
             }}
           >
             <Typography variant="body2" sx={{ fontWeight: 700, fontSize: "0.82rem", color: "#f87171", mb: 0.3 }}>
-              Gagal Memproses Subtitle
+              Subtitle Processing Failed
             </Typography>
             {modalError}
           </Alert>
@@ -802,10 +802,10 @@ export function GenerateSubtitleModal() {
             }}
           >
             <Typography variant="body2" sx={{ color: "#fca5a5", fontWeight: 600 }}>
-              Mengambil Subtitle Asli YouTube (Closed Captions)
+              Fetch Original YouTube Closed Captions (CC)
             </Typography>
             <Typography variant="caption" sx={{ color: "#a1a1aa" }}>
-              Sistem akan memuat file .srt subtitle resmi atau auto-generated langsung dari YouTube jika tersedia.
+              The system will download official or auto-generated CC subtitles directly from YouTube if available.
             </Typography>
           </Box>
         )}
@@ -855,8 +855,8 @@ export function GenerateSubtitleModal() {
             />
             <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.7rem" }}>
               {mode === "youtube"
-                ? "Mengunduh dan mengekstrak subtitle YouTube CC..."
-                : `Menggunakan model ${selectedModelId}. Mohon tunggu beberapa detik...`}
+                ? "Downloading and extracting YouTube CC subtitles..."
+                : `Using model ${selectedModelId}. Please wait a few moments...`}
             </Typography>
           </Box>
         )}
@@ -866,7 +866,7 @@ export function GenerateSubtitleModal() {
           <Box sx={{ mt: 1 }}>
             <Divider sx={{ borderColor: "#27272a", mb: 1.5 }} />
             <Typography variant="caption" sx={{ color: "#a1a1aa", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>
-              Track Subtitle Tersimpan ({subtitleTracks.length})
+              Saved Subtitle Tracks ({subtitleTracks.length})
             </Typography>
 
             <List dense sx={{ mt: 0.5, bgcolor: "#18181c", borderRadius: 1.5, border: "1px solid #27272a", p: 0.5 }}>
@@ -901,7 +901,7 @@ export function GenerateSubtitleModal() {
                       }
                       secondary={
                         <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.7rem" }}>
-                          Dibuat pada {new Date(track.createdAt).toLocaleDateString()}
+                          Created on {new Date(track.createdAt).toLocaleDateString()}
                         </Typography>
                       }
                     />
@@ -924,9 +924,9 @@ export function GenerateSubtitleModal() {
                               "&:hover": { borderColor: "#3b82f6", color: "#60a5fa" },
                             }}
                           >
-                            Gunakan
+                            Apply
                           </Button>
-                          <Tooltip title="Hapus track ini">
+                          <Tooltip title="Delete this track">
                             <IconButton
                               size="small"
                               onClick={() => setTrackToDelete(track)}
@@ -953,7 +953,7 @@ export function GenerateSubtitleModal() {
           disabled={isBusy}
           sx={{ color: "#a1a1aa", textTransform: "none", fontWeight: 600, "&:hover": { color: "#ffffff" } }}
         >
-          Tutup
+          Close
         </Button>
         <Button
           variant="contained"
@@ -976,7 +976,7 @@ export function GenerateSubtitleModal() {
             },
           }}
         >
-          {isBusy ? "Memproses..." : modalError ? "Coba Lagi" : mode === "youtube" ? "Ambil Subtitle YT" : "Mulai Transkrip AI"}
+          {isBusy ? "Processing..." : modalError ? "Try Again" : mode === "youtube" ? "Fetch YT Subtitles" : "Start AI Transcribe"}
         </Button>
       </DialogActions>
 
@@ -1016,24 +1016,24 @@ export function GenerateSubtitleModal() {
           </Box>
           <Box>
             <Typography variant="subtitle1" sx={{ fontWeight: 800, fontSize: "0.95rem", color: "#fafafa" }}>
-              Hapus Track Subtitle?
+              Delete Subtitle Track?
             </Typography>
             <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.72rem" }}>
-              Konfirmasi Penghapusan Track
+              Confirm Track Deletion
             </Typography>
           </Box>
         </DialogTitle>
 
         <DialogContent sx={{ py: 1.5 }}>
           <Typography variant="body2" sx={{ color: "#d4d4d8", fontSize: "0.82rem", lineHeight: 1.5 }}>
-            Apakah Anda yakin ingin menghapus track{" "}
+            Are you sure you want to delete track{" "}
             <strong style={{ color: "#ffffff" }}>
               "{trackToDelete?.label || (trackToDelete?.sourceType === "youtube_cc" ? "YouTube Subtitles (CC)" : "Track")}"
             </strong>
             ?
           </Typography>
           <Typography variant="caption" sx={{ display: "block", color: "#a1a1aa", mt: 1, fontSize: "0.74rem" }}>
-            Tindakan ini permanen. Seluruh kata dan pengaturan timing pada track ini akan dihapus dari project.
+            This action is permanent. All words and timing adjustments on this track will be removed from the project.
           </Typography>
         </DialogContent>
 
@@ -1052,7 +1052,7 @@ export function GenerateSubtitleModal() {
               "&:hover": { borderColor: "#3f3f46", color: "#ffffff" },
             }}
           >
-            Batal
+            Cancel
           </Button>
           <Button
             size="small"
@@ -1079,7 +1079,7 @@ export function GenerateSubtitleModal() {
               "&:hover": { bgcolor: "#dc2626" },
             }}
           >
-            {isDeletingTrack ? "Menghapus..." : "Hapus Track"}
+            {isDeletingTrack ? "Deleting..." : "Delete Track"}
           </Button>
         </DialogActions>
       </Dialog>

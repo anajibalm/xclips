@@ -48,7 +48,7 @@ const ASPECT_RATIO_OPTIONS: AspectRatioOption[] = [
     name: "9:16 Vertical",
     resolution: "1080 × 1920",
     platform: "TikTok · Reels · Shorts",
-    description: "Format vertikal standar FYP TikTok, IG Reels, dan YT Shorts.",
+    description: "Standard vertical format for TikTok, Reels, and Shorts.",
     icon: <SmartphoneIcon sx={{ fontSize: "1.1rem" }} />,
     aspectBoxRatio: "9/16",
   },
@@ -57,7 +57,7 @@ const ASPECT_RATIO_OPTIONS: AspectRatioOption[] = [
     name: "1:1 Square",
     resolution: "1080 × 1080",
     platform: "Instagram · FB Feed",
-    description: "Format persegi simetris untuk feed post media sosial.",
+    description: "Symmetrical square format for social media feeds.",
     icon: <CropSquareIcon sx={{ fontSize: "1.1rem" }} />,
     aspectBoxRatio: "1/1",
   },
@@ -66,7 +66,7 @@ const ASPECT_RATIO_OPTIONS: AspectRatioOption[] = [
     name: "4:5 Portrait",
     resolution: "1080 × 1350",
     platform: "IG Feed Portrait",
-    description: "Format feed vertikal optimal layar mobile tanpa terpotong.",
+    description: "Vertical feed portrait format optimized for mobile screens.",
     icon: <CropPortraitIcon sx={{ fontSize: "1.1rem" }} />,
     aspectBoxRatio: "4/5",
   },
@@ -75,7 +75,7 @@ const ASPECT_RATIO_OPTIONS: AspectRatioOption[] = [
     name: "16:9 Landscape",
     resolution: "1920 × 1080",
     platform: "YouTube · Desktop",
-    description: "Format widescreen standar untuk video horizontal & desktop.",
+    description: "Standard widescreen format for landscape & desktop videos.",
     icon: <CropLandscapeIcon sx={{ fontSize: "1.1rem" }} />,
     aspectBoxRatio: "16/9",
   },
@@ -288,7 +288,7 @@ export function TabFramingStyle() {
               />
             </Box>
             <Typography variant="caption" sx={{ color: "#71717a", display: "block", mb: 1.5 }}>
-              Pilih rasio aspek sesuai platform tujuan (TikTok VT, IG Reels, Shorts, Post Feed, atau YouTube).
+              Select aspect ratio based on destination platform (TikTok, Reels, Shorts, Feed, or YouTube).
             </Typography>
 
             <Grid container spacing={1.5}>
@@ -433,7 +433,7 @@ export function TabFramingStyle() {
                   3. Video Transform &amp; Placement
                 </Typography>
                 <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.72rem" }}>
-                  Sesuaikan ukuran zoom, posisi pan horizontal/vertikal, dan rotasi video.
+                  Adjust zoom scale, horizontal/vertical pan positions, and video rotation.
                 </Typography>
               </Box>
               <Button
@@ -596,8 +596,8 @@ export function TabFramingStyle() {
                 </Typography>
                 <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.72rem", display: "block" }}>
                   {currentStyle.enabled !== false
-                    ? "Teks subtitle aktif dan akan dirender ke video ekspor"
-                    : "Subtitle dinonaktifkan — video akan dirender tanpa teks subtitle"}
+                    ? "Subtitle text is active and will be burned into export video"
+                    : "Subtitles disabled — video will be rendered without captions"}
                 </Typography>
               </Box>
             </Box>
@@ -613,7 +613,7 @@ export function TabFramingStyle() {
               }
               label={
                 <Typography variant="body2" sx={{ fontSize: "0.78rem", fontWeight: 700, color: currentStyle.enabled !== false ? "#3b82f6" : "#71717a" }}>
-                  {currentStyle.enabled !== false ? "Aktif" : "Nonaktif"}
+                  {currentStyle.enabled !== false ? "Active" : "Disabled"}
                 </Typography>
               }
               sx={{ m: 0 }}
@@ -634,10 +634,10 @@ export function TabFramingStyle() {
             >
               <SubtitlesOffIcon sx={{ fontSize: 36, color: "#71717a", mb: 1 }} />
               <Typography variant="body2" sx={{ fontWeight: 800, color: "#e4e4e7", mb: 0.5 }}>
-                Subtitle Sedang Dinonaktifkan
+                Subtitles Currently Disabled
               </Typography>
               <Typography variant="caption" sx={{ color: "#71717a", maxWidth: 380, display: "block", mx: "auto", mb: 2 }}>
-                Video akan diekspor dalam format bersih tanpa caption. Nyalakan sakelar di atas jika ingin menampilkan dan mengkustomisasi subtitle.
+                Video will be exported clean without captions. Switch toggle above to enable and customize subtitles.
               </Typography>
               <Button
                 variant="outlined"
@@ -656,7 +656,7 @@ export function TabFramingStyle() {
                   "&:hover": { bgcolor: "rgba(59, 130, 246, 0.1)", borderColor: "#60a5fa" },
                 }}
               >
-                Aktifkan Subtitle
+                Enable Subtitles
               </Button>
             </Box>
           ) : (

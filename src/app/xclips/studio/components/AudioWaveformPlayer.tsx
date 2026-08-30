@@ -192,7 +192,7 @@ export function AudioWaveformPlayer({
         if (isMounted) {
           setIsLoading(false);
           const msg = err instanceof Error ? err.message : String(err);
-          setError(`Gagal memuat visualisasi audio: ${msg}`);
+          setError(`Failed to load audio visualization: ${msg}`);
         }
       }
     };
@@ -310,7 +310,7 @@ export function AudioWaveformPlayer({
           />
 
           {fillerMarkers.length > 0 && (
-            <Tooltip title="Klik untuk melompat ke kata filler berikutnya">
+            <Tooltip title="Click to jump to next filler word">
               <Chip
                 label={`⚠️ ${fillerMarkers.length} Filler`}
                 size="small"
@@ -342,7 +342,7 @@ export function AudioWaveformPlayer({
                 }}
               />
             }
-            label={<Typography variant="caption" sx={{ color: "#a1a1aa", fontSize: "0.7rem" }}>Tandai Filler</Typography>}
+            label={<Typography variant="caption" sx={{ color: "#a1a1aa", fontSize: "0.7rem" }}>Highlight Fillers</Typography>}
             sx={{ m: 0 }}
           />
         </Box>
@@ -365,10 +365,10 @@ export function AudioWaveformPlayer({
         }}
       >
         {isLoading && (
-          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", mechanical: "center", justifyContent: "center", gap: 1 }}>
             <CircularProgress size={16} sx={{ color: "#10b981" }} />
             <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.72rem" }}>
-              Menganalisis vokal & mengisolasi gelombang suara...
+              Analyzing vocals & isolating audio waveform...
             </Typography>
           </Box>
         )}
@@ -384,7 +384,7 @@ export function AudioWaveformPlayer({
               onClick={() => setRetryKey((k) => k + 1)}
               sx={{ color: "#34d399", borderColor: "#10b981", textTransform: "none", fontSize: "0.68rem", py: 0.1, px: 1 }}
             >
-              Coba Lagi
+              Retry
             </Button>
           </Box>
         )}

@@ -8,11 +8,13 @@ import {
   Card,
   CircularProgress,
 } from "@mui/material";
-import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
+import BoltIcon from "@mui/icons-material/Bolt";
 import TuneIcon from "@mui/icons-material/Tune";
+import PsychologyIcon from "@mui/icons-material/Psychology";
 import { useStudioStore } from "../store/useStudioStore";
 import { formatTime } from "../types/studio.types";
-import { AiProviderType } from "@/lib/xclips/types";
+import { AiProviderType, HOOK_FORMULAS } from "@/lib/xclips/types";
+import { GenerateAutoClipModal } from "../modals/GenerateAutoClipModal";
 
 const PROVIDER_LABELS: Record<AiProviderType, string> = {
   kieai: "KIE AI",
@@ -26,18 +28,20 @@ export function TabAutoclips() {
   const clips = useStudioStore((s) => s.clips);
   const selectedClip = useStudioStore((s) => s.selectedClip);
   const setSelectedClip = useStudioStore((s) => s.setSelectedClip);
-  const transcript = useStudioStore((s) => s.transcript);
   const isTranscribing = useStudioStore((s) => s.isTranscribing);
   const isDiscovering = useStudioStore((s) => s.isDiscovering);
   const aiSettings = useStudioStore((s) => s.aiSettings);
-  const handleTranscribe = useStudioStore((s) => s.handleTranscribe);
-  const handleDiscoverHighlights = useStudioStore((s) => s.handleDiscoverHighlights);
+  const setIsGenerateAutoClipModalOpen = useStudioStore((s) => s.setIsGenerateAutoClipModalOpen);
+  const setAiSettingsModalOpen = useStudioStore((s) => s.setAiSettingsModalOpen);
   const handleSeek = useStudioStore((s) => s.handleSeek);
 
   const currentProvider = (aiSettings?.provider || "kieai") as AiProviderType;
+  const currentFormula = HOOK_FORMULAS.find((f) => f.id === aiSettings?.hookFormula) || HOOK_FORMULAS[0];
 
   return (
     <Box>
+      <GenerateAutoClipModal />
+
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2.5, flexWrap: "wrap", gap: 1.5 }}>
         <Box>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
@@ -46,6 +50,7 @@ export function TabAutoclips() {
             </Typography>
             <Chip
               icon={<TuneIcon sx={{ fontSize: "0.75rem !important", color: "#3b82f6 !important" }} />}
+              onClick={() => setAiSettingsModalOpen(true)}
               label={
                 <span>
                   <strong style={{ color: "#93c5fd" }}>
@@ -64,9 +69,28 @@ export function TabAutoclips() {
                 borderRadius: 1,
                 height: 22,
                 fontSize: "0.7rem",
+                cursor: "pointer",
                 userSelect: "none",
+                "&:hover": { bgcolor: "rgba(59, 130, 246, 0.2)" },
               }}
             />
+            {aiSettings?.hookFormula && aiSettings.hookFormula !== "auto" && (
+              <Chip
+                icon={<PsychologyIcon sx={{ fontSize: "0.75rem !important", color: "#f87171 !important" }} />}
+                label={currentFormula.name}
+                size="small"
+                sx={{
+                  bgcolor: "rgba(224, 57, 43, 0.12)",
+                  border: "1px solid rgba(224, 57, 43, 0.3)",
+                  color: "#f87171",
+                  borderRadius: 1,
+                  height: 22,
+                  fontSize: "0.7rem",
+                  fontWeight: 700,
+                  userSelect: "none",
+                }}
+              />
+            )}
           </Box>
           <Typography variant="caption" sx={{ color: "#71717a", display: "block", mt: 0.3 }}>
             Automatically discover and produce dynamic 9:16 short clips from the master video.
@@ -74,37 +98,41 @@ export function TabAutoclips() {
         </Box>
 
         <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-          {!transcript ? (
-            <Button
-              variant="contained"
-              size="small"
-              startIcon={isTranscribing ? <CircularProgress size={14} sx={{ color: "#ffffff" }} /> : <AutoFixHighIcon />}
-              onClick={() => handleTranscribe()}
-              disabled={isTranscribing}
-              sx={{ bgcolor: "#3b82f6", fontWeight: 800, textTransform: "none", px: 2, borderRadius: 1, "&:hover": { bgcolor: "#2563eb" } }}
-            >
-              {isTranscribing ? "Transcribing & Scanning..." : "Generate Autoclips"}
-            </Button>
-          ) : (
-            <Button
-              variant="contained"
-              size="small"
-              startIcon={isDiscovering ? <CircularProgress size={14} sx={{ color: "#ffffff" }} /> : <AutoFixHighIcon />}
-              onClick={handleDiscoverHighlights}
-              disabled={isDiscovering}
-              sx={{ bgcolor: "#3b82f6", fontWeight: 800, textTransform: "none", px: 2, borderRadius: 1, "&:hover": { bgcolor: "#2563eb" } }}
-            >
-              {isDiscovering ? "Scanning Clips..." : "Generate Autoclips"}
-            </Button>
-          )}
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={
+              isDiscovering || isTranscribing ? (
+                <CircularProgress size={14} sx={{ color: "#ffffff" }} />
+              ) : (
+                <BoltIcon />
+              )
+            }
+            onClick={() => setIsGenerateAutoClipModalOpen(true)}
+            disabled={isDiscovering || isTranscribing}
+            sx={{
+              bgcolor: "#3b82f6",
+              fontWeight: 800,
+              textTransform: "none",
+              px: 2,
+              borderRadius: 1,
+              "&:hover": { bgcolor: "#2563eb" },
+            }}
+          >
+            {isTranscribing
+              ? "Transcribing..."
+              : isDiscovering
+              ? "Scanning Clips..."
+              : "Generate Clips"}
+          </Button>
         </Box>
       </Box>
 
       {clips.length === 0 ? (
         <Box sx={{ py: 6, textAlign: "center", border: "1px dashed #27272a", borderRadius: 1 }}>
-          <AutoFixHighIcon sx={{ fontSize: 40, color: "#3f3f46", mb: 1.5 }} />
+          <BoltIcon sx={{ fontSize: 40, color: "#3f3f46", mb: 1.5 }} />
           <Typography variant="body2" sx={{ color: "#71717a", mb: 1, maxWidth: 360, mx: "auto" }}>
-            No clips generated yet. Click <strong style={{ color: "#ffffff" }}>Generate Autoclips</strong> to create video segments.
+            No clips generated yet. Click <strong style={{ color: "#ffffff" }}>Generate Clips</strong> to create video segments.
           </Typography>
         </Box>
       ) : (

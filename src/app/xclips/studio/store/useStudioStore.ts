@@ -60,6 +60,7 @@ interface StudioState {
   selectedSubtitleSource: string;
   subtitleTracks: XclipsTranscript[];
   isGenerateSubtitleModalOpen: boolean;
+  isGenerateAutoClipModalOpen: boolean;
   autoSaveStatus: "idle" | "saving" | "saved" | "error";
 
   assets: ProjectAssets | null;
@@ -142,6 +143,7 @@ interface StudioState {
   setSelectedSubtitleSource: (source: string) => void;
   setSubtitleTracks: (tracks: XclipsTranscript[]) => void;
   setIsGenerateSubtitleModalOpen: (open: boolean) => void;
+  setIsGenerateAutoClipModalOpen: (open: boolean) => void;
   setAutoSaveStatus: (status: "idle" | "saving" | "saved") => void;
 
   setAssets: (assets: ProjectAssets | null) => void;
@@ -196,7 +198,15 @@ interface StudioState {
   handleDeleteClip: (clipId: string) => Promise<void>;
   handleTranscribe: (modelOverride?: string, label?: string, providerOverride?: AiProviderType) => Promise<{ ok: boolean; message?: string }>;
   handleFetchYouTubeSubtitles: () => Promise<{ ok: boolean; message?: string }>;
-  handleDiscoverHighlights: () => Promise<void>;
+  handleDiscoverHighlights: (optionsOverride?: {
+    provider?: AiProviderType;
+    model?: string;
+    topicPrompt?: string;
+    hookFormula?: string;
+    targetDuration?: "short" | "standard" | "long" | "extended";
+    maxClipsCount?: number;
+    transcriptId?: string;
+  }) => Promise<{ ok: boolean; message?: string }>;
   handleSaveTranscript: () => Promise<void>;
   handleDownloadSrt: () => void;
   fetchSubtitleTracks: (projectId?: string) => Promise<void>;
@@ -260,6 +270,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   selectedSubtitleSource: "youtube",
   subtitleTracks: [],
   isGenerateSubtitleModalOpen: false,
+  isGenerateAutoClipModalOpen: false,
   autoSaveStatus: "idle",
 
   assets: null,
@@ -493,6 +504,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   setSelectedSubtitleSource: (selectedSubtitleSource) => set({ selectedSubtitleSource }),
   setSubtitleTracks: (subtitleTracks) => set({ subtitleTracks }),
   setIsGenerateSubtitleModalOpen: (isGenerateSubtitleModalOpen) => set({ isGenerateSubtitleModalOpen }),
+  setIsGenerateAutoClipModalOpen: (isGenerateAutoClipModalOpen) => set({ isGenerateAutoClipModalOpen }),
   setAutoSaveStatus: (autoSaveStatus) => set({ autoSaveStatus }),
 
   setAssets: (assets) => set({ assets }),
@@ -765,14 +777,14 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     });
     set({ aiSettingsSaving: false });
     if (res.ok) {
-      set({ aiSettings: updated, aiSettingsSuccess: "Pengaturan AI berhasil disimpan!" });
+      set({ aiSettings: updated, aiSettingsSuccess: "AI settings saved successfully!" });
       if (typeof window !== "undefined") {
         localStorage.setItem("xclips_ai_settings_cache", JSON.stringify(updated));
       }
       setTimeout(() => set({ aiSettingsSuccess: null }), 3000);
       return true;
     } else {
-      set({ aiSettingsError: (res.data as unknown as { message?: string })?.message || "Gagal menyimpan pengaturan" });
+      set({ aiSettingsError: (res.data as unknown as { message?: string })?.message || "Failed to save AI settings" });
       return false;
     }
   },
@@ -960,7 +972,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       get().fetchAssets();
       get().fetchLogs();
     } else {
-      get().setActionError(res.data?.message || "Gagal beralih track subtitle");
+      get().setActionError(res.data?.message || "Failed to switch subtitle track");
     }
   },
 
@@ -981,12 +993,12 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         transcript: active,
         editableWords: active?.words || [],
         selectedSubtitleSource: active?.id || "",
-        actionSuccess: "Track subtitle berhasil dihapus",
+        actionSuccess: "Subtitle track deleted successfully",
       });
       get().fetchAssets();
       get().fetchLogs();
     } else {
-      get().setActionError(res.data?.message || "Gagal menghapus track subtitle");
+      get().setActionError(res.data?.message || "Failed to delete subtitle track");
     }
   },
 
@@ -1029,7 +1041,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
   handleTranscribe: async (modelOverride?: string, label?: string, providerOverride?: AiProviderType): Promise<{ ok: boolean; message?: string }> => {
     const id = get().projectId;
-    if (!id) return { ok: false, message: "Project ID tidak ditemukan" };
+    if (!id) return { ok: false, message: "Project ID not found" };
     set({ isTranscribing: true, actionError: null, actionSuccess: null });
 
     const modelToUse = modelOverride || get().aiSettings?.transcribeModel || "gemini-3-7-flash";
@@ -1048,7 +1060,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         transcript: res.data.transcript,
         editableWords: res.data.transcript.words,
         selectedSubtitleSource: res.data.transcript.id,
-        actionSuccess: `Transkripsi berhasil dibuat dengan model ${modelToUse}!`,
+        actionSuccess: `Transcription completed successfully with model ${modelToUse}!`,
         isGenerateSubtitleModalOpen: false,
       });
       setTimeout(() => set({ actionSuccess: null }), 3500);
@@ -1057,7 +1069,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       get().fetchLogs();
       return { ok: true };
     } else {
-      const errMsg = res.data?.message || "Gagal melakukan transkripsi AI";
+      const errMsg = res.data?.message || "Failed to run AI transcription";
       get().setActionError(errMsg);
       get().fetchLogs();
       return { ok: false, message: errMsg };
@@ -1066,7 +1078,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
   handleFetchYouTubeSubtitles: async (): Promise<{ ok: boolean; message?: string }> => {
     const id = get().projectId;
-    if (!id) return { ok: false, message: "Project ID tidak ditemukan" };
+    if (!id) return { ok: false, message: "Project ID not found" };
     set({ isFetchingYtSubtitles: true, actionError: null, actionSuccess: null });
 
     const res = await apiFetch<{ ok: boolean; transcript?: XclipsTranscript; message?: string }>(
@@ -1080,7 +1092,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         transcript: res.data.transcript,
         editableWords: res.data.transcript.words,
         selectedSubtitleSource: res.data.transcript.id,
-        actionSuccess: "Subtitle YouTube berhasil dimuat!",
+        actionSuccess: "YouTube subtitles loaded successfully!",
         isGenerateSubtitleModalOpen: false,
       });
       setTimeout(() => set({ actionSuccess: null }), 3000);
@@ -1089,37 +1101,73 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       get().fetchLogs();
       return { ok: true };
     } else {
-      const errMsg = res.data?.message || "Gagal memuat subtitle YouTube";
+      const errMsg = res.data?.message || "Failed to load YouTube subtitles";
       get().setActionError(errMsg);
       get().fetchLogs();
       return { ok: false, message: errMsg };
     }
   },
 
-  handleDiscoverHighlights: async () => {
+  handleDiscoverHighlights: async (optionsOverride?: {
+    provider?: AiProviderType;
+    model?: string;
+    topicPrompt?: string;
+    hookFormula?: string;
+    targetDuration?: "short" | "standard" | "long" | "extended";
+    maxClipsCount?: number;
+    transcriptId?: string;
+  }): Promise<{ ok: boolean; message?: string }> => {
     const id = get().projectId;
-    if (!id) return;
-    set({ isDiscovering: true, actionError: null });
+    if (!id) return { ok: false, message: "Project ID not found" };
+
+    // If transcript is missing, auto-transcribe first!
+    if (!get().transcript) {
+      set({ isDiscovering: true, actionError: null, actionSuccess: "Running automatic audio transcription..." });
+      const transcribeRes = await get().handleTranscribe();
+      if (!transcribeRes.ok) {
+        set({ isDiscovering: false });
+        return { ok: false, message: transcribeRes.message || "Failed to generate transcript" };
+      }
+    }
+
+    set({ isDiscovering: true, actionError: null, actionSuccess: "Scanning clips and analyzing viral moments..." });
+
+    const payload = {
+      provider: get().aiSettings?.provider,
+      model: get().aiSettings?.highlightModel,
+      topicPrompt: get().aiSettings?.topicPrompt,
+      hookFormula: get().aiSettings?.hookFormula,
+      targetDuration: get().aiSettings?.targetDuration,
+      maxClipsCount: get().aiSettings?.maxClipsCount,
+      transcriptId: get().transcript?.id,
+      ...(optionsOverride || {}),
+    };
 
     const res = await apiFetch<{ ok: boolean; clips?: XclipsClip[]; message?: string }>(
       `/api/xclips/projects/${id}/discover`,
-      { method: "POST" }
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }
     );
     set({ isDiscovering: false });
 
     if (res.ok && res.data?.clips) {
       const clips = res.data.clips;
-      set({ clips });
+      set({ clips, isGenerateAutoClipModalOpen: false });
       if (clips.length > 0) {
         set({ selectedClip: clips[0], currentTime: clips[0].startSec });
       }
-      set({ actionSuccess: `Berhasil mengekstrak ${clips.length} klip highlight potensial!` });
+      set({ actionSuccess: `Extracted ${clips.length} high-potential highlights!` });
       setTimeout(() => set({ actionSuccess: null }), 4000);
       get().fetchAssets();
       get().fetchLogs();
+      return { ok: true };
     } else {
-      get().setActionError(res.data?.message || "Gagal mengekstrak autoclips");
+      const errMsg = res.data?.message || "Failed to discover autoclips";
+      get().setActionError(errMsg);
       get().fetchLogs();
+      return { ok: false, message: errMsg };
     }
   },
 
@@ -1142,12 +1190,12 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
     if (res.ok && res.data?.transcript) {
       set({ transcript: res.data.transcript });
-      set({ actionSuccess: "Transkrip & Subtitle berhasil disimpan!" });
+      set({ actionSuccess: "Transcript & subtitles saved successfully!" });
       setTimeout(() => set({ actionSuccess: null }), 3000);
       get().fetchAssets();
       get().fetchLogs();
     } else {
-      get().setActionError(res.data?.message || "Gagal menyimpan transkrip");
+      get().setActionError(res.data?.message || "Failed to save transcript");
     }
   },
 
@@ -1155,7 +1203,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const { project, transcript, editableWords, subtitleOffsetMs } = get();
     const wordsToUse = editableWords.length > 0 ? editableWords : (transcript?.words || []);
     if (wordsToUse.length === 0 && !transcript?.srtContent) {
-      get().setActionError("Tidak ada transkrip subtitle untuk diunduh.");
+      get().setActionError("No subtitle transcript available for download.");
       return;
     }
 
@@ -1175,7 +1223,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
 
-    get().setActionSuccess(`Subtitle "${cleanProjectName}.srt" berhasil didownload!`);
+    get().setActionSuccess(`Subtitle "${cleanProjectName}.srt" downloaded successfully!`);
   },
 
   handleShiftSubtitleOffsetMs: (deltaMs) => {
@@ -1211,13 +1259,13 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         transcript: res.data.transcript,
         editableWords: res.data.transcript.words,
         subtitleOffsetMs: 0,
-        actionSuccess: `Kalibrasi offset ${appliedMs > 0 ? `+${appliedMs}` : appliedMs} ms (${shiftAmountSec > 0 ? `+${shiftAmountSec}` : shiftAmountSec}s) berhasil diterapkan permanen ke seluruh transkrip dan database!`,
+        actionSuccess: `Offset calibration ${appliedMs > 0 ? `+${appliedMs}` : appliedMs} ms permanently applied across transcript and database!`,
       });
       setTimeout(() => set({ actionSuccess: null }), 4000);
       get().fetchAssets();
       get().fetchLogs();
     } else {
-      get().setActionError(res.data?.message || "Gagal menyimpan kalibrasi offset transkrip");
+      get().setActionError(res.data?.message || "Failed to save transcript offset calibration");
     }
   },
 
@@ -1314,13 +1362,13 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     if (res.ok) {
       set({
         thumbTimestamp: Date.now(),
-        actionSuccess: `Thumbnail berhasil di-capture!`,
+        actionSuccess: `Thumbnail captured successfully!`,
       });
       setTimeout(() => set({ actionSuccess: null }), 3000);
       get().fetchAssets();
       get().fetchLogs();
     } else {
-      set({ actionError: res.data?.message || "Gagal mengambil frame thumbnail" });
+      set({ actionError: res.data?.message || "Failed to capture thumbnail frame" });
     }
   },
 

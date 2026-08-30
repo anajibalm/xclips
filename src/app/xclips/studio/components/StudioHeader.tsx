@@ -57,7 +57,7 @@ export function StudioHeader() {
             {autoSaveStatus === "saving" && (
               <Chip
                 icon={<CircularProgress size={10} sx={{ color: "#38bdf8 !important" }} />}
-                label="Menyimpan..."
+                label="Saving..."
                 size="small"
                 sx={{
                   bgcolor: "rgba(56, 189, 248, 0.12)",
@@ -73,7 +73,7 @@ export function StudioHeader() {
             {autoSaveStatus === "saved" && (
               <Chip
                 icon={<CheckCircleIcon sx={{ fontSize: "0.85rem !important", color: "#22c55e !important" }} />}
-                label="Tersimpan"
+                label="Saved"
                 size="small"
                 sx={{
                   bgcolor: "rgba(34, 197, 94, 0.12)",
@@ -89,7 +89,7 @@ export function StudioHeader() {
             {autoSaveStatus === "error" && (
               <Chip
                 icon={<WarningAmberIcon sx={{ fontSize: "0.85rem !important", color: "#ef4444 !important" }} />}
-                label="Gagal Simpan"
+                label="Save Failed"
                 size="small"
                 sx={{
                   bgcolor: "rgba(239, 68, 68, 0.12)",

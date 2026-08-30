@@ -167,7 +167,7 @@ export function TabSubtitles() {
                     label={
                       activeTranscript?.sourceType === "youtube_cc"
                         ? "YouTube CC"
-                        : activeTranscript?.label || (subtitleTracks.length > 0 ? "Track Aktif" : "Belum Ada")
+                        : activeTranscript?.label || (subtitleTracks.length > 0 ? "Active Track" : "None")
                     }
                     size="small"
                     sx={{
@@ -198,9 +198,9 @@ export function TabSubtitles() {
                   disabled={isBusy}
                   displayEmpty
                   renderValue={(selected) => {
-                    if (!selected) return <span style={{ color: "#71717a" }}>Pilih Track Subtitle...</span>;
+                    if (!selected) return <span style={{ color: "#71717a" }}>Select Subtitle Track...</span>;
                     const found = subtitleTracks.find((t) => t.id === selected) || activeTranscript;
-                    if (!found) return <span style={{ color: "#71717a" }}>Pilih Track Subtitle...</span>;
+                    if (!found) return <span style={{ color: "#71717a" }}>Select Subtitle Track...</span>;
                     const isYt = found.sourceType === "youtube_cc" || found.label === "YouTube Subtitles (CC)";
                     const title = isYt ? "YouTube Subtitles (CC)" : (found.label || "Track");
                     return (
@@ -247,7 +247,7 @@ export function TabSubtitles() {
                           <span>{title}</span>
                           {isActive && (
                             <Chip
-                              label="Aktif"
+                              label="Active"
                               size="small"
                               sx={{
                                 height: 16,
@@ -261,7 +261,7 @@ export function TabSubtitles() {
                             />
                           )}
                         </Box>
-                        <Tooltip title="Hapus track ini" arrow>
+                        <Tooltip title="Delete this track" arrow>
                           <IconButton
                             size="small"
                             className="track-delete-btn"
@@ -296,7 +296,7 @@ export function TabSubtitles() {
                         "&:hover": { bgcolor: "rgba(239, 68, 68, 0.15)" },
                       }}
                     >
-                      <span>Muat Subtitle YouTube (CC)...</span>
+                      <span>Load YouTube Subtitles (CC)...</span>
                     </MenuItem>
                   )}
 
@@ -624,7 +624,7 @@ export function TabSubtitles() {
                                     color: seg.index === 0 ? "#3f3f46" : "#a1a1aa",
                                     "&:hover": { color: "#38bdf8" },
                                   }}
-                                  title="Pindahkan ke atas (Shift Up)"
+                                  title="Move phrase up (Shift Up)"
                                 >
                                   <KeyboardArrowUpIcon sx={{ fontSize: "1.05rem" }} />
                                 </IconButton>
@@ -642,7 +642,7 @@ export function TabSubtitles() {
                                     color: seg.index === phraseSegments.length - 1 ? "#3f3f46" : "#a1a1aa",
                                     "&:hover": { color: "#38bdf8" },
                                   }}
-                                  title="Pindahkan ke bawah (Shift Down)"
+                                  title="Move phrase down (Shift Down)"
                                 >
                                   <KeyboardArrowDownIcon sx={{ fontSize: "1.05rem" }} />
                                 </IconButton>
@@ -816,7 +816,7 @@ export function TabSubtitles() {
       {/* Dedicated Generate Subtitle Dialog */}
       <GenerateSubtitleModal />
 
-      {/* Delete Subtitle Track Confirmation Dialog */}
+      {/* Delete Track Confirmation Dialog */}
       <Dialog
         open={Boolean(trackToDelete)}
         onClose={() => !isDeletingTrack && setTrackToDelete(null)}
@@ -852,24 +852,24 @@ export function TabSubtitles() {
           </Box>
           <Box>
             <Typography variant="subtitle1" sx={{ fontWeight: 800, fontSize: "0.95rem", color: "#fafafa" }}>
-              Hapus Track Subtitle?
+              Delete Subtitle Track?
             </Typography>
             <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.72rem" }}>
-              Konfirmasi Penghapusan Track
+              Confirm Track Deletion
             </Typography>
           </Box>
         </DialogTitle>
 
         <DialogContent sx={{ py: 1.5 }}>
           <Typography variant="body2" sx={{ color: "#d4d4d8", fontSize: "0.82rem", lineHeight: 1.5 }}>
-            Apakah Anda yakin ingin menghapus track{" "}
+            Are you sure you want to delete track{" "}
             <strong style={{ color: "#ffffff" }}>
               "{trackToDelete?.label || (trackToDelete?.sourceType === "youtube_cc" ? "YouTube Subtitles (CC)" : "Track")}"
             </strong>
             ?
           </Typography>
           <Typography variant="caption" sx={{ display: "block", color: "#a1a1aa", mt: 1, fontSize: "0.74rem" }}>
-            Tindakan ini permanen. Seluruh kata dan pengaturan timing pada track ini akan dihapus dari project.
+            This action is permanent. All words and timing adjustments on this track will be removed from the project.
           </Typography>
         </DialogContent>
 
@@ -888,7 +888,7 @@ export function TabSubtitles() {
               "&:hover": { borderColor: "#3f3f46", color: "#ffffff" },
             }}
           >
-            Batal
+            Cancel
           </Button>
           <Button
             size="small"
@@ -915,7 +915,7 @@ export function TabSubtitles() {
               "&:hover": { bgcolor: "#dc2626" },
             }}
           >
-            {isDeletingTrack ? "Menghapus..." : "Hapus Track"}
+            {isDeletingTrack ? "Deleting..." : "Delete Track"}
           </Button>
         </DialogActions>
       </Dialog>
