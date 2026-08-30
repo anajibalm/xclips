@@ -1,7 +1,8 @@
-import React, { useMemo, useEffect, useRef } from "react";
+import React, { useMemo, useEffect, useRef, useState } from "react";
 import { useStudioStore } from "../store/useStudioStore";
 import { WordTimestamp } from "@/lib/xclips/types";
 import { PhraseSegment, ITEM_BASE_HEIGHT, ITEM_EXPANDED_HEIGHT } from "../types/studio.types";
+import { segmentPhrases } from "@/lib/xclips/phrase-segmentation";
 
 export function useTranscriptVirtualizer(virtualScrollRef: React.RefObject<HTMLDivElement | null>) {
   const editableWords = useStudioStore((s) => s.editableWords);
@@ -13,43 +14,33 @@ export function useTranscriptVirtualizer(virtualScrollRef: React.RefObject<HTMLD
   const autoScrollToPlayhead = useStudioStore((s) => s.autoScrollToPlayhead);
   const scrollTop = useStudioStore((s) => s.scrollTop);
 
-  // Group raw word timestamps into phrase segments
+  // Dynamic viewport height measurement
+  const [containerHeight, setContainerHeight] = useState<number>(600);
+
+  useEffect(() => {
+    const el = virtualScrollRef.current;
+    if (!el) return;
+
+    const updateHeight = () => {
+      if (el.clientHeight > 0) {
+        setContainerHeight(el.clientHeight);
+      }
+    };
+
+    updateHeight();
+
+    const resizeObserver = new ResizeObserver(updateHeight);
+    resizeObserver.observe(el);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [virtualScrollRef]);
+
+  // Group raw word timestamps into phrase segments using unified engine
   const phraseSegments = useMemo<PhraseSegment[]>(() => {
     if (!editableWords || editableWords.length === 0) return [];
-
-    const segments: PhraseSegment[] = [];
-    let currentWords: WordTimestamp[] = [];
-    let segIdx = 0;
-
-    for (let i = 0; i < editableWords.length; i++) {
-      const w = editableWords[i];
-      currentWords.push(w);
-
-      const isPunctuationEnd = /[.?!,;:]$/.test(w.word.trim());
-      const isMaxWords = currentWords.length >= 6;
-      const nextWord = editableWords[i + 1];
-      const isTimeGap = nextWord && (nextWord.start - w.end) > 0.8;
-
-      if (isPunctuationEnd || isMaxWords || isTimeGap || i === editableWords.length - 1) {
-        const startSec = currentWords[0].start;
-        const endSec = currentWords[currentWords.length - 1].end;
-        const text = currentWords.map((cw) => cw.word).join(" ");
-
-        segments.push({
-          id: `seg_${segIdx}_${startSec.toFixed(2)}`,
-          index: segIdx,
-          startSec,
-          endSec,
-          text,
-          words: [...currentWords],
-        });
-
-        currentWords = [];
-        segIdx++;
-      }
-    }
-
-    return segments;
+    return segmentPhrases(editableWords);
   }, [editableWords]);
 
   // Filter phrases based on search query
@@ -67,13 +58,13 @@ export function useTranscriptVirtualizer(virtualScrollRef: React.RefObject<HTMLD
       const isExpanded = expandedPhraseId === p.id;
       const height = isExpanded ? ITEM_EXPANDED_HEIGHT : ITEM_BASE_HEIGHT;
       positions.push({ top: currentTop, height });
-      currentTop += height + 6; // 6px sleek gap
+      currentTop += height + 6; // 6px gap
     });
     return { positions, totalHeight: currentTop };
   }, [filteredPhrases, expandedPhraseId]);
 
-  // Find visible slice
-  const OVERSCAN = 3;
+  // Find visible slice with dynamic container height
+  const OVERSCAN = 4;
   const visibleRange = useMemo(() => {
     const { positions } = itemPositions;
     if (positions.length === 0) return { start: 0, end: 0 };
@@ -85,32 +76,28 @@ export function useTranscriptVirtualizer(virtualScrollRef: React.RefObject<HTMLD
     start = Math.max(0, start - OVERSCAN);
 
     let end = start;
-    while (end < positions.length && positions[end].top < scrollTop + 800) {
+    const viewportBottom = scrollTop + containerHeight + 100;
+    while (end < positions.length && positions[end].top < viewportBottom) {
       end++;
     }
     end = Math.min(positions.length - 1, end + OVERSCAN);
 
     return { start, end };
-  }, [scrollTop, itemPositions]);
+  }, [scrollTop, itemPositions, containerHeight]);
 
   // Effective playback time for subtitles considering user-calibrated timing offset
   const effectiveSubtitleTime = currentTime - subtitleOffsetMs / 1000;
 
-  // Active word in current playback time
-  const currentWord = editableWords.find(
-    (w) => effectiveSubtitleTime >= w.start && effectiveSubtitleTime <= w.end
-  );
-
   // Active phrase segment in current playback time with calibrated offset and 0.35s hang tolerance
   const currentActivePhrase = phraseSegments.find(
-    (p) => effectiveSubtitleTime >= p.startSec && effectiveSubtitleTime <= (p.endSec + 0.35)
+    (p) => effectiveSubtitleTime >= p.startSec && effectiveSubtitleTime <= p.endSec + 0.35
   );
 
   // Auto-scroll to active playing phrase
   const activePhraseIndex = useMemo(() => {
     const effectiveTime = currentTime - subtitleOffsetMs / 1000;
     return filteredPhrases.findIndex(
-      (p) => effectiveTime >= p.startSec && effectiveTime <= (p.endSec + 0.35)
+      (p) => effectiveTime >= p.startSec && effectiveTime <= p.endSec + 0.35
     );
   }, [filteredPhrases, currentTime, subtitleOffsetMs]);
 
@@ -120,7 +107,6 @@ export function useTranscriptVirtualizer(virtualScrollRef: React.RefObject<HTMLD
     const pos = itemPositions.positions[activePhraseIndex];
     if (!pos || isAutoScrollingRef.current) return;
 
-    const containerHeight = virtualScrollRef.current.clientHeight || 450;
     const targetScroll = Math.max(0, pos.top - containerHeight / 2 + pos.height / 2);
     const diff = Math.abs(virtualScrollRef.current.scrollTop - targetScroll);
     if (diff > 140) {
@@ -130,7 +116,7 @@ export function useTranscriptVirtualizer(virtualScrollRef: React.RefObject<HTMLD
         isAutoScrollingRef.current = false;
       }, 400);
     }
-  }, [activePhraseIndex, autoScrollToPlayhead, itemPositions, virtualScrollRef]);
+  }, [activePhraseIndex, autoScrollToPlayhead, itemPositions, virtualScrollRef, containerHeight]);
 
   // Update a phrase's text and distribute timestamps proportionally
   const handleUpdatePhraseText = (phraseIndex: number, newText: string) => {
@@ -140,17 +126,25 @@ export function useTranscriptVirtualizer(virtualScrollRef: React.RefObject<HTMLD
     const newWordTokens = newText.trim().split(/\s+/).filter(Boolean);
     if (newWordTokens.length === 0) return;
 
-    const dur = segment.endSec - segment.startSec;
+    const dur = Math.max(0.2, segment.endSec - segment.startSec);
     const tokenDur = dur / newWordTokens.length;
 
-    const newWordsForPhrase: WordTimestamp[] = newWordTokens.map((token, i) => ({
-      word: token,
-      start: Math.round((segment.startSec + i * tokenDur) * 100) / 100,
-      end: Math.round((segment.startSec + (i + 1) * tokenDur) * 100) / 100,
-      confidence: 1.0,
-      isFiller: false,
-      excluded: false,
-    }));
+    const newWordsForPhrase: WordTimestamp[] = newWordTokens.map((token, i) => {
+      // Try to preserve original word timestamps if token unchanged
+      const origWord = segment.words[i];
+      if (origWord && origWord.word.toLowerCase() === token.toLowerCase() && newWordTokens.length === segment.words.length) {
+        return { ...origWord, word: token };
+      }
+
+      return {
+        word: token,
+        start: parseFloat((segment.startSec + i * tokenDur).toFixed(2)),
+        end: parseFloat((segment.startSec + (i + 1) * tokenDur).toFixed(2)),
+        confidence: 1.0,
+        isFiller: false,
+        excluded: false,
+      };
+    });
 
     const updatedFullList: WordTimestamp[] = [];
     phraseSegments.forEach((seg, sIdx) => {
@@ -216,7 +210,6 @@ export function useTranscriptVirtualizer(virtualScrollRef: React.RefObject<HTMLD
     itemPositions,
     visibleRange,
     effectiveSubtitleTime,
-    currentWord,
     currentActivePhrase,
     activePhraseIndex,
     handleUpdatePhraseText,

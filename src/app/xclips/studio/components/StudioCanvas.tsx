@@ -6,6 +6,7 @@ import { useStudioStore } from "../store/useStudioStore";
 import { getApiBaseUrl } from "@/lib/api-client";
 import { LayoutMode, AspectRatio, SubtitleStyle } from "@/lib/xclips/types";
 import { PhraseSegment, DEFAULT_SUBTITLE_STYLE } from "../types/studio.types";
+import { segmentPhrases } from "@/lib/xclips/phrase-segmentation";
 
 interface StudioCanvasProps {
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -70,40 +71,7 @@ export function StudioCanvas({
   const phraseSegments = useMemo<PhraseSegment[]>(() => {
     if (externalActivePhrase) return [];
     if (!editableWords || editableWords.length === 0) return [];
-
-    const segments: PhraseSegment[] = [];
-    let currentWords = [];
-    let segIdx = 0;
-
-    for (let i = 0; i < editableWords.length; i++) {
-      const w = editableWords[i];
-      currentWords.push(w);
-
-      const isPunctuationEnd = /[.?!,;:]$/.test(w.word.trim());
-      const isMaxWords = currentWords.length >= 6;
-      const nextWord = editableWords[i + 1];
-      const isTimeGap = nextWord && (nextWord.start - w.end) > 0.8;
-
-      if (isPunctuationEnd || isMaxWords || isTimeGap || i === editableWords.length - 1) {
-        const startSec = currentWords[0].start;
-        const endSec = currentWords[currentWords.length - 1].end;
-        const text = currentWords.map((cw) => cw.word).join(" ");
-
-        segments.push({
-          id: `seg_${segIdx}_${startSec.toFixed(2)}`,
-          index: segIdx,
-          startSec,
-          endSec,
-          text,
-          words: [...currentWords],
-        });
-
-        currentWords = [];
-        segIdx++;
-      }
-    }
-
-    return segments;
+    return segmentPhrases(editableWords);
   }, [editableWords, externalActivePhrase]);
 
   const effectiveSubtitleTime =

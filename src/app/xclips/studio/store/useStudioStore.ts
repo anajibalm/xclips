@@ -12,6 +12,7 @@ import {
   AiProviderType,
 } from "@/lib/xclips/types";
 import { LogItem, ProjectAssets, FootageProgress, DEFAULT_SUBTITLE_STYLE } from "../types/studio.types";
+import { generateSrtFromWords } from "@/lib/xclips/phrase-segmentation";
 
 interface StudioState {
   projectId: string | null;
@@ -488,6 +489,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         get().fetchSubtitleTracks(id);
         get().fetchAssets(id);
         get().fetchLogs(id);
+        get().fetchAiSettings();
       }
     } finally {
       set({ loading: false });
@@ -539,16 +541,20 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         const s = res.data.settings;
         const currentProvider = s.provider || "kieai";
         const resolvedKey = s.apiKeys?.[currentProvider] || s.apiKey || "";
+        const completeApiKeys: Record<AiProviderType, string> = {
+          kieai: s.apiKeys?.kieai || "",
+          gemini: s.apiKeys?.gemini || "",
+          openai: s.apiKeys?.openai || "",
+          anthropic: s.apiKeys?.anthropic || "",
+          openai_compatible: s.apiKeys?.openai_compatible || "",
+        };
+        if (!completeApiKeys[currentProvider] && resolvedKey) {
+          completeApiKeys[currentProvider] = resolvedKey;
+        }
         const completeSettings: XclipsAiSettings = {
           ...s,
           apiKey: resolvedKey,
-          apiKeys: s.apiKeys || {
-            kieai: "",
-            gemini: "",
-            openai: "",
-            anthropic: "",
-            openai_compatible: "",
-          },
+          apiKeys: completeApiKeys,
         };
         set({ aiSettings: completeSettings });
         if (typeof window !== "undefined") {
@@ -737,11 +743,14 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     );
 
     if (res.ok && res.data?.transcript) {
-      set({
-        transcript: res.data.transcript,
+      const savedTranscript = res.data.transcript;
+      set((state) => ({
+        transcript: savedTranscript,
         autoSaveStatus: "saved",
-      });
-      get().fetchSubtitleTracks(id);
+        subtitleTracks: state.subtitleTracks.map((t) =>
+          t.id === savedTranscript.id ? savedTranscript : t
+        ),
+      }));
       setTimeout(() => {
         if (get().autoSaveStatus === "saved") {
           set({ autoSaveStatus: "idle" });
@@ -877,47 +886,16 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   handleDownloadSrt: () => {
-    const { project, transcript, editableWords } = get();
+    const { project, transcript, editableWords, subtitleOffsetMs } = get();
     const wordsToUse = editableWords.length > 0 ? editableWords : (transcript?.words || []);
     if (wordsToUse.length === 0 && !transcript?.srtContent) {
       get().setActionError("Tidak ada transkrip subtitle untuk diunduh.");
       return;
     }
 
-    // Format phrases for SRT
-    const phrases: Array<{ start: number; end: number; text: string }> = [];
-    let currentWords: WordTimestamp[] = [];
-
-    for (const w of wordsToUse) {
-      if (w.excluded) continue;
-      currentWords.push(w);
-      if (currentWords.length >= 6 || /[.?!]$/.test(w.word)) {
-        phrases.push({
-          start: currentWords[0].start,
-          end: currentWords[currentWords.length - 1].end,
-          text: currentWords.map((cw) => cw.word).join(" "),
-        });
-        currentWords = [];
-      }
-    }
-    if (currentWords.length > 0) {
-      phrases.push({
-        start: currentWords[0].start,
-        end: currentWords[currentWords.length - 1].end,
-        text: currentWords.map((cw) => cw.word).join(" "),
-      });
-    }
-
-    const formatSrtTime = (sec: number) => {
-      const hrs = Math.floor(sec / 3600);
-      const mins = Math.floor((sec % 3600) / 60);
-      const secs = Math.floor(sec % 60);
-      const ms = Math.floor((sec % 1) * 1000);
-      return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")},${ms.toString().padStart(3, "0")}`;
-    };
-
-    const srtContent = phrases.length > 0
-      ? phrases.map((p, i) => `${i + 1}\n${formatSrtTime(p.start)} --> ${formatSrtTime(p.end)}\n${p.text}\n`).join("\n")
+    const offsetSec = (subtitleOffsetMs || 0) / 1000;
+    const srtContent = wordsToUse.length > 0
+      ? generateSrtFromWords(wordsToUse, { offsetSec })
       : (transcript?.srtContent || "");
 
     const cleanProjectName = (project?.name || "subtitles").replace(/[^a-zA-Z0-9_\-]/g, "_");

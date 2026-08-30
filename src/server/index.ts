@@ -980,25 +980,6 @@ app.delete("/api/xclips/projects/:id", (c) => {
   return c.json({ ok: deleted });
 });
 
-app.put("/api/xclips/projects/:id/transcript", async (c) => {
-  const id = c.req.param("id");
-  try {
-    const body = await c.req.json();
-    const words = body?.words;
-    if (!Array.isArray(words)) {
-      return c.json({ ok: false, message: "Words array is required" }, 400);
-    }
-
-    const res = xclipsService.updateTranscriptWords(id, words);
-    if (!res.success) {
-      return c.json({ ok: false, message: res.error }, 400);
-    }
-    return c.json({ ok: true, transcript: res.data });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Gagal mengupdate transkrip";
-    return c.json({ ok: false, message }, 500);
-  }
-});
 
 
 // --- xclips AI Settings & Models Routes ---

@@ -839,30 +839,43 @@ export async function downloadYouTubeVideo(
 }
 
 /**
- * Converts a standard .srt subtitle file into structured WordTimestamp[]
+ * Converts a standard .srt or .vtt subtitle file into structured WordTimestamp[]
  */
 export function parseSrtToWords(srtContent: string): WordTimestamp[] {
   if (!srtContent || typeof srtContent !== "string") return [];
 
-  const entries = srtContent.split(/\r?\n\r?\n/);
+  // Strip WebVTT headers and notes if present (from start to first blank line)
+  const cleanContent = srtContent
+    .replace(/^WEBVTT[\s\S]*?(?:\r?\n\r?\n)/i, "")
+    .replace(/NOTE\s+[\s\S]*?(?:\r?\n\r?\n|$)/gi, "");
+
+  const entries = cleanContent.split(/\r?\n\r?\n/);
   const words: WordTimestamp[] = [];
 
   for (const block of entries) {
     const lines = block.trim().split(/\r?\n/);
-    if (lines.length < 2) continue;
+    if (lines.length < 1) continue;
 
-    // Find timecode line (e.g. 00:00:01,234 --> 00:00:04,567)
-    const timeLine = lines.find((l) => l.includes("-->"));
-    if (!timeLine) continue;
+    // Find timecode line (e.g. 00:00:01,234 --> 00:00:04,567 or 00:01.234 --> 00:04.567 line:0%)
+    const timeLineIndex = lines.findIndex((l) => l.includes("-->"));
+    if (timeLineIndex === -1) continue;
 
-    const timeParts = timeLine.split("-->").map((s) => s.trim());
-    if (timeParts.length !== 2) continue;
+    const timeLine = lines[timeLineIndex];
+    const timeParts = timeLine.split("-->").map((s) => s.trim().split(/\s+/)[0]);
+    if (timeParts.length < 2) continue;
 
     const startSec = srtTimestampToSec(timeParts[0]);
     const endSec = srtTimestampToSec(timeParts[1]);
 
-    const textLines = lines.slice(lines.indexOf(timeLine) + 1);
-    const fullText = textLines.join(" ").replace(/<[^>]+>/g, "").trim(); // strip HTML tags if any
+    if (isNaN(startSec) || isNaN(endSec) || endSec <= startSec) continue;
+
+    const textLines = lines.slice(timeLineIndex + 1);
+    const fullText = textLines
+      .join(" ")
+      .replace(/<[^>]+>/g, "") // strip HTML & WebVTT voice/karaoke tags
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .trim();
 
     if (!fullText) continue;
 
@@ -875,14 +888,24 @@ export function parseSrtToWords(srtContent: string): WordTimestamp[] {
     tokenWords.forEach((wordText, i) => {
       const wStart = startSec + i * perWordDuration;
       const wEnd = wStart + perWordDuration;
-      words.push({
-        word: wordText,
-        start: parseFloat(wStart.toFixed(2)),
-        end: parseFloat(wEnd.toFixed(2)),
-        confidence: 0.95,
-        isFiller: false,
-        excluded: false,
-      });
+
+      // Avoid immediate duplicate words at exactly overlapping timestamps (common in auto-CC rollups)
+      const prevWord = words[words.length - 1];
+      const isDuplicate =
+        prevWord &&
+        prevWord.word.toLowerCase() === wordText.toLowerCase() &&
+        Math.abs(prevWord.start - wStart) < 0.08;
+
+      if (!isDuplicate) {
+        words.push({
+          word: wordText,
+          start: parseFloat(wStart.toFixed(2)),
+          end: parseFloat(wEnd.toFixed(2)),
+          confidence: 0.95,
+          isFiller: false,
+          excluded: false,
+        });
+      }
     });
   }
 
@@ -890,6 +913,7 @@ export function parseSrtToWords(srtContent: string): WordTimestamp[] {
 }
 
 function srtTimestampToSec(ts: string): number {
+  if (!ts) return 0;
   const clean = ts.replace(",", ".").trim();
   const parts = clean.split(":");
   if (parts.length === 3) {
@@ -900,3 +924,4 @@ function srtTimestampToSec(ts: string): number {
   }
   return parseFloat(clean) || 0;
 }
+

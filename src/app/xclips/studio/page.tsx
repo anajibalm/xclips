@@ -48,6 +48,7 @@ function StudioContent() {
   const setActionError = useStudioStore((s) => s.setActionError);
   const setActionSuccess = useStudioStore((s) => s.setActionSuccess);
   const loadProjectData = useStudioStore((s) => s.loadProjectData);
+  const fetchAiSettings = useStudioStore((s) => s.fetchAiSettings);
 
   const [brollPreviewItem, setBrollPreviewItem] = useState<XclipsProject | null>(null);
 
@@ -61,6 +62,10 @@ function StudioContent() {
     handleVideoTimeUpdate,
     handleVideoEnded,
   } = useVideoPlaybackSync();
+
+  useEffect(() => {
+    fetchAiSettings();
+  }, [fetchAiSettings]);
 
   useEffect(() => {
     if (projectIdParam && projectIdParam !== projectId) {

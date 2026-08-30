@@ -16,6 +16,10 @@ import {
   Select,
   MenuItem,
   Divider,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from "@mui/material";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -23,14 +27,19 @@ import DownloadIcon from "@mui/icons-material/Download";
 import SearchIcon from "@mui/icons-material/Search";
 import RecordVoiceOverIcon from "@mui/icons-material/RecordVoiceOver";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
+import DeleteIcon from "@mui/icons-material/Delete";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { useStudioStore } from "../store/useStudioStore";
 import { useTranscriptVirtualizer } from "../hooks/useTranscriptVirtualizer";
 import { formatTime } from "../types/studio.types";
 import { GenerateSubtitleModal } from "../modals/GenerateSubtitleModal";
+import { XclipsTranscript } from "@/lib/xclips/types";
 
 export function TabSubtitles() {
   const virtualScrollRef = useRef<HTMLDivElement>(null);
   const [editingPhraseIndex, setEditingPhraseIndex] = useState<number | null>(null);
+  const [trackToDelete, setTrackToDelete] = useState<XclipsTranscript | null>(null);
+  const [isDeletingTrack, setIsDeletingTrack] = useState<boolean>(false);
 
   const project = useStudioStore((s) => s.project);
   const subtitleOffsetMs = useStudioStore((s) => s.subtitleOffsetMs);
@@ -44,6 +53,7 @@ export function TabSubtitles() {
   const activeTranscript = useStudioStore((s) => s.transcript);
   const setIsGenerateSubtitleModalOpen = useStudioStore((s) => s.setIsGenerateSubtitleModalOpen);
   const handleSwitchSubtitleTrack = useStudioStore((s) => s.handleSwitchSubtitleTrack);
+  const handleDeleteSubtitleTrack = useStudioStore((s) => s.handleDeleteSubtitleTrack);
   const autoSaveStatus = useStudioStore((s) => s.autoSaveStatus);
   const editableWords = useStudioStore((s) => s.editableWords);
   const autoScrollToPlayhead = useStudioStore((s) => s.autoScrollToPlayhead);
@@ -197,6 +207,7 @@ export function TabSubtitles() {
                   {subtitleTracks.map((track) => {
                     const isYt = track.sourceType === "youtube_cc" || track.label === "YouTube Subtitles (CC)";
                     const title = isYt ? "YouTube Subtitles (CC)" : (track.label || "Track");
+                    const isActive = activeTranscript?.id === track.id;
                     return (
                       <MenuItem
                         key={track.id}
@@ -208,13 +219,50 @@ export function TabSubtitles() {
                           alignItems: "center",
                           justifyContent: "space-between",
                           gap: 1,
-                          bgcolor: activeTranscript?.id === track.id ? "rgba(59, 130, 246, 0.12)" : "transparent",
+                          py: 0.7,
+                          bgcolor: isActive ? "rgba(59, 130, 246, 0.12)" : "transparent",
+                          "&:hover .track-delete-btn": {
+                            opacity: 1,
+                          },
                         }}
                       >
-                        <span>{title}</span>
-                        <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.68rem" }}>
-                          {track.words?.length || 0} kata
-                        </Typography>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                          <span>{title}</span>
+                          {isActive && (
+                            <Chip
+                              label="Aktif"
+                              size="small"
+                              sx={{
+                                height: 16,
+                                fontSize: "0.58rem",
+                                fontWeight: 700,
+                                bgcolor: "rgba(59, 130, 246, 0.2)",
+                                color: "#60a5fa",
+                                borderRadius: 0.5,
+                                px: 0.3,
+                              }}
+                            />
+                          )}
+                        </Box>
+                        <Tooltip title="Hapus track ini" arrow>
+                          <IconButton
+                            size="small"
+                            className="track-delete-btn"
+                            disabled={isBusy || isDeletingTrack}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTrackToDelete(track);
+                            }}
+                            sx={{
+                              p: 0.3,
+                              opacity: 0.6,
+                              color: "#f87171",
+                              "&:hover": { color: "#ef4444", bgcolor: "rgba(239, 68, 68, 0.15)" },
+                            }}
+                          >
+                            <DeleteIcon sx={{ fontSize: "0.92rem" }} />
+                          </IconButton>
+                        </Tooltip>
                       </MenuItem>
                     );
                   })}
@@ -729,6 +777,110 @@ export function TabSubtitles() {
 
       {/* Dedicated Generate Subtitle Dialog */}
       <GenerateSubtitleModal />
+
+      {/* Delete Subtitle Track Confirmation Dialog */}
+      <Dialog
+        open={Boolean(trackToDelete)}
+        onClose={() => !isDeletingTrack && setTrackToDelete(null)}
+        maxWidth="xs"
+        fullWidth
+        slotProps={{
+          paper: {
+            sx: {
+              bgcolor: "#121216",
+              color: "#ffffff",
+              borderRadius: 1.5,
+              border: "1px solid #27272a",
+              backgroundImage: "none",
+              p: 0.5,
+            },
+          },
+        }}
+      >
+        <DialogTitle sx={{ pb: 1, display: "flex", alignItems: "center", gap: 1.2 }}>
+          <Box
+            sx={{
+              width: 36,
+              height: 36,
+              borderRadius: "50%",
+              bgcolor: "rgba(239, 68, 68, 0.12)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <WarningAmberIcon sx={{ color: "#ef4444", fontSize: "1.3rem" }} />
+          </Box>
+          <Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800, fontSize: "0.95rem", color: "#fafafa" }}>
+              Hapus Track Subtitle?
+            </Typography>
+            <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.72rem" }}>
+              Konfirmasi Penghapusan Track
+            </Typography>
+          </Box>
+        </DialogTitle>
+
+        <DialogContent sx={{ py: 1.5 }}>
+          <Typography variant="body2" sx={{ color: "#d4d4d8", fontSize: "0.82rem", lineHeight: 1.5 }}>
+            Apakah Anda yakin ingin menghapus track{" "}
+            <strong style={{ color: "#ffffff" }}>
+              "{trackToDelete?.label || (trackToDelete?.sourceType === "youtube_cc" ? "YouTube Subtitles (CC)" : "Track")}"
+            </strong>
+            ?
+          </Typography>
+          <Typography variant="caption" sx={{ display: "block", color: "#a1a1aa", mt: 1, fontSize: "0.74rem" }}>
+            Tindakan ini permanen. Seluruh kata dan pengaturan timing pada track ini akan dihapus dari project.
+          </Typography>
+        </DialogContent>
+
+        <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
+          <Button
+            size="small"
+            variant="outlined"
+            disabled={isDeletingTrack}
+            onClick={() => setTrackToDelete(null)}
+            sx={{
+              borderColor: "#27272a",
+              color: "#a1a1aa",
+              textTransform: "none",
+              fontWeight: 600,
+              fontSize: "0.78rem",
+              "&:hover": { borderColor: "#3f3f46", color: "#ffffff" },
+            }}
+          >
+            Batal
+          </Button>
+          <Button
+            size="small"
+            variant="contained"
+            disabled={isDeletingTrack}
+            startIcon={isDeletingTrack ? <CircularProgress size={14} sx={{ color: "#ffffff" }} /> : <DeleteIcon fontSize="small" />}
+            onClick={async () => {
+              if (!trackToDelete) return;
+              setIsDeletingTrack(true);
+              try {
+                await handleDeleteSubtitleTrack(trackToDelete.id);
+                setTrackToDelete(null);
+              } finally {
+                setIsDeletingTrack(false);
+              }
+            }}
+            sx={{
+              bgcolor: "#ef4444",
+              color: "#ffffff",
+              textTransform: "none",
+              fontWeight: 700,
+              fontSize: "0.78rem",
+              borderRadius: 0.8,
+              "&:hover": { bgcolor: "#dc2626" },
+            }}
+          >
+            {isDeletingTrack ? "Menghapus..." : "Hapus Track"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

@@ -111,6 +111,20 @@ export function TabFramingStyle() {
     }
   };
 
+  const updateSubtitleStylePreview = (newStyle: SubtitleStyle) => {
+    setStudioSubtitleStyle(newStyle);
+  };
+
+  const updateSubtitleStyleCommitted = (newStyle: SubtitleStyle) => {
+    setStudioSubtitleStyle(newStyle);
+    if (selectedClip) {
+      handleSaveClip({
+        ...selectedClip,
+        subtitleStyle: newStyle,
+      });
+    }
+  };
+
   const updateLayoutMode = (mode: LayoutMode) => {
     setStudioLayoutMode(mode);
     if (selectedClip) {
@@ -122,6 +136,20 @@ export function TabFramingStyle() {
   };
 
   const updatePanOffsetX = (pan: number) => {
+    setStudioPanOffsetX(pan);
+    if (selectedClip) {
+      handleSaveClip({
+        ...selectedClip,
+        panOffsetX: pan,
+      });
+    }
+  };
+
+  const updatePanOffsetPreview = (pan: number) => {
+    setStudioPanOffsetX(pan);
+  };
+
+  const updatePanOffsetCommitted = (pan: number) => {
     setStudioPanOffsetX(pan);
     if (selectedClip) {
       handleSaveClip({
@@ -366,7 +394,8 @@ export function TabFramingStyle() {
                 max={1.0}
                 step={0.05}
                 value={currentPanOffsetX || 0}
-                onChange={(_, val) => updatePanOffsetX(val as number)}
+                onChange={(_, val) => updatePanOffsetPreview(val as number)}
+                onChangeCommitted={(_, val) => updatePanOffsetCommitted(val as number)}
                 sx={{ color: "#3b82f6" }}
               />
             </Box>
@@ -818,7 +847,10 @@ export function TabFramingStyle() {
                   step={1}
                   value={Math.max(0, Math.min(999, currentStyle.fontSize ?? 22))}
                   onChange={(_, val) =>
-                    updateSubtitleStyle({ ...currentStyle, fontSize: val as number })
+                    updateSubtitleStylePreview({ ...currentStyle, fontSize: val as number })
+                  }
+                  onChangeCommitted={(_, val) =>
+                    updateSubtitleStyleCommitted({ ...currentStyle, fontSize: val as number })
                   }
                   sx={{ color: "#3b82f6" }}
                 />
@@ -836,7 +868,10 @@ export function TabFramingStyle() {
                   step={0.5}
                   value={currentStyle.outlineWidth ?? 2}
                   onChange={(_, val) =>
-                    updateSubtitleStyle({ ...currentStyle, outlineWidth: val as number })
+                    updateSubtitleStylePreview({ ...currentStyle, outlineWidth: val as number })
+                  }
+                  onChangeCommitted={(_, val) =>
+                    updateSubtitleStyleCommitted({ ...currentStyle, outlineWidth: val as number })
                   }
                   sx={{ color: "#3b82f6" }}
                 />
@@ -854,7 +889,10 @@ export function TabFramingStyle() {
                   step={1}
                   value={currentStyle.positionY || 80}
                   onChange={(_, val) =>
-                    updateSubtitleStyle({ ...currentStyle, positionY: val as number })
+                    updateSubtitleStylePreview({ ...currentStyle, positionY: val as number })
+                  }
+                  onChangeCommitted={(_, val) =>
+                    updateSubtitleStyleCommitted({ ...currentStyle, positionY: val as number })
                   }
                   sx={{ color: "#3b82f6" }}
                 />

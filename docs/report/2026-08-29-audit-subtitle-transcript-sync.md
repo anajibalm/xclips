@@ -296,3 +296,148 @@ Prioritas eksekusi revisi (menggantikan urutan Part 1):
 3. **Batch C — reliability transcribe (±3 jam)**: naikkan timeout single-chunk ke 120-180s (P1-28), concurrency pool + partial-flag (P1-10), VTT handling (P1-30)
 4. **Batch D — UI perf (±2 jam)**: slider `onChangeCommitted` (P1-29), auto-save tanpa refetch (P1-9), viewport ResizeObserver (P1-12)
 5. **Batch E — cleanup (±2 jam)**: Zod + zero-any (P0-3, P2-36), offset per-track DB (P1-14), dead code & flag (P2-18/19/21/31), FK + PRD sync (P2-35, spec table)
+
+---
+
+# PART 3 — Backend & Performance Audit (audit sesi ketiga, 2026-08-29 22:00)
+
+Fokus: sisi backend & performance secara menyeluruh (bukan hanya jalur subtitle). Files audited: `src/server/index.ts` (1191 LOC, seluruh routes), `src/lib/xclips/xclips-db.ts` (624 LOC, engine penuh), `src/lib/xclips/queue.ts` (render queue), `src/lib/logger.ts` (pino config), TabLogs polling, live runtime state (netstat, ukuran log). Duplicate PUT route dari Part 1 dikonfirmasi masih ada di L983 vs L1103.
+
+## Temuan Highlight (urut dampak)
+
+### B-P0-1. PUT `/api/xclips/clips/:id` TIDAK ADA di server — save clip gagal SILENT 🔴
+
+Store `useStudioStore.ts:632` (`handleSaveClip`) memanggil `PUT /api/xclips/clips/${id}`. Server HANYA punya: `POST /api/xclips/clips` (L1130), `DELETE .../clips/:id` (L1144), `POST .../clips/:id/render` (L1150). Tidak ada PUT handler → Hono return 404 → `apiFetch` return `ok:false` — dan `handleSaveClip` **mengabaikan result** (`await apiFetch(...)` tanpa pengecekan).
+
+Dampak nyata di fitur subtitle & framing: `setStudioAspectRatio`, `setStudioLayoutMode`, `setStudioPanOffsetX`, `setStudioSubtitleStyle` (TabFramingStyle slider fontSize/outline/positionY, preset picker), `updateSubtitleStyle` — SEMUA memanggil `handleSaveClip` → 100% PUT gagal → **subtitleStyle, layoutMode, panOffsetX, aspectRatio TIDAK PERNAH tersimpan ke DB**. Semua styling subtitle yang user atur hilang saat refresh/switch project. Ini menjelaskan bug UX yang pasti sudah/b akan terasa: "kenapa preset hormozi kembali ke plain setelah reload".
+
+Fix: tambahkan `app.put("/api/xclips/clips/:id", ...)` yang validasi body + `xclipsDb.saveClip`. Plus `handleSaveClip` di store harus cek `res.ok` dan surface error (silent failure adalah anti-pattern Result-pattern CODING_PREF).
+
+### B-P0-2. `GET /api/xclips/settings/models` 404 — model list transcribe/highlight tidak pernah ter-load 🔴
+
+Store `useStudioStore.ts:583` memanggil `GET /api/xclips/settings/models?provider=...&apiKey=...`. Route TIDAK ADA di server (yang ada hanya `POST /api/xclips/ai/models` L1005). `fetchAvailableModels` → 404 → catch → `availableHighlightModels: []` → `GenerateSubtitleModal` jatuh ke hardcoded fallback list `["gemini-3-7-flash", "gpt-5-6-terra", "whisper-1"]` (modal L212-214). Model list tidak pernah live; API key dikirim via query param padahal endpoint tak pernah ada.
+
+Fix: ganti store ke `POST /api/xclips/ai/models` (sudah ada, body-based, key tidak ke query string) — sekaligus menutup P1-11 dari Part 1.
+
+### B-P0-3. CORS reflect-any-origin + credentials + listen 0.0.0.0 🟠→🔴 konteks lokal
+
+`src/server/index.ts:18-27`: `origin: (origin) => origin || "*"` + `credentials: true`, dan server listen `0.0.0.0:3351` (terverifikasi netstat). Kombinasi reflect-origin + credentials pada interface yang reachable dari LAN/Tailscale = browser tab malicious di jaringan yang sama bisa memanggil API (transcribe, delete, render, open-in-explorer, download dari URL arbitrer) dengan cookie session. Hono cors origin-callback seperti ini memantulkan SEMUA origin.
+
+Fix: whitelist origin `http://localhost:3350`, `http://127.0.0.1:3350`, Tailscale host; atau turunkan `credentials` (API ini tidak pakai cookie auth sama sekali — `credentials: "include"` di apiFetch juga tidak perlu). Ini local-first tool, bukan multi-user — hardening murah.
+
+### B-P1-4. `/logs` endpoint: full-file read + JSON.parse per baris, SETIAP 2 DETIK, di route yang dikecualikan dari log 🟠
+
+`server/index.ts:545-587`: `fs.readFileSync(logs/app.log)` seluruh file (saat audit: 179 KB dan tumbuh — tiap request API juga nulis log) → split per baris → iterate dari belakang, JSON.parse per baris, filter projectId, sampai 150 entries. TabLogs poll setiap 2000 ms (TabLogs.tsx:353). Untuk sesi panjang + banyak render, file log bisa MB → full read + ratusan parse per 2 detik per client yang membuka tab Logs.
+
+Ironisnya: middleware logging sengaja skip `/logs` (L40) supaya polling tidak menumbuhkan log — tapi semua API call LAIN tetap menulis, jadi file tumbuh terus dan scan makin mahal. Desain logging + polling-nya saling membebani.
+
+Fix (bertahap, tanpa rombak besar):
+1. Short-term: baca dari EOF — `fs.open` + `stat` ukuran, baca hanya blok terakhir (mis. 256 KB) dengan `readSync` offset, parse dari belakang. O(ukuran tetap), bukan O(file).
+2. Better: pino destination file rotation (pino.roll atau cron) ATAU in-memory ring buffer: logger menulis juga ke `logRingBuffer` (array max 2000 entries) → `/logs` cukup filter buffer, nol disk read.
+3. `DELETE /logs` menulis `""` via writeFileSync — cukup truncate via `fs.truncateSync`.
+
+### B-P1-5. Transkrip JSON dibongkar+disimpan ulang berkali-kali (hot path auto-save) 🟠
+
+`xclips-db.ts:311-379`: `getProjectTranscripts` / `getTranscript` melakukan `JSON.parse(row.wordsJson)` untuk setiap row. Kata 30-menit video ≈ 4.000-6.000 kata × ~90 byte JSON = ~500 KB per track. Tiga konsumen paralel:
+- auto-save subtitle (tiap idle 1s saat editing) → `saveTranscriptWords` → full rewrite
+- `fetchSubtitleTracks` refetch SEMUA track → parse SEMUA wordsJson semua track (lihat P1-9 Part 1)
+- TabLogs memicu `fetchAssets` yang juga `getTranscript` → parse lagi
+Plus `rawText` + `srtContent` disimpan ulang di setiap save (redundansi P2-20 diperkuat: triple write ~1.5 MB per auto-save tick).
+
+Fix: (1) jangan sertakan `words` di response `GET /subtitles` (metadata saja: id, label, count, dates) — client hanya perlu words saat `switch`; (2) index per-column daripada rawJson-parse-everywhere sudah oke — tapi untuk transcripts, pertimbangkan simpan wordsJson sebagai file per track (vault/xclips/cache/{projectId}/transcripts/{trackId}.json) dan DB hanya metadata — SQLite tidak cocok jadi blob store untuk payload 0.5 MB yang di-parse per request; (3) set `autoSaveStatus` tanpa refetch (Part 1 P1-9).
+
+### B-P1-6. Streaming video: `Bun.file().slice()` benar, tapi sync I/O stat + duplikasi route 4x 🟠
+
+Empat route streaming (media/stream L452, clips/stream L499, media/audio L731, thumbnail L795) menyalin blok range-parsing identik dengan `fs.statSync` (blocking event loop di setiap range request — video player mengirim banyak range request saat seek). Fallback `fs.createReadStream(...) as any` — zero-any violation dan cast tidak aman (Node stream bukan web ReadableStream; hanya selamat karena runtime Bun).
+
+Fix: extract `serveFileWithRange(c, filePath, mime)` helper tunggal + `stat` async (`Bun.file(path).stat()`), hapus branch Node yang mati (project ini Bun-only, `typeof Bun !== "undefined"` selalu true di runtime target). Duplikasi 4x → 1 util.
+
+### B-P1-7. open-in-explorer: exec string-interpola path tanpa escape — command injection 🟠
+
+`server/index.ts:386-391`: `explorer.exe /select,"${absolutePath}"` di-`exec` langsung. Path berasal dari body request (`path` atau `sourcePath` project). Di Windows, path berisi `&` atau metacharacter shell → command execution. Lokal tool risikonya terbatas, tapi path dari URL ingest (YouTube title masuk ke nama file!) mengalir ke sini. Path yang mengandung karakter shell legal di nama file Windows = eksploit nyata.
+
+Fix: gunakan `execFile("explorer.exe", ["/select,", absolutePath])` (array args, tanpa shell) — atau minimal escape quotes. Sama untuk `open -R` di macOS.
+
+### B-P1-8. Assets endpoint men-trigger network fetch + disk write di GET request 🟠
+
+`server/index.ts:616-727` (`GET .../assets`): jika thumbnail belum ada dan project YouTube → `fetch i.ytimg.com` + tulis disk (L638-652). GET yang menulis disk + menunggu network = latency spike + surprise side effect; di polling auto-save storm (P1-9) ini dipanggil berulang. `fetch` tanpa `AbortSignal.timeout` juga melanggar backend standards (AI/HTTP call policy).
+
+Fix: pindah auto-fetch thumbnail ke saat ingest (sekali, di service layer), assets route hanya baca. Semua `fetch` wajib `AbortSignal.timeout(10_000)`.
+
+### B-P1-9. Render queue progress: `saveJob` per ffmpeg stderr tick + SQL dari hot path 🟠
+
+`queue.ts:195-214`: setiap progress tick ffmpeg (banyak per detik) → `xclipsDb.saveJob(job)` (upsert SQL). Dengan 2 job concurrent, itu puluhan upsert/detik ke SQLite WAL — plus setiap `saveJob` INSERT..ON CONFLICT, dan middleware-logger juga nulis log. Tidak fatal (SQLite cepat), tapi write amplification sia-sia + WAL checkpoint pressure.
+
+Fix: throttle saveJob (mis. hanya jika `pct - lastSaved >= 5` atau tiap 2s), simpan progress in-memory (job object di manager), flush saat completed/failed.
+
+### B-P1-10. Background download: floating promise, no task GC, no dedupe 🟠
+
+`server/index.ts:184-235, 309-343`: `(async () => {...})()` tanpa `.catch` (throw di luar try akan unhandled rejection — meski try menutup hampir semua). `activeDownloads` Map TIDAK PERNAH dibersihkan setelah completed/error (memory leak kecil, tapi per sesi panjang + polling 1.2 s interval per task, bisa ratusan entries). Tidak ada dedupe: double-click "download" = dua task yt-dlp men-download file sama bersamaan (race write file sama, dua progress entry).
+
+Fix: `setInterval` GC entries completed >10 menit; dedupe per (url) yang sedang aktif; tambah `.catch` eksplisit; dokumentasikan restart-kehilangan-progress (task state in-memory — P2 catatan PRD alignment: "Stateless: no in-memory state" violated; acceptable untuk local tool, tapi catat).
+
+### B-P2-11. `db.transaction` saveClipsBatch OK, tapi saveTranscript tidak batch-safe vs setActive race 🟡
+
+`saveTranscript` (db:381-414) melakukan UPDATE isActive=0 + upsert di luar transaction. `setActiveTranscript` pakai transaction. Dua writer concurrency (auto-save + switch track) bisa interleave: saveTranscript reset isActive semua → setActive switch → upsert saveTranscript menulis `isActive: 1` untuk track LAMA (karena isNewActive dihitung dari payload, bukan state DB). Race window kecil tapi nyata pada kombinasi auto-save + switch cepat.
+
+Fix: bungkus isi `saveTranscript` dalam `this.db.transaction` (sudah ada pattern di setActiveTranscript).
+
+### B-P2-12. `/api/xclips/projects` GET membongkar rawJson semua project (list view) 🟡
+
+`getAllProjects` parse rawJson per project. Untuk library ratusan project, tiap fetchFootageList mem-parse semuanya. Tidak berat-berat, tapi cukup tambahkan SELECT kolom ringan untuk list (id, name, duration, createdAt) — atau pertahankan rawJson tapi caching in-memory per instance. Low priority.
+
+### B-P2-13. Thumbnail route & download route duplikasi logika YT-fetch + write yang sama 3x 🟡
+
+Auto-fetch thumbnail YouTube diulang di: assets (L638), thumbnail route (L803-820), dan tidak di download-thumbnail (L922-930 pakai frame capture). Tiga tempat, logika identik — extract `ensureThumbnail(projectId): Promise<string|null>`.
+
+### B-P2-14. Log level debug aktif default + file transport unbounded 🟡
+
+`logger.ts:38`: file app.log level `debug` default, tanpa rotation, tanpa maxSize. Dev local masih oke (179 KB setelah ~1 hari), tapi render + transcribe verbose (per-stderr-tick ke log? tidak — hanya progress %, tapi ffmpeg spawn/args log). Tambah `pino.transport` rotation sederhana atau level `info` untuk file; pertimbangkan `LOG_LEVEL` di settings.json. Cost-sensitive: disk murah, tapi /logs endpoint adalah konsumen utama — lihat B-P1-4.
+
+### B-P2-15. `detectFootagePlatform` + fetchYouTubeInfo untuk TikTok/IG via naming salah kaprah 🟡
+
+Route `/footage/info` memanggil `getYouTubeMetadata` untuk URL TikTok/Instagram dengan komentar "works because --dump-json". Berfungsi, tapi penamaan + komentar menyesatkan (maintenance trap). Rename service method `fetchVideoInfo` (di refaktor berikutnya), atau minimal tambahkan log platform.
+
+### B-P2-16. `srt.lineCount` dihitung `split("\n\n").length` 🟡
+
+`server/index.ts:705`: blok SRT = 4 baris (index, timecode, text, kosong), bukan jumlah baris. Nilai yang ditampilkan keliru (menampilkan jumlah blok). Trivial: ganti label ke "blockCount" atau hitung `srtContent.split("\n").length`.
+
+### Yang Sudah Baik (backend, dipertahankan)
+
+- **WAL + busy_timeout + synchronous NORMAL + FK ON** — pragmas SQLite tepat untuk workload ini.
+- **Prepared statements + parameter binding** di seluruh hot path DB — tidak ada SQL injection dari parameter.
+- **`Bun.file().slice()` untuk range streaming** — zero-copy, pilihan tepat (masalahnya hanya statSync + duplikasi, bukan mekanismenya).
+- **Migration runtime idempotent** (`ensureColumns`, legacy UNIQUE migration) — pattern migration yang bagus tanpa framework.
+- **Tracing middleware + X-Trace-Id + status-code-aware logging** — observability standar terpenuhi.
+- **Render queue concurrency 2 + hwaccel detection cached** — keputusan tepat; maxConcurrent=2 aman untuk CPU encoder.
+- **AbortSignal.timeout di semua AI dispatch** — sesuai backend standards.
+- **Result pattern konsisten** di service layer.
+- **`activeDownloads` progress map** — sederhana dan berfungsi untuk progress polling (cukup + GC).
+
+## Rekomendasi Prioritas Backend & Performance
+
+**Sprint 1 (cepat, dampak besar — ±3 jam):**
+1. B-P0-1: tambah PUT `/api/xclips/clips/:id` + cek res.ok di `handleSaveClip` (TANPA ini semua persist styling subtitle mati)
+2. B-P0-2: store ganti ke `POST /api/xclips/ai/models` (menutup 404 + query-string key sekaligus)
+3. B-P0-3: CORS whitelist localhost + Tailscale, drop `credentials`
+4. B-P1-7: `execFile` untuk open-in-explorer
+
+**Sprint 2 (hot path — ±0.5 hari):**
+5. B-P1-4: `/logs` baca dari EOF / ring buffer + rotation pino
+6. B-P1-5: response `GET /subtitles` tanpa words + auto-save tanpa refetch storm
+7. B-P1-9: throttle saveJob progress
+
+**Sprint 3 (hygiene — ±0.5 hari):**
+8. B-P1-6: helper `serveFileWithRange` tunggal + stat async
+9. B-P1-8: pindah thumbnail auto-fetch ke ingest + AbortSignal di semua fetch
+10. B-P1-10: GC + dedupe activeDownloads
+11. B-P2-11: transaction saveTranscript; B-P2-16 lineCount; B-P2-14 log level
+
+## Updated Summary (kumulatif Part 1+2+3)
+
+- Total findings: 37 + 16 = **53**
+- P0: 4 + 3 baru = **7** (duplicate route, tanpa Zod, salah-ambil SRT, ASS drift, + PUT clips 404, models 404, CORS/0.0.0.0)
+- P1: 14 + 7 baru = **21**
+- P2: 19 + 6 baru = **25**
+
+Catatan penting untuk perencanaan fix: B-P0-1 (PUT clips 404) adalah temuan paling ACTIONABLE seluruh audit — dampaknya langsung terasa user (styling subtitle tidak persist) dan fixnya satu route + satu pengecekan result. P0-1 Part 1 (ASS drift) tetap yang paling strategis untuk kualitas output.

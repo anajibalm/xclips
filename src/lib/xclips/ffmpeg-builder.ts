@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { LayoutMode, AspectRatio, SubtitleStyle, WordTimestamp, Result } from "@/lib/xclips/types";
+import { segmentPhrases } from "./phrase-segmentation";
 
 export interface FilterComplexOptions {
   sourceVideo: string;
@@ -221,9 +222,9 @@ export function generateAssSubtitles(
   try {
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
-    // Filter words to clip bounds
+    // Filter words to clip bounds and skip excluded words
     const clipWords = words.filter(
-      (w) => w.start >= clipStartSec && w.end <= clipEndSec
+      (w) => !w.excluded && w.start >= clipStartSec && w.end <= clipEndSec
     );
 
     const primaryColor = hexToAssColor(style.primaryColor || "#FFFFFF", "00");
@@ -254,31 +255,18 @@ Style: Default,${fontFamily},${fontSize},${primaryColor},${highlightColor},${out
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
 
-    // Group words into short phrases (3-5 words per subtitle screen)
-    const phrases: Array<WordTimestamp[]> = [];
-    let currentPhrase: WordTimestamp[] = [];
-
-    for (const w of clipWords) {
-      currentPhrase.push(w);
-      if (
-        currentPhrase.length >= (style.preset === "plain" ? 6 : 4) ||
-        w.word.endsWith(".") ||
-        w.word.endsWith("?") ||
-        w.word.endsWith("!")
-      ) {
-        phrases.push(currentPhrase);
-        currentPhrase = [];
-      }
-    }
-    if (currentPhrase.length > 0) phrases.push(currentPhrase);
+    // Group words into short phrases using unified phrase-segmentation engine
+    const phrases = segmentPhrases(clipWords, {
+      maxWords: style.preset === "plain" ? 6 : 4,
+    });
 
     const events: string[] = [];
 
     for (const phrase of phrases) {
-      if (phrase.length === 0) continue;
+      if (phrase.words.length === 0) continue;
 
-      const phraseStart = Math.max(0, phrase[0].start - clipStartSec);
-      const phraseEnd = Math.max(phraseStart + 0.5, phrase[phrase.length - 1].end - clipStartSec);
+      const phraseStart = Math.max(0, phrase.startSec - clipStartSec);
+      const phraseEnd = Math.max(phraseStart + 0.5, phrase.endSec - clipStartSec);
 
       const formatCase = (str: string) => {
         if (style.textCase === "uppercase" || style.allCaps) return str.toUpperCase();
@@ -291,23 +279,29 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
       if (style.preset === "plain" || !style.karaokeEnabled) {
         // Standard clean subtitle (no individual word karaoke timing tags)
-        const plainText = formatCase(phrase.map((w) => w.word).join(" "));
+        const plainText = formatCase(phrase.text);
         events.push(
           `Dialogue: 0,${formatAssTime(phraseStart)},${formatAssTime(phraseEnd)},Default,,0,0,0,,${plainText}`
         );
       } else {
         // Karaoke active word tags: {\k<duration_in_centiseconds>}word
         const phraseTokens: string[] = [];
-        for (const w of phrase) {
-          const wordDurCentis = Math.max(10, Math.round((w.end - w.start) * 100));
-          const displayWord = formatCase(w.word);
+        for (let i = 0; i < phrase.words.length; i++) {
+          const currWord = phrase.words[i];
+          const nextWord = phrase.words[i + 1];
+          // Account for inter-word gaps in centiseconds
+          const wordDurSec = nextWord
+            ? Math.max(0.1, nextWord.start - currWord.start)
+            : Math.max(0.1, currWord.end - currWord.start);
+          const wordDurCentis = Math.max(10, Math.round(wordDurSec * 100));
+          const displayWord = formatCase(currWord.word);
 
           phraseTokens.push(`{\\k${wordDurCentis}}${displayWord}`);
         }
 
         const textPayload = phraseTokens.join(" ");
         events.push(
-          `Dialogue: 0,${formatAssTime(phraseStart)},${formatAssTime(phraseEnd)},Default,,0,0,0,,{\\kf}${textPayload}`
+          `Dialogue: 0,${formatAssTime(phraseStart)},${formatAssTime(phraseEnd)},Default,,0,0,0,,${textPayload}`
         );
       }
     }

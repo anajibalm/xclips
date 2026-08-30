@@ -36,46 +36,8 @@ import {
   YouTubeVideoInfo,
   DownloadProgress,
 } from "@/lib/xclips/ytdlp-downloader";
+import { generateSrtFromWords } from "@/lib/xclips/phrase-segmentation";
 import { aiLogger, mediaLogger } from "@/lib/logger";
-
-// Helper function to format SRT from word timestamps
-function generateSrtFromWords(words: WordTimestamp[]): string {
-  if (!words || words.length === 0) return "";
-  const phrases: Array<{ start: number; end: number; text: string }> = [];
-  let currentWords: WordTimestamp[] = [];
-
-  for (const w of words) {
-    if (w.excluded) continue;
-    currentWords.push(w);
-    if (currentWords.length >= 6 || /[.?!]$/.test(w.word)) {
-      phrases.push({
-        start: currentWords[0].start,
-        end: currentWords[currentWords.length - 1].end,
-        text: currentWords.map((cw) => cw.word).join(" "),
-      });
-      currentWords = [];
-    }
-  }
-  if (currentWords.length > 0) {
-    phrases.push({
-      start: currentWords[0].start,
-      end: currentWords[currentWords.length - 1].end,
-      text: currentWords.map((cw) => cw.word).join(" "),
-    });
-  }
-
-  const formatSrtTime = (sec: number) => {
-    const hrs = Math.floor(sec / 3600);
-    const mins = Math.floor((sec % 3600) / 60);
-    const secs = Math.floor(sec % 60);
-    const ms = Math.floor((sec % 1) * 1000);
-    return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")},${ms.toString().padStart(3, "0")}`;
-  };
-
-  return phrases
-    .map((p, i) => `${i + 1}\n${formatSrtTime(p.start)} --> ${formatSrtTime(p.end)}\n${p.text}\n`)
-    .join("\n");
-}
 
 export class XclipsService {
   /**
@@ -835,19 +797,28 @@ export class XclipsService {
     try {
       const jsonMatch = cleanStr.match(/\{[\s\S]*\}/);
       const target = jsonMatch ? jsonMatch[0] : cleanStr;
-      const parsed = JSON.parse(target);
+      const parsed = JSON.parse(target) as { fullText?: string; words?: unknown[] };
       if (parsed && Array.isArray(parsed.words) && parsed.words.length > 0) {
-        const words: WordTimestamp[] = parsed.words
-          .filter((w: any) => w && typeof w.word === "string")
-          .map((w: any) => ({
-            word: String(w.word).trim(),
-            start: typeof w.start === "number" ? w.start : parseFloat(String(w.start || 0)),
-            end: typeof w.end === "number" ? w.end : parseFloat(String(w.end || 0)),
-            confidence: 1.0,
-            isFiller: false,
-            excluded: false,
-          }))
-          .filter((w: WordTimestamp) => !isNaN(w.start) && !isNaN(w.end) && w.word.length > 0);
+        const words: WordTimestamp[] = [];
+        for (const item of parsed.words) {
+          if (item && typeof item === "object") {
+            const w = item as Record<string, unknown>;
+            const wordStr = typeof w.word === "string" ? w.word.trim() : "";
+            const startNum = typeof w.start === "number" ? w.start : parseFloat(String(w.start || 0));
+            const endNum = typeof w.end === "number" ? w.end : parseFloat(String(w.end || 0));
+
+            if (wordStr.length > 0 && !isNaN(startNum) && !isNaN(endNum)) {
+              words.push({
+                word: wordStr,
+                start: parseFloat(startNum.toFixed(2)),
+                end: parseFloat(endNum.toFixed(2)),
+                confidence: 1.0,
+                isFiller: false,
+                excluded: false,
+              });
+            }
+          }
+        }
 
         if (words.length > 0) {
           return {
@@ -871,8 +842,8 @@ export class XclipsService {
       if (word && !isNaN(start) && !isNaN(end)) {
         words.push({
           word,
-          start,
-          end,
+          start: parseFloat(start.toFixed(2)),
+          end: parseFloat(end.toFixed(2)),
           confidence: 1.0,
           isFiller: false,
           excluded: false,
@@ -914,10 +885,12 @@ export class XclipsService {
       const fileName = path.basename(audioPath);
       const mimeType = audioPath.endsWith(".mp3") ? "audio/mpeg" : "audio/wav";
 
+      const actualWhisperModel = (model === "gpt-transcribe" || !model) ? "whisper-1" : model;
+
       const formData = new FormData();
       const audioBlob = new Blob([audioBuffer], { type: mimeType });
       formData.append("file", audioBlob, fileName);
-      formData.append("model", model || "whisper-1");
+      formData.append("model", actualWhisperModel);
       formData.append("response_format", "verbose_json");
       formData.append("timestamp_granularities[]", "word");
 
@@ -1010,14 +983,14 @@ export class XclipsService {
     const settings = this.getAiSettings();
 
     // Auto-detect target provider from model name if not explicitly provided
-    let targetProvider: AiProviderType = providerOverride || settings.provider;
+    let targetProvider: AiProviderType = providerOverride || settings.provider || "kieai";
     if (!providerOverride && modelOverride) {
       if (modelOverride.startsWith("gemini-3.7") || modelOverride.startsWith("gemini-3.5") || modelOverride.startsWith("gemini-3.1") || modelOverride.startsWith("gemini-3.6")) {
-        targetProvider = "gemini";
+        targetProvider = settings.provider === "kieai" && !settings.apiKeys?.gemini ? "kieai" : "gemini";
       } else if (modelOverride === "gemini-3-7-flash") {
-        targetProvider = "kieai";
+        targetProvider = settings.provider === "gemini" && settings.apiKeys?.gemini ? "gemini" : "kieai";
       } else if (modelOverride.startsWith("whisper") || modelOverride.startsWith("gpt-") || modelOverride.includes("transcribe")) {
-        targetProvider = "openai";
+        targetProvider = settings.provider === "openai_compatible" ? "openai_compatible" : "openai";
       } else if (modelOverride.startsWith("claude-")) {
         targetProvider = "anthropic";
       }
@@ -1032,11 +1005,24 @@ export class XclipsService {
     };
 
     const targetBaseUrl = (settings.provider === targetProvider && settings.baseUrl) ? settings.baseUrl : providerUrlMap[targetProvider];
-    const apiKey =
-      apiKeyOverride ||
-      settings.apiKeys?.[targetProvider] ||
-      (settings.provider === targetProvider ? settings.apiKey : undefined) ||
-      process.env.KIE_AI_API_KEY;
+    
+    // Resolve API key with robust multi-level fallback
+    let apiKey: string | undefined = apiKeyOverride || settings.apiKeys?.[targetProvider];
+    if (!apiKey && settings.provider === targetProvider && settings.apiKey) {
+      apiKey = settings.apiKey;
+    }
+    if (!apiKey && (targetProvider === "openai" || targetProvider === "openai_compatible")) {
+      apiKey = settings.apiKeys?.openai || settings.apiKeys?.openai_compatible || settings.apiKey;
+    }
+    if (!apiKey && (targetProvider === "kieai" || targetProvider === "gemini")) {
+      apiKey = settings.apiKeys?.kieai || settings.apiKeys?.gemini || (settings.provider === "kieai" || settings.provider === "gemini" ? settings.apiKey : undefined);
+    }
+    if (!apiKey && settings.apiKey && settings.apiKey.trim().length > 0) {
+      apiKey = settings.apiKey;
+    }
+    if (!apiKey && process.env.KIE_AI_API_KEY) {
+      apiKey = process.env.KIE_AI_API_KEY;
+    }
 
     if (!apiKey || !apiKey.trim()) {
       aiLogger.warn({ projectId, targetProvider }, "Transcription requested without API key for target provider");
@@ -1066,27 +1052,28 @@ export class XclipsService {
     }
 
     try {
-      const modelToUse = modelOverride || settings.transcribeModel || settings.highlightModel || "gemini-3-7-flash";
+      let modelToUse = modelOverride || settings.transcribeModel || settings.highlightModel || "gemini-3-7-flash";
       const totalDuration = project.durationSec || 60;
       const CHUNK_DURATION = 900; // 15 minutes per chunk if duration > 30 minutes
 
       const allWords: WordTimestamp[] = [];
       let fullTextCombined = "";
 
-      const isWhisperOrTranscribe =
-        targetProvider === "openai" ||
-        modelToUse.toLowerCase().includes("whisper") ||
-        modelToUse.toLowerCase().includes("transcribe");
+      const isWhisperStt =
+        modelToUse === "gpt-transcribe" ||
+        modelToUse.toLowerCase().startsWith("whisper") ||
+        (targetProvider === "openai" && (modelToUse === "whisper-1" || modelToUse === "gpt-transcribe"));
 
-      if (isWhisperOrTranscribe) {
+      if (isWhisperStt) {
+        const whisperModel = modelToUse === "gpt-transcribe" ? "whisper-1" : modelToUse;
         // OpenAI Whisper / Transcribe STT API (/v1/audio/transcriptions)
         if (totalDuration <= 1800) {
-          aiLogger.info({ projectId, model: modelToUse, provider: targetProvider }, "Dispatching single OpenAI Whisper transcription request");
+          aiLogger.info({ projectId, model: whisperModel, provider: targetProvider }, "Dispatching single OpenAI Whisper transcription request");
           const whisperRes = await this.transcribeWithOpenAiWhisper({
             audioPath: audioToUse,
             apiKey,
             baseUrl: targetBaseUrl,
-            model: modelToUse || "whisper-1",
+            model: whisperModel,
             timeoutMs: 60000,
           });
 
@@ -1141,6 +1128,10 @@ Format output WAJIB HANYA berupa JSON valid:
   ]
 }`;
 
+        // Map custom transcription model alias to actual multimodal LLM model name
+        if (modelToUse === "gpt-4o-transcribe") modelToUse = "gpt-4o";
+        if (modelToUse === "gpt-4o-mini-transcribe") modelToUse = "gpt-4o-mini";
+
         // Single chunk if duration <= 1800s (30 min)
         if (totalDuration <= 1800) {
           const audioBuffer = fs.readFileSync(audioToUse);
@@ -1158,7 +1149,7 @@ Format output WAJIB HANYA berupa JSON valid:
             userPrompt: "Transkrip audio berikut dengan format JSON kata-per-kata:",
             base64Audio,
             audioFormat,
-            timeoutMs: 45000,
+            timeoutMs: 120000,
           });
 
           if (!dispatchRes.success) {
@@ -1194,7 +1185,7 @@ Format output WAJIB HANYA berupa JSON valid:
               userPrompt: `Transkrip audio segmen ${cIdx + 1}/${chunkCount} dengan format JSON:`,
               base64Audio,
               audioFormat: "mp3",
-              timeoutMs: 45000,
+              timeoutMs: 120000,
             });
 
             if (dispatchRes.success) {
@@ -1267,14 +1258,21 @@ Format output WAJIB HANYA berupa JSON valid:
 
       let srtPath: string | null = null;
       const downloadsDir = path.dirname(project.sourcePath);
+      const baseVideoName = path.parse(project.sourcePath).name;
+      const idMatch = project.sourcePath.match(/\[([a-zA-Z0-9_-]{11})\]/);
+      const ytId = idMatch ? idMatch[1] : null;
+
       if (fs.existsSync(downloadsDir)) {
         const files = fs.readdirSync(downloadsDir);
-        const srtFile = files.find((f) => f.endsWith(".srt") || f.endsWith(".vtt"));
+        const srtFile = files.find(
+          (f) =>
+            (f.endsWith(".srt") || f.endsWith(".vtt")) &&
+            (f.includes(baseVideoName) || (ytId ? f.includes(ytId) : false))
+        );
         if (srtFile) srtPath = path.join(downloadsDir, srtFile);
       }
 
       if (!srtPath || !fs.existsSync(srtPath)) {
-        const idMatch = project.sourcePath.match(/\[([a-zA-Z0-9_-]{11})\]/);
         const ytUrl = idMatch ? `https://www.youtube.com/watch?v=${idMatch[1]}` : (project.sourcePath.startsWith("http") ? project.sourcePath : null);
         if (ytUrl) {
           const ytdlp = findYtDlpBinary();
@@ -1288,7 +1286,7 @@ Format output WAJIB HANYA berupa JSON valid:
                 "--sub-lang",
                 "id,id-orig,en,en-orig",
                 "--sub-format",
-                "srt",
+                "srt/vtt/best",
                 "--skip-download",
                 "--no-warnings",
                 "-o",
@@ -1302,7 +1300,7 @@ Format output WAJIB HANYA berupa JSON valid:
           });
 
           const updatedFiles = fs.readdirSync(cacheDir);
-          const downloadedSrt = updatedFiles.find((f) => f.endsWith(".srt"));
+          const downloadedSrt = updatedFiles.find((f) => f.endsWith(".srt") || f.endsWith(".vtt"));
           if (downloadedSrt) {
             srtPath = path.join(cacheDir, downloadedSrt);
           }

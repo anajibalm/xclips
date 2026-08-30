@@ -5,6 +5,7 @@ import { RenderJob, Result } from "@/lib/xclips/types";
 import { xclipsDb } from "@/lib/xclips/xclips-db";
 import { buildFfmpegCommand, generateAssSubtitles } from "@/lib/xclips/ffmpeg-builder";
 import { calculateKeepIntervals } from "@/lib/xclips/filler-detector";
+import { remapWordsToKeepTimeline } from "@/lib/xclips/phrase-segmentation";
 import { queueLogger, ffmpegLogger } from "@/lib/logger";
 
 
@@ -109,11 +110,14 @@ class JobQueueManager {
   private async executeRender(job: RenderJob): Promise<void> {
     const clip = xclipsDb.getClip(job.clipId);
     const project = xclipsDb.getProject(job.projectId);
-    const transcript = xclipsDb.getTranscript(job.projectId);
 
     if (!clip || !project) {
       throw new Error(`Klip (${job.clipId}) atau Proyek (${job.projectId}) tidak ditemukan`);
     }
+
+    const transcript =
+      (clip.transcriptId ? xclipsDb.getTranscript(job.projectId, clip.transcriptId) : null) ||
+      xclipsDb.getTranscript(job.projectId);
 
     const outputDir = path.resolve(process.cwd(), "output", "xclips", project.id);
     fs.mkdirSync(outputDir, { recursive: true });
@@ -123,27 +127,7 @@ class JobQueueManager {
     const finalOutputPath = path.join(outputDir, outputFileName);
     const assSubtitlePath = path.join(outputDir, `${clip.id}_subtitles.ass`);
 
-    // Step 1: Generate ASS Subtitles (if enabled)
-    const isSubtitlesEnabled = clip.subtitleStyle?.enabled !== false;
-    let actualAssPath: string | undefined = undefined;
-
-    if (isSubtitlesEnabled && transcript && transcript.words.length > 0) {
-      generateAssSubtitles(
-        transcript.words,
-        clip.startSec,
-        clip.endSec,
-        clip.subtitleStyle,
-        assSubtitlePath
-      );
-      if (fs.existsSync(assSubtitlePath)) {
-        actualAssPath = assSubtitlePath;
-        ffmpegLogger.debug({ clipId: clip.id, assSubtitlePath }, "Generated .ass karaoke subtitles");
-      }
-    } else {
-      ffmpegLogger.debug({ clipId: clip.id, enabled: isSubtitlesEnabled }, "Subtitles disabled or no transcript words, skipping ASS burn-in");
-    }
-
-    // Step 2: Calculate keep intervals (cut fillers & custom exclusions)
+    // Step 1: Calculate keep intervals (cut fillers & custom exclusions)
     const exclusions: Array<{ startSec: number; endSec: number }> = [];
     if (clip.removeFillers && transcript) {
       for (const w of transcript.words) {
@@ -162,6 +146,30 @@ class JobQueueManager {
       exclusions
     );
     ffmpegLogger.debug({ clipId: clip.id, exclusionsCount: exclusions.length, intervalsCount: keepIntervals.length }, "Calculated non-destructive keep intervals");
+
+    // Step 2: Generate ASS Subtitles (remap words to keepIntervals timeline to eliminate A/V drift)
+    const isSubtitlesEnabled = clip.subtitleStyle?.enabled !== false;
+    let actualAssPath: string | undefined = undefined;
+
+    if (isSubtitlesEnabled && transcript && transcript.words.length > 0) {
+      // Remap words to the concatenated output timeline
+      const remappedWords = remapWordsToKeepTimeline(transcript.words, keepIntervals, clip.startSec);
+      const totalRenderedSec = keepIntervals.reduce((acc, k) => acc + (k.duration ?? Math.max(0, k.end - k.start)), 0);
+
+      generateAssSubtitles(
+        remappedWords,
+        0, // remapped words start at 0 (rendered video origin)
+        totalRenderedSec,
+        clip.subtitleStyle,
+        assSubtitlePath
+      );
+      if (fs.existsSync(assSubtitlePath)) {
+        actualAssPath = assSubtitlePath;
+        ffmpegLogger.debug({ clipId: clip.id, assSubtitlePath, wordsCount: remappedWords.length }, "Generated .ass karaoke subtitles synced with keep-intervals");
+      }
+    } else {
+      ffmpegLogger.debug({ clipId: clip.id, enabled: isSubtitlesEnabled }, "Subtitles disabled or no transcript words, skipping ASS burn-in");
+    }
 
     // Step 3: Detect HW Acceleration
     const hwaccel = await detectHardwareAcceleration();

@@ -156,7 +156,7 @@ describe("xclips - FFmpeg Filter Complex Builder", () => {
     expect(hormoziRes.success).toBe(true);
     const hormoziContent = fs.readFileSync(testAssPath, "utf-8");
     expect(hormoziContent).toContain("Style: Default,Impact,44,&H00FFFFFF");
-    expect(hormoziContent).toContain("{\\kf}");
+    expect(hormoziContent).toContain("{\\k");
     expect(hormoziContent).toContain("HALO");
 
     // Clean up

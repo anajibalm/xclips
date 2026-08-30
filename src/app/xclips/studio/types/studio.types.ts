@@ -201,14 +201,7 @@ export interface FootageProgress {
   status: string;
 }
 
-export interface PhraseSegment {
-  id: string;
-  index: number;
-  startSec: number;
-  endSec: number;
-  text: string;
-  words: WordTimestamp[];
-}
+export type { PhraseSegment } from "@/lib/xclips/phrase-segmentation";
 
 export const formatTime = (sec: number): string => {
   const m = Math.floor(sec / 60);
