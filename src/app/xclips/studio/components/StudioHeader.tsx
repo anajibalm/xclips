@@ -1,14 +1,17 @@
 import React from "react";
 import Link from "next/link";
-import { Box, Typography, Button, IconButton, Chip } from "@mui/material";
+import { Box, Typography, Button, IconButton, Chip, Tooltip } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
+import SettingsIcon from "@mui/icons-material/Settings";
 import { useStudioStore } from "../store/useStudioStore";
 import { formatTime } from "../types/studio.types";
 
 export function StudioHeader() {
   const project = useStudioStore((s) => s.project);
   const setExportModalOpen = useStudioStore((s) => s.setExportModalOpen);
+  const setAiSettingsModalOpen = useStudioStore((s) => s.setAiSettingsModalOpen);
+  const fetchAiSettings = useStudioStore((s) => s.fetchAiSettings);
 
   return (
     <Box
@@ -54,6 +57,26 @@ export function StudioHeader() {
       </Box>
 
       <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <Tooltip title="Configure AI Provider & Settings" arrow>
+          <IconButton
+            size="small"
+            onClick={() => {
+              fetchAiSettings();
+              setAiSettingsModalOpen(true);
+            }}
+            sx={{
+              color: "#a1a1aa",
+              bgcolor: "#141418",
+              border: "1px solid #27272a",
+              borderRadius: 1,
+              p: 0.8,
+              "&:hover": { color: "#3b82f6", bgcolor: "#1e1e24", borderColor: "#3f3f46" },
+            }}
+          >
+            <SettingsIcon sx={{ fontSize: "1.1rem" }} />
+          </IconButton>
+        </Tooltip>
+
         <Button
           size="small"
           variant="contained"

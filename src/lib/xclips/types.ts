@@ -91,11 +91,15 @@ export interface XclipsProject {
 export interface XclipsTranscript {
   id: string;
   projectId: string;
+  label?: string;
+  sourceType?: "youtube_cc" | "ai" | "custom";
+  isActive?: boolean;
   language: string;
   rawText: string;
   srtContent: string;
   words: WordTimestamp[];
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface XclipsClip {
@@ -160,7 +164,7 @@ export type AiProviderType = z.infer<typeof AiProviderTypeSchema>;
 
 export const XclipsAiSettingsSchema = z.object({
   provider: AiProviderTypeSchema.default("kieai"),
-  baseUrl: z.string().default("https://api.kie.ai/gemini-3-6-flash-openai/v1"),
+  baseUrl: z.string().default("https://api.kie.ai"),
   apiKey: z.string().default(""),
   apiKeys: z
     .object({

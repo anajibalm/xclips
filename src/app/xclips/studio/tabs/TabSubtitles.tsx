@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useRef, useState } from "react";
 import {
   Box,
   Typography,
@@ -13,35 +13,42 @@ import {
   FormControlLabel,
   Switch,
   CircularProgress,
+  Select,
+  MenuItem,
+  Divider,
 } from "@mui/material";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
-import YouTubeIcon from "@mui/icons-material/YouTube";
-import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
-import SaveIcon from "@mui/icons-material/Save";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import DownloadIcon from "@mui/icons-material/Download";
 import SearchIcon from "@mui/icons-material/Search";
 import RecordVoiceOverIcon from "@mui/icons-material/RecordVoiceOver";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import { useStudioStore } from "../store/useStudioStore";
 import { useTranscriptVirtualizer } from "../hooks/useTranscriptVirtualizer";
 import { formatTime } from "../types/studio.types";
+import { GenerateSubtitleModal } from "../modals/GenerateSubtitleModal";
 
 export function TabSubtitles() {
   const virtualScrollRef = useRef<HTMLDivElement>(null);
+  const [editingPhraseIndex, setEditingPhraseIndex] = useState<number | null>(null);
 
   const project = useStudioStore((s) => s.project);
   const subtitleOffsetMs = useStudioStore((s) => s.subtitleOffsetMs);
   const setSubtitleOffsetMs = useStudioStore((s) => s.setSubtitleOffsetMs);
   const handleShiftSubtitleOffsetMs = useStudioStore((s) => s.handleShiftSubtitleOffsetMs);
   const handleApplyOffsetPermanently = useStudioStore((s) => s.handleApplyOffsetPermanently);
-  const isSavingTranscript = useStudioStore((s) => s.isSavingTranscript);
   const isTranscribing = useStudioStore((s) => s.isTranscribing);
   const isFetchingYtSubtitles = useStudioStore((s) => s.isFetchingYtSubtitles);
-  const handleTranscribe = useStudioStore((s) => s.handleTranscribe);
   const handleFetchYouTubeSubtitles = useStudioStore((s) => s.handleFetchYouTubeSubtitles);
+  const subtitleTracks = useStudioStore((s) => s.subtitleTracks);
+  const activeTranscript = useStudioStore((s) => s.transcript);
+  const setIsGenerateSubtitleModalOpen = useStudioStore((s) => s.setIsGenerateSubtitleModalOpen);
+  const handleSwitchSubtitleTrack = useStudioStore((s) => s.handleSwitchSubtitleTrack);
+  const autoSaveStatus = useStudioStore((s) => s.autoSaveStatus);
   const editableWords = useStudioStore((s) => s.editableWords);
   const autoScrollToPlayhead = useStudioStore((s) => s.autoScrollToPlayhead);
   const setAutoScrollToPlayhead = useStudioStore((s) => s.setAutoScrollToPlayhead);
-  const handleSaveTranscript = useStudioStore((s) => s.handleSaveTranscript);
+  const handleDownloadSrt = useStudioStore((s) => s.handleDownloadSrt);
   const searchQuery = useStudioStore((s) => s.searchQuery);
   const setSearchQuery = useStudioStore((s) => s.setSearchQuery);
   const setScrollTop = useStudioStore((s) => s.setScrollTop);
@@ -61,6 +68,12 @@ export function TabSubtitles() {
     handleReorderPhrases,
     renderHighlightedText,
   } = useTranscriptVirtualizer(virtualScrollRef);
+
+  const isYouTubeProject =
+    project?.sourceType === "youtube" ||
+    (project?.sourcePath && /youtube|youtu\.be|\[[a-zA-Z0-9_-]{11}\]/i.test(project.sourcePath));
+
+  const isBusy = isFetchingYtSubtitles || isTranscribing;
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
@@ -109,99 +122,135 @@ export function TabSubtitles() {
                 />
               </Box>
 
-              {/* Subtitle Source Switcher (Sleek Icon Buttons with Tooltip) */}
+              {/* Subtitle Source Dropdown & Generate Button */}
               <Box
                 sx={{
                   p: 1.2,
-                  px: 1.5,
                   bgcolor: "#0d0d10",
                   borderRadius: 1,
                   border: "1px solid #27272a",
                   mb: 1.5,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
                 }}
               >
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.8 }}>
                   <Typography variant="caption" sx={{ color: "#71717a", fontWeight: 700, textTransform: "uppercase", fontSize: "0.68rem" }}>
-                    SOURCE
+                    SUBTITLE SOURCE
                   </Typography>
                   <Chip
-                    label={project?.sourceType === "youtube" ? "YouTube CC" : "AI Transcribe"}
+                    label={
+                      activeTranscript?.sourceType === "youtube_cc"
+                        ? "YouTube CC"
+                        : activeTranscript?.label || (subtitleTracks.length > 0 ? "Track Aktif" : "Belum Ada")
+                    }
                     size="small"
                     sx={{
-                      bgcolor: project?.sourceType === "youtube" ? "rgba(239, 68, 68, 0.15)" : "rgba(168, 85, 247, 0.15)",
-                      color: project?.sourceType === "youtube" ? "#f87171" : "#c084fc",
+                      bgcolor: activeTranscript?.sourceType === "youtube_cc" ? "rgba(239, 68, 68, 0.15)" : "rgba(59, 130, 246, 0.15)",
+                      color: activeTranscript?.sourceType === "youtube_cc" ? "#f87171" : "#60a5fa",
                       fontWeight: 800,
                       fontSize: "0.65rem",
-                      height: 20,
-                      borderRadius: 0.8,
+                      height: 18,
+                      borderRadius: 0.6,
                     }}
                   />
                 </Box>
 
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
-                  <Tooltip title="Gunakan Subtitle Bawaan YouTube (CC)" arrow placement="top">
-                    <span>
-                      <IconButton
-                        size="small"
-                        onClick={handleFetchYouTubeSubtitles}
-                        disabled={isFetchingYtSubtitles || isTranscribing}
+                <Select
+                  fullWidth
+                  size="small"
+                  value={activeTranscript?.id || (subtitleTracks.length > 0 ? subtitleTracks[0].id : "")}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "__action_generate_new__") {
+                      setIsGenerateSubtitleModalOpen(true);
+                    } else if (val === "__action_fetch_yt_cc__") {
+                      handleFetchYouTubeSubtitles();
+                    } else if (val) {
+                      handleSwitchSubtitleTrack(val);
+                    }
+                  }}
+                  disabled={isBusy}
+                  displayEmpty
+                  renderValue={(selected) => {
+                    if (!selected) return <span style={{ color: "#71717a" }}>Pilih Track Subtitle...</span>;
+                    const found = subtitleTracks.find((t) => t.id === selected) || activeTranscript;
+                    if (!found) return <span style={{ color: "#71717a" }}>Pilih Track Subtitle...</span>;
+                    const isYt = found.sourceType === "youtube_cc" || found.label === "YouTube Subtitles (CC)";
+                    const title = isYt ? "YouTube Subtitles (CC)" : (found.label || "Track");
+                    return (
+                      <span style={{ fontWeight: 700, color: "#ffffff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {title}
+                      </span>
+                    );
+                  }}
+                  sx={{
+                    bgcolor: "#141418",
+                    borderRadius: 0.8,
+                    fontSize: "0.78rem",
+                    fontWeight: 600,
+                    color: "#fafafa",
+                    "& .MuiSelect-select": { py: 0.6, px: 1 },
+                    "& fieldset": { borderColor: "#27272a" },
+                    "&:hover fieldset": { borderColor: "#3f3f46" },
+                    "&.Mui-focused fieldset": { borderColor: "#3b82f6" },
+                  }}
+                >
+                  {subtitleTracks.map((track) => {
+                    const isYt = track.sourceType === "youtube_cc" || track.label === "YouTube Subtitles (CC)";
+                    const title = isYt ? "YouTube Subtitles (CC)" : (track.label || "Track");
+                    return (
+                      <MenuItem
+                        key={track.id}
+                        value={track.id}
                         sx={{
-                          p: 0.7,
-                          bgcolor: project?.sourceType === "youtube" ? "rgba(239, 68, 68, 0.18)" : "rgba(255, 255, 255, 0.03)",
-                          color: project?.sourceType === "youtube" ? "#ef4444" : "#71717a",
-                          border: project?.sourceType === "youtube" ? "1px solid #ef4444" : "1px solid #27272a",
-                          borderRadius: 0.8,
-                          transition: "all 0.15s ease",
-                          "&:hover": {
-                            bgcolor: "rgba(239, 68, 68, 0.25)",
-                            color: "#ef4444",
-                            borderColor: "#ef4444",
-                          },
-                          "&.Mui-disabled": { opacity: 0.35 },
+                          fontSize: "0.78rem",
+                          fontWeight: 600,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 1,
+                          bgcolor: activeTranscript?.id === track.id ? "rgba(59, 130, 246, 0.12)" : "transparent",
                         }}
                       >
-                        {isFetchingYtSubtitles ? (
-                          <CircularProgress size={16} sx={{ color: "#ef4444" }} />
-                        ) : (
-                          <YouTubeIcon sx={{ fontSize: "1.15rem" }} />
-                        )}
-                      </IconButton>
-                    </span>
-                  </Tooltip>
+                        <span>{title}</span>
+                        <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.68rem" }}>
+                          {track.words?.length || 0} kata
+                        </Typography>
+                      </MenuItem>
+                    );
+                  })}
 
-                  <Tooltip title="Transkripsi Ulang dengan AI" arrow placement="top">
-                    <span>
-                      <IconButton
-                        size="small"
-                        onClick={handleTranscribe}
-                        disabled={isFetchingYtSubtitles || isTranscribing}
-                        sx={{
-                          p: 0.7,
-                          bgcolor: project?.sourceType !== "youtube" ? "rgba(168, 85, 247, 0.18)" : "rgba(255, 255, 255, 0.03)",
-                          color: project?.sourceType !== "youtube" ? "#c084fc" : "#71717a",
-                          border: project?.sourceType !== "youtube" ? "1px solid #a855f7" : "1px solid #27272a",
-                          borderRadius: 0.8,
-                          transition: "all 0.15s ease",
-                          "&:hover": {
-                            bgcolor: "rgba(168, 85, 247, 0.25)",
-                            color: "#c084fc",
-                            borderColor: "#a855f7",
-                          },
-                          "&.Mui-disabled": { opacity: 0.35 },
-                        }}
-                      >
-                        {isTranscribing ? (
-                          <CircularProgress size={16} sx={{ color: "#c084fc" }} />
-                        ) : (
-                          <AutoFixHighIcon sx={{ fontSize: "1.15rem" }} />
-                        )}
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                </Box>
+                  {isYouTubeProject && !subtitleTracks.some((t) => t.sourceType === "youtube_cc") && (
+                    <MenuItem
+                      value="__action_fetch_yt_cc__"
+                      sx={{
+                        fontSize: "0.78rem",
+                        fontWeight: 700,
+                        color: "#f87171",
+                        display: "flex",
+                        alignItems: "center",
+                        "&:hover": { bgcolor: "rgba(239, 68, 68, 0.15)" },
+                      }}
+                    >
+                      <span>Muat Subtitle YouTube (CC)...</span>
+                    </MenuItem>
+                  )}
+
+                  {subtitleTracks.length > 0 && <Divider sx={{ borderColor: "#27272a", my: 0.5 }} />}
+
+                  <MenuItem
+                    value="__action_generate_new__"
+                    sx={{
+                      fontSize: "0.78rem",
+                      fontWeight: 700,
+                      color: "#60a5fa",
+                      display: "flex",
+                      alignItems: "center",
+                      "&:hover": { bgcolor: "rgba(59, 130, 246, 0.15)" },
+                    }}
+                  >
+                    <span>+ Generate New Subtitle...</span>
+                  </MenuItem>
+                </Select>
               </Box>
 
               {/* Offset Input Field */}
@@ -320,7 +369,7 @@ export function TabSubtitles() {
                 variant="contained"
                 size="small"
                 onClick={handleApplyOffsetPermanently}
-                disabled={isSavingTranscript || subtitleOffsetMs === 0}
+                disabled={autoSaveStatus === "saving" || subtitleOffsetMs === 0}
                 sx={{
                   bgcolor: subtitleOffsetMs !== 0 ? "#10b981" : "#27272a",
                   color: subtitleOffsetMs !== 0 ? "#ffffff" : "#71717a",
@@ -332,7 +381,7 @@ export function TabSubtitles() {
                   "&:hover": { bgcolor: subtitleOffsetMs !== 0 ? "#059669" : "#27272a" },
                 }}
               >
-                {isSavingTranscript ? "Applying..." : "Apply Offset Permanently"}
+                {autoSaveStatus === "saving" ? "Applying..." : "Apply Offset Permanently"}
               </Button>
             </Box>
           </Box>
@@ -359,15 +408,59 @@ export function TabSubtitles() {
               />
 
               <Button
-                variant="contained"
+                variant="outlined"
                 size="small"
-                startIcon={<SaveIcon />}
-                onClick={handleSaveTranscript}
-                disabled={isSavingTranscript || editableWords.length === 0}
-                sx={{ bgcolor: "#3b82f6", textTransform: "none", fontWeight: 800, px: 1.6, py: 0.4, borderRadius: 1, fontSize: "0.76rem" }}
+                startIcon={<DownloadIcon />}
+                onClick={handleDownloadSrt}
+                disabled={editableWords.length === 0}
+                sx={{
+                  borderColor: "#3f3f46",
+                  color: "#e4e4e7",
+                  textTransform: "none",
+                  fontWeight: 700,
+                  px: 1.4,
+                  py: 0.4,
+                  borderRadius: 1,
+                  fontSize: "0.76rem",
+                  "&:hover": { borderColor: "#71717a", bgcolor: "rgba(255,255,255,0.06)" },
+                }}
               >
-                {isSavingTranscript ? "Saving..." : "Save Subtitles"}
+                Download .SRT
               </Button>
+
+              {autoSaveStatus === "saving" && (
+                <Chip
+                  icon={<CircularProgress size={12} sx={{ color: "#60a5fa !important" }} />}
+                  label="Auto-saving..."
+                  size="small"
+                  sx={{
+                    height: 26,
+                    bgcolor: "rgba(59, 130, 246, 0.15)",
+                    color: "#93c5fd",
+                    fontWeight: 700,
+                    fontSize: "0.72rem",
+                    borderRadius: 0.8,
+                    border: "1px solid rgba(59, 130, 246, 0.3)",
+                  }}
+                />
+              )}
+
+              {autoSaveStatus === "saved" && (
+                <Chip
+                  icon={<CheckCircleIcon sx={{ fontSize: "0.9rem !important", color: "#4ade80" }} />}
+                  label="Auto-saved"
+                  size="small"
+                  sx={{
+                    height: 26,
+                    bgcolor: "rgba(34, 197, 94, 0.15)",
+                    color: "#4ade80",
+                    fontWeight: 700,
+                    fontSize: "0.72rem",
+                    borderRadius: 0.8,
+                    border: "1px solid rgba(34, 197, 94, 0.3)",
+                  }}
+                />
+              )}
             </Box>
           </Box>
 
@@ -409,7 +502,7 @@ export function TabSubtitles() {
             <Box sx={{ py: 6, textAlign: "center", border: "1px dashed #27272a", borderRadius: 1, flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
               <RecordVoiceOverIcon sx={{ fontSize: 40, color: "#3f3f46", mb: 1.5 }} />
               <Typography variant="body2" sx={{ color: "#71717a" }}>
-                No subtitles available yet. Choose <strong style={{ color: "#f87171" }}>YouTube CC</strong> or <strong style={{ color: "#c084fc" }}>AI Transcribe</strong> on the left panel.
+                No subtitles available yet. Select a subtitle source from the dropdown on the left and click Generate.
               </Typography>
             </Box>
           ) : (
@@ -492,8 +585,6 @@ export function TabSubtitles() {
                               ? "2px dashed #3b82f6"
                               : isActive
                               ? "1.5px solid #3b82f6"
-                              : hasSearchMatch
-                              ? "1.5px solid rgba(250, 204, 21, 0.6)"
                               : "1px solid #232328",
                             borderRadius: 1,
                             opacity: isBeingDragged ? 0.4 : 1,
@@ -553,63 +644,77 @@ export function TabSubtitles() {
                               </Typography>
                             </Box>
 
-                            {/* Text Input */}
-                            <TextField
-                              fullWidth
-                              size="small"
-                              variant="outlined"
-                              value={seg.text}
-                              onChange={(e) => handleUpdatePhraseText(seg.index, e.target.value)}
-                              onFocus={() => handleSeek(seg.startSec)}
-                              slotProps={{
-                                htmlInput: {
-                                  spellCheck: false,
-                                  autoCorrect: "off",
-                                  autoCapitalize: "none",
-                                },
-                              }}
-                              sx={{
-                                flex: 1,
-                                "& .MuiInputBase-input": {
-                                  color: "#ffffff",
-                                  fontSize: "0.85rem",
-                                  fontWeight: 600,
-                                  py: 0.5,
-                                  px: 1,
-                                },
-                                "& .MuiOutlinedInput-root": {
-                                  bgcolor: "#18181c",
-                                  height: 32,
-                                  borderRadius: 0.8,
-                                  "& fieldset": { borderColor: isActive ? "#3b82f6" : hasSearchMatch ? "#facc15" : "#27272a" },
-                                  "&:hover fieldset": { borderColor: "#3f3f46" },
-                                  "&.Mui-focused fieldset": { borderColor: "#3b82f6" },
-                                },
-                              }}
-                            />
-
-                            {/* Search Keyword Highlight Preview */}
-                            {hasSearchMatch && (
+                            {/* Subtitle Text: Inline Highlight when searching, Editable TextField when focused/idle */}
+                            {searchQuery.trim() && editingPhraseIndex !== seg.index ? (
                               <Box
+                                onClick={() => {
+                                  handleSeek(seg.startSec);
+                                  setEditingPhraseIndex(seg.index);
+                                }}
                                 sx={{
-                                  display: { xs: "none", md: "flex" },
+                                  flex: 1,
+                                  height: 32,
+                                  bgcolor: "#18181c",
+                                  borderRadius: 0.8,
+                                  border: isActive ? "1px solid #3b82f6" : "1px solid #27272a",
+                                  display: "flex",
                                   alignItems: "center",
                                   px: 1,
-                                  py: 0.2,
-                                  bgcolor: "rgba(250, 204, 21, 0.12)",
-                                  border: "1px solid rgba(250, 204, 21, 0.4)",
-                                  borderRadius: 0.8,
-                                  maxWidth: 180,
+                                  cursor: "text",
                                   overflow: "hidden",
-                                  whiteSpace: "nowrap",
-                                  textOverflow: "ellipsis",
-                                  flexShrink: 0,
+                                  "&:hover": { borderColor: "#3f3f46" },
                                 }}
                               >
-                                <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "#f4f4f5" }}>
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    color: "#ffffff",
+                                    fontSize: "0.85rem",
+                                    fontWeight: 600,
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                  }}
+                                >
                                   {renderHighlightedText(seg.text, searchQuery)}
                                 </Typography>
                               </Box>
+                            ) : (
+                              <TextField
+                                fullWidth
+                                size="small"
+                                variant="outlined"
+                                value={seg.text}
+                                autoFocus={editingPhraseIndex === seg.index}
+                                onBlur={() => setEditingPhraseIndex(null)}
+                                onChange={(e) => handleUpdatePhraseText(seg.index, e.target.value)}
+                                onFocus={() => handleSeek(seg.startSec)}
+                                slotProps={{
+                                  htmlInput: {
+                                    spellCheck: false,
+                                    autoCorrect: "off",
+                                    autoCapitalize: "none",
+                                  },
+                                }}
+                                sx={{
+                                  flex: 1,
+                                  "& .MuiInputBase-input": {
+                                    color: "#ffffff",
+                                    fontSize: "0.85rem",
+                                    fontWeight: 600,
+                                    py: 0.5,
+                                    px: 1,
+                                  },
+                                  "& .MuiOutlinedInput-root": {
+                                    bgcolor: "#18181c",
+                                    height: 32,
+                                    borderRadius: 0.8,
+                                    "& fieldset": { borderColor: isActive ? "#3b82f6" : "#27272a" },
+                                    "&:hover fieldset": { borderColor: "#3f3f46" },
+                                    "&.Mui-focused fieldset": { borderColor: "#3b82f6" },
+                                  },
+                                }}
+                              />
                             )}
                           </Box>
                         </Card>
@@ -621,6 +726,9 @@ export function TabSubtitles() {
           )}
         </Grid>
       </Grid>
+
+      {/* Dedicated Generate Subtitle Dialog */}
+      <GenerateSubtitleModal />
     </Box>
   );
 }

@@ -109,6 +109,7 @@ app.onError((err, c) => {
 // --- xclips Routes ---
 import { xclipsService } from "../lib/xclips.service";
 import { xclipsDb } from "../lib/xclips/xclips-db";
+import { AiProviderType } from "../lib/xclips/types";
 import { detectHardwareAcceleration } from "../lib/xclips/queue";
 import { extractAudioWav, extractFrameImage } from "../lib/xclips/vfr-probe";
 
@@ -1035,6 +1036,21 @@ app.post("/api/xclips/ai/models", async (c) => {
   }
 });
 
+app.post("/api/xclips/settings/test-key", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { provider, baseUrl, apiKey, model } = body;
+    const res = await xclipsService.validateApiKey(provider, baseUrl, apiKey, model);
+    if (!res.success) {
+      return c.json({ ok: false, message: res.error }, 400);
+    }
+    return c.json({ ok: true, message: res.data.message });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Gagal memvalidasi API Key";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
 app.post("/api/xclips/ai/validate", async (c) => {
   try {
     const body = await c.req.json();
@@ -1043,7 +1059,7 @@ app.post("/api/xclips/ai/validate", async (c) => {
     if (!res.success) {
       return c.json({ ok: false, message: res.error }, 400);
     }
-    return c.json({ ok: true, data: res.data });
+    return c.json({ ok: true, data: res.data, message: res.data.message });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Gagal memvalidasi API Key";
     return c.json({ ok: false, message }, 500);
@@ -1053,9 +1069,9 @@ app.post("/api/xclips/ai/validate", async (c) => {
 app.post("/api/xclips/projects/:id/transcribe", async (c) => {
   const id = c.req.param("id");
   const body = await c.req.json().catch(() => ({}));
-  const apiKey = body?.apiKey;
+  const { apiKey, model, label, provider } = body as { apiKey?: string; model?: string; label?: string; provider?: AiProviderType };
 
-  const res = await xclipsService.transcribeProject(id, apiKey);
+  const res = await xclipsService.transcribeProject(id, { apiKey, model, label, provider });
   if (!res.success) {
     return c.json({ ok: false, message: res.error }, 400);
   }
@@ -1065,6 +1081,53 @@ app.post("/api/xclips/projects/:id/transcribe", async (c) => {
 app.post("/api/xclips/projects/:id/subtitles/youtube", async (c) => {
   const id = c.req.param("id");
   const res = await xclipsService.fetchYouTubeSubtitles(id);
+  if (!res.success) {
+    return c.json({ ok: false, message: res.error }, 400);
+  }
+  return c.json({ ok: true, transcript: res.data });
+});
+
+app.get("/api/xclips/projects/:id/subtitles", (c) => {
+  const id = c.req.param("id");
+  const res = xclipsService.getProjectSubtitles(id);
+  if (!res.success) {
+    return c.json({ ok: false, message: res.error }, 400);
+  }
+  return c.json({ ok: true, subtitles: res.data });
+});
+
+app.post("/api/xclips/projects/:id/subtitles/switch", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+  const { transcriptId } = body as { transcriptId: string };
+  if (!transcriptId) return c.json({ ok: false, message: "transcriptId diperlukan" }, 400);
+
+  const res = xclipsService.switchActiveSubtitle(id, transcriptId);
+  if (!res.success) {
+    return c.json({ ok: false, message: res.error }, 400);
+  }
+  return c.json({ ok: true, transcript: res.data });
+});
+
+app.delete("/api/xclips/projects/:id/subtitles/:trackId", (c) => {
+  const id = c.req.param("id");
+  const trackId = c.req.param("trackId");
+  const res = xclipsService.deleteProjectSubtitle(id, trackId);
+  if (!res.success) {
+    return c.json({ ok: false, message: res.error }, 400);
+  }
+  return c.json({ ok: true, remaining: res.data.remaining, active: res.data.active });
+});
+
+app.put("/api/xclips/projects/:id/transcript", async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+  const { words, transcriptId } = body as { words?: any[]; transcriptId?: string };
+  if (!words || !Array.isArray(words)) {
+    return c.json({ ok: false, message: "Kata-kata transkrip tidak valid" }, 400);
+  }
+
+  const res = xclipsService.saveTranscriptWords(id, words, transcriptId);
   if (!res.success) {
     return c.json({ ok: false, message: res.error }, 400);
   }

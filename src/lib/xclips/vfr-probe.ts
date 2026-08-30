@@ -217,6 +217,113 @@ export async function extractAudioWav(
   });
 }
 
+/**
+ * Extracts a lightweight compressed audio file (16kHz mono MP3) for fast AI transcription
+ */
+export async function extractCompressedAudio(
+  sourcePath: string,
+  outputPath: string,
+  bitrate: string = "48k"
+): Promise<Result<string>> {
+  mediaLogger.debug({ sourcePath, outputPath, bitrate }, "Extracting compressed audio for AI transcription");
+  return new Promise((resolve) => {
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+
+    const args = [
+      "-y",
+      "-i",
+      sourcePath,
+      "-vn",
+      "-ac",
+      "1",
+      "-ar",
+      "16000",
+      "-b:a",
+      bitrate,
+      outputPath,
+    ];
+
+    const proc = spawn("ffmpeg", args);
+    let stderr = "";
+
+    proc.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    proc.on("close", (code) => {
+      if (code === 0 && fs.existsSync(outputPath)) {
+        mediaLogger.info({ sourcePath, outputPath }, "Compressed audio extracted successfully");
+        resolve({ success: true, data: outputPath });
+      } else {
+        mediaLogger.error({ sourcePath, outputPath, code, stderr: stderr.slice(-500) }, "Compressed audio extraction failed");
+        resolve({
+          success: false,
+          error: `Gagal ekstrak audio terkompresi: ${stderr.slice(-300)}`,
+        });
+      }
+    });
+
+    proc.on("error", (err) => {
+      mediaLogger.error({ sourcePath, err: err.message }, "Error executing compressed audio extraction");
+      resolve({ success: false, error: err.message });
+    });
+  });
+}
+
+/**
+ * Extracts a specific audio slice/segment with compression for long audio chunking
+ */
+export async function extractAudioSegment(
+  sourcePath: string,
+  outputPath: string,
+  startSec: number,
+  durationSec: number
+): Promise<Result<string>> {
+  return new Promise((resolve) => {
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+
+    const args = [
+      "-y",
+      "-ss",
+      startSec.toFixed(2),
+      "-t",
+      durationSec.toFixed(2),
+      "-i",
+      sourcePath,
+      "-vn",
+      "-ac",
+      "1",
+      "-ar",
+      "16000",
+      "-b:a",
+      "48k",
+      outputPath,
+    ];
+
+    const proc = spawn("ffmpeg", args);
+    let stderr = "";
+
+    proc.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    proc.on("close", (code) => {
+      if (code === 0 && fs.existsSync(outputPath)) {
+        resolve({ success: true, data: outputPath });
+      } else {
+        resolve({
+          success: false,
+          error: `Gagal ekstrak audio chunk: ${stderr.slice(-300)}`,
+        });
+      }
+    });
+
+    proc.on("error", (err) => {
+      resolve({ success: false, error: err.message });
+    });
+  });
+}
+
 
 /**
  * Extracts a high-quality JPEG frame from video at the specified timecode

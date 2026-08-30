@@ -105,6 +105,45 @@ describe("xclips - Persistent SQLite Database Engine (bun:sqlite)", () => {
     expect(retrieved?.rawText).toBe("Halo semuanya selamat datang di podcast kami");
     expect(retrieved?.words.length).toBe(4);
     expect(retrieved?.words[0].word).toBe("Halo");
+
+    // Add a second subtitle track (AI Generated)
+    const aiTranscript: XclipsTranscript = {
+      id: "tr_ai_2",
+      projectId: "proj_trans_1",
+      label: "AI: gemini-3-7-flash",
+      sourceType: "ai",
+      isActive: true,
+      language: "id",
+      rawText: "Halo kawan selamat datang",
+      words: [
+        { word: "Halo", start: 0.1, end: 0.4 },
+        { word: "kawan", start: 0.5, end: 0.9 },
+      ],
+      srtContent: "",
+      createdAt: new Date().toISOString(),
+    };
+    db.saveTranscript(aiTranscript);
+
+    // List all tracks for project
+    const allTracks = db.getProjectTranscripts("proj_trans_1");
+    expect(allTracks.length).toBe(2);
+
+    // Active track should now be aiTranscript
+    const activeTrack = db.getTranscript("proj_trans_1");
+    expect(activeTrack?.id).toBe("tr_ai_2");
+
+    // Switch active track back to first transcript
+    const switchOk = db.setActiveTranscript("proj_trans_1", "trans_1");
+    expect(switchOk).toBe(true);
+    const switchedTrack = db.getTranscript("proj_trans_1");
+    expect(switchedTrack?.id).toBe("trans_1");
+
+    // Delete the second track
+    const deleteOk = db.deleteTranscript("proj_trans_1", "tr_ai_2");
+    expect(deleteOk).toBe(true);
+    const remainingTracks = db.getProjectTranscripts("proj_trans_1");
+    expect(remainingTracks.length).toBe(1);
+    expect(remainingTracks[0].id).toBe("trans_1");
   });
 
   it("should atomically save batch clips and rank them by viral score", () => {

@@ -9,6 +9,7 @@ import {
   Tabs,
   Tab,
   Alert,
+  Snackbar,
   CircularProgress,
   Typography,
 } from "@mui/material";
@@ -44,6 +45,8 @@ function StudioContent() {
   const setActiveTab = useStudioStore((s) => s.setActiveTab);
   const actionError = useStudioStore((s) => s.actionError);
   const actionSuccess = useStudioStore((s) => s.actionSuccess);
+  const setActionError = useStudioStore((s) => s.setActionError);
+  const setActionSuccess = useStudioStore((s) => s.setActionSuccess);
   const loadProjectData = useStudioStore((s) => s.loadProjectData);
 
   const [brollPreviewItem, setBrollPreviewItem] = useState<XclipsProject | null>(null);
@@ -93,18 +96,67 @@ function StudioContent() {
       {/* Top Header */}
       <StudioHeader />
 
-      {/* Global Alerts */}
-      {actionError && (
-        <Alert severity="error" sx={{ mb: 1, flexShrink: 0, py: 0.2, bgcolor: "rgba(239, 68, 68, 0.1)", color: "#fca5a5" }}>
+      {/* Floating Auto-Closing Notification Snackbars */}
+      <Snackbar
+        open={Boolean(actionError)}
+        autoHideDuration={5000}
+        onClose={() => setActionError(null)}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+        sx={{ zIndex: 9999, top: { xs: 16, md: 24 } }}
+      >
+        <Alert
+          onClose={() => setActionError(null)}
+          severity="error"
+          variant="filled"
+          sx={{
+            minWidth: 320,
+            bgcolor: "#dc2626",
+            color: "#ffffff",
+            fontWeight: 600,
+            fontSize: "0.875rem",
+            boxShadow: "0 10px 30px rgba(0,0,0,0.6)",
+            borderRadius: 1.5,
+            border: "1px solid rgba(255,255,255,0.2)",
+            display: "flex",
+            alignItems: "center",
+            "& .MuiAlert-icon": { color: "#ffffff" },
+            "& .MuiAlert-action": { color: "#ffffff", pt: 0 },
+          }}
+        >
           {actionError}
         </Alert>
-      )}
+      </Snackbar>
 
-      {actionSuccess && (
-        <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mb: 1, flexShrink: 0, py: 0.2, bgcolor: "rgba(16, 185, 129, 0.1)", color: "#34d399" }}>
+      <Snackbar
+        open={Boolean(actionSuccess)}
+        autoHideDuration={4000}
+        onClose={() => setActionSuccess(null)}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+        sx={{ zIndex: 9999, top: { xs: 16, md: 24 } }}
+      >
+        <Alert
+          onClose={() => setActionSuccess(null)}
+          severity="success"
+          variant="filled"
+          icon={<CheckCircleIcon />}
+          sx={{
+            minWidth: 320,
+            bgcolor: "#059669",
+            color: "#ffffff",
+            fontWeight: 600,
+            fontSize: "0.875rem",
+            boxShadow: "0 10px 30px rgba(0,0,0,0.6)",
+            borderRadius: 1.5,
+            border: "1px solid rgba(255,255,255,0.2)",
+            display: "flex",
+            alignItems: "center",
+            "& .MuiAlert-icon": { color: "#ffffff" },
+            "& .MuiAlert-action": { color: "#ffffff", pt: 0 },
+          }}
+        >
           {actionSuccess}
         </Alert>
-      )}
+      </Snackbar>
 
       {/* Dual-Pane Studio Body */}
       <Box

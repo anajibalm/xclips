@@ -3,15 +3,12 @@ import {
   Box,
   Typography,
   Button,
-  IconButton,
   Chip,
   Grid,
   Card,
   CircularProgress,
-  Tooltip,
 } from "@mui/material";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
-import SettingsIcon from "@mui/icons-material/Settings";
 import TuneIcon from "@mui/icons-material/Tune";
 import { useStudioStore } from "../store/useStudioStore";
 import { formatTime } from "../types/studio.types";
@@ -33,8 +30,6 @@ export function TabAutoclips() {
   const isTranscribing = useStudioStore((s) => s.isTranscribing);
   const isDiscovering = useStudioStore((s) => s.isDiscovering);
   const aiSettings = useStudioStore((s) => s.aiSettings);
-  const setAiSettingsModalOpen = useStudioStore((s) => s.setAiSettingsModalOpen);
-  const fetchAiSettings = useStudioStore((s) => s.fetchAiSettings);
   const handleTranscribe = useStudioStore((s) => s.handleTranscribe);
   const handleDiscoverHighlights = useStudioStore((s) => s.handleDiscoverHighlights);
   const handleSeek = useStudioStore((s) => s.handleSeek);
@@ -79,32 +74,12 @@ export function TabAutoclips() {
         </Box>
 
         <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-          <Tooltip title="Configure AI Provider & Narrative Focus" arrow>
-            <IconButton
-              size="small"
-              onClick={() => {
-                fetchAiSettings();
-                setAiSettingsModalOpen(true);
-              }}
-              sx={{
-                color: "#a1a1aa",
-                bgcolor: "#141418",
-                border: "1px solid #27272a",
-                borderRadius: 1,
-                p: 0.8,
-                "&:hover": { color: "#3b82f6", bgcolor: "#1e1e24", borderColor: "#3f3f46" },
-              }}
-            >
-              <SettingsIcon sx={{ fontSize: "1.1rem" }} />
-            </IconButton>
-          </Tooltip>
-
           {!transcript ? (
             <Button
               variant="contained"
               size="small"
               startIcon={isTranscribing ? <CircularProgress size={14} sx={{ color: "#ffffff" }} /> : <AutoFixHighIcon />}
-              onClick={handleTranscribe}
+              onClick={() => handleTranscribe()}
               disabled={isTranscribing}
               sx={{ bgcolor: "#3b82f6", fontWeight: 800, textTransform: "none", px: 2, borderRadius: 1, "&:hover": { bgcolor: "#2563eb" } }}
             >

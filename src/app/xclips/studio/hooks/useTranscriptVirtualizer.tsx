@@ -180,17 +180,30 @@ export function useTranscriptVirtualizer(virtualScrollRef: React.RefObject<HTMLD
 
   // Render Highlighted Search Text
   const renderHighlightedText = (text: string, query: string) => {
-    if (!query.trim()) return text;
-    const parts = text.split(new RegExp(`(${query})`, "gi"));
+    if (!query || !query.trim()) return text;
+    const escaped = query.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const parts = text.split(new RegExp(`(${escaped})`, "gi"));
     return (
       <span>
         {parts.map((part, i) =>
-          part.toLowerCase() === query.toLowerCase() ? (
-            <span key={i} style={{ backgroundColor: "#FACC15", color: "#000000", fontWeight: 800, padding: "0 2px", borderRadius: "2px" }}>
+          part.toLowerCase() === query.trim().toLowerCase() ? (
+            <mark
+              key={i}
+              style={{
+                backgroundColor: "#facc15",
+                color: "#000000",
+                fontWeight: 800,
+                padding: "1px 4px",
+                borderRadius: "3px",
+                margin: "0 1px",
+                display: "inline-block",
+                lineHeight: "1.2",
+              }}
+            >
               {part}
-            </span>
+            </mark>
           ) : (
-            part
+            <span key={i}>{part}</span>
           )
         )}
       </span>

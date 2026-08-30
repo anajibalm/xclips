@@ -54,14 +54,20 @@ export class XclipsDatabase {
 
       CREATE TABLE IF NOT EXISTS transcripts (
         id TEXT PRIMARY KEY,
-        projectId TEXT NOT NULL UNIQUE,
+        projectId TEXT NOT NULL,
+        label TEXT NOT NULL DEFAULT 'Subtitle Track',
+        sourceType TEXT NOT NULL DEFAULT 'ai',
+        isActive INTEGER NOT NULL DEFAULT 1,
         language TEXT NOT NULL DEFAULT 'id',
         rawText TEXT NOT NULL,
         wordsJson TEXT NOT NULL,
         srtContent TEXT NOT NULL DEFAULT '',
         createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL DEFAULT '',
         FOREIGN KEY(projectId) REFERENCES projects(id) ON DELETE CASCADE
       );
+
+      CREATE INDEX IF NOT EXISTS idx_transcripts_project_id ON transcripts(projectId);
 
       CREATE TABLE IF NOT EXISTS clips (
         id TEXT PRIMARY KEY,
@@ -114,9 +120,60 @@ export class XclipsDatabase {
       audioPath: "TEXT",
     });
 
+    // Auto-migrate transcripts table if it still has legacy UNIQUE(projectId) constraint
+    try {
+      const transcriptsSqlRow = this.db.query("SELECT sql FROM sqlite_master WHERE type='table' AND name='transcripts'").get() as { sql?: string } | null;
+      if (transcriptsSqlRow?.sql && /projectId\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i.test(transcriptsSqlRow.sql)) {
+        dbLogger.info("Migrating transcripts table to remove legacy UNIQUE(projectId) constraint for multi-track support");
+        this.db.exec(`
+          PRAGMA foreign_keys = OFF;
+          CREATE TABLE transcripts_migration (
+            id TEXT PRIMARY KEY,
+            projectId TEXT NOT NULL,
+            label TEXT NOT NULL DEFAULT 'AI Generated Subtitles',
+            sourceType TEXT NOT NULL DEFAULT 'ai',
+            isActive INTEGER NOT NULL DEFAULT 1,
+            language TEXT NOT NULL DEFAULT 'id',
+            rawText TEXT NOT NULL,
+            wordsJson TEXT NOT NULL,
+            srtContent TEXT NOT NULL DEFAULT '',
+            createdAt TEXT NOT NULL,
+            updatedAt TEXT NOT NULL DEFAULT '',
+            FOREIGN KEY(projectId) REFERENCES projects(id) ON DELETE CASCADE
+          );
+          INSERT OR IGNORE INTO transcripts_migration (
+            id, projectId, label, sourceType, isActive, language, rawText, wordsJson, srtContent, createdAt, updatedAt
+          )
+          SELECT 
+            id, 
+            projectId, 
+            coalesce(label, 'AI Generated Subtitles'), 
+            coalesce(sourceType, 'ai'), 
+            coalesce(isActive, 1), 
+            coalesce(language, 'id'), 
+            rawText, 
+            wordsJson, 
+            coalesce(srtContent, ''), 
+            createdAt, 
+            coalesce(updatedAt, '') 
+          FROM transcripts;
+          DROP TABLE transcripts;
+          ALTER TABLE transcripts_migration RENAME TO transcripts;
+          CREATE INDEX IF NOT EXISTS idx_transcripts_project_id ON transcripts(projectId);
+          PRAGMA foreign_keys = ON;
+        `);
+      }
+    } catch (migErr) {
+      dbLogger.error({ migErr }, "Failed during transcripts table multi-track migration");
+    }
+
     this.ensureColumns("transcripts", {
+      label: "TEXT NOT NULL DEFAULT 'Subtitle Track'",
+      sourceType: "TEXT NOT NULL DEFAULT 'ai'",
+      isActive: "INTEGER NOT NULL DEFAULT 1",
       language: "TEXT NOT NULL DEFAULT 'id'",
       srtContent: "TEXT NOT NULL DEFAULT ''",
+      updatedAt: "TEXT NOT NULL DEFAULT ''",
     });
 
     this.ensureColumns("clips", {
@@ -132,6 +189,18 @@ export class XclipsDatabase {
       startedAt: "TEXT",
       completedAt: "TEXT",
     });
+
+    // Auto-migrate legacy transcripts without proper label or sourceType
+    try {
+      this.db.exec(`
+        UPDATE transcripts
+        SET label = 'YouTube Subtitles (CC)', sourceType = 'youtube_cc'
+        WHERE (label = 'Subtitle Track' OR label = '' OR label IS NULL)
+          AND projectId IN (SELECT id FROM projects WHERE sourceType = 'youtube');
+      `);
+    } catch {
+      // ignore
+    }
 
     dbLogger.info({ dbPath: DB_FILE }, "Initialized SQLite xclips database with WAL mode");
   }
@@ -238,56 +307,143 @@ export class XclipsDatabase {
     }
   }
 
-  // --- Transcripts ---
-  getTranscript(projectId: string): XclipsTranscript | null {
+  // --- Transcripts (Multi-Track) ---
+  getTranscript(projectId: string, transcriptId?: string): XclipsTranscript | null {
     try {
-      const row = this.db.query("SELECT * FROM transcripts WHERE projectId = ?").get(projectId) as {
-        id: string;
-        projectId: string;
-        language: string;
-        rawText: string;
-        wordsJson: string;
-        srtContent: string;
-        createdAt: string;
-      } | null;
+      let row: any = null;
+      if (transcriptId) {
+        row = this.db.query("SELECT * FROM transcripts WHERE id = ? AND projectId = ?").get(transcriptId, projectId);
+      } else {
+        row = this.db.query("SELECT * FROM transcripts WHERE projectId = ? AND isActive = 1 ORDER BY createdAt DESC LIMIT 1").get(projectId);
+        if (!row) {
+          row = this.db.query("SELECT * FROM transcripts WHERE projectId = ? ORDER BY createdAt DESC LIMIT 1").get(projectId);
+        }
+      }
 
       if (!row) return null;
+      const resolvedLabel =
+        row.label && row.label !== "Subtitle Track"
+          ? row.label
+          : row.sourceType === "youtube_cc"
+          ? "YouTube Subtitles (CC)"
+          : "AI Generated Subtitles";
+
       return {
         id: row.id,
         projectId: row.projectId,
+        label: resolvedLabel,
+        sourceType: row.sourceType || "ai",
+        isActive: Boolean(row.isActive),
         language: row.language || "id",
         rawText: row.rawText,
         words: JSON.parse(row.wordsJson),
         srtContent: row.srtContent || "",
         createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
       };
     } catch (err) {
-      dbLogger.error({ projectId, err }, "Failed to get transcript");
+      dbLogger.error({ projectId, transcriptId, err }, "Failed to get transcript");
       return null;
     }
   }
 
+  getProjectTranscripts(projectId: string): XclipsTranscript[] {
+    try {
+      const rows = this.db.query("SELECT * FROM transcripts WHERE projectId = ? ORDER BY createdAt DESC").all(projectId) as any[];
+      return rows.map((row) => {
+        const resolvedLabel =
+          row.label && row.label !== "Subtitle Track"
+            ? row.label
+            : row.sourceType === "youtube_cc"
+            ? "YouTube Subtitles (CC)"
+            : "AI Generated Subtitles";
+
+        return {
+          id: row.id,
+          projectId: row.projectId,
+          label: resolvedLabel,
+          sourceType: row.sourceType || "ai",
+          isActive: Boolean(row.isActive),
+          language: row.language || "id",
+          rawText: row.rawText,
+          words: JSON.parse(row.wordsJson),
+          srtContent: row.srtContent || "",
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+        };
+      });
+    } catch (err) {
+      dbLogger.error({ projectId, err }, "Failed to get project transcripts");
+      return [];
+    }
+  }
+
   saveTranscript(transcript: XclipsTranscript): void {
+    const isNewActive = transcript.isActive !== false;
+    if (isNewActive) {
+      this.db.prepare("UPDATE transcripts SET isActive = 0 WHERE projectId = ?").run(transcript.projectId);
+    }
+
     const stmt = this.db.prepare(`
-      INSERT INTO transcripts (id, projectId, language, rawText, wordsJson, srtContent, createdAt)
-      VALUES ($id, $projectId, $language, $rawText, $wordsJson, $srtContent, $createdAt)
-      ON CONFLICT(projectId) DO UPDATE SET
+      INSERT INTO transcripts (id, projectId, label, sourceType, isActive, language, rawText, wordsJson, srtContent, createdAt, updatedAt)
+      VALUES ($id, $projectId, $label, $sourceType, $isActive, $language, $rawText, $wordsJson, $srtContent, $createdAt, $updatedAt)
+      ON CONFLICT(id) DO UPDATE SET
+        label = excluded.label,
+        sourceType = excluded.sourceType,
+        isActive = excluded.isActive,
         language = excluded.language,
         rawText = excluded.rawText,
         wordsJson = excluded.wordsJson,
         srtContent = excluded.srtContent,
-        createdAt = excluded.createdAt
+        updatedAt = excluded.updatedAt
     `);
 
     stmt.run({
       $id: transcript.id,
       $projectId: transcript.projectId,
+      $label: transcript.label || (transcript.sourceType === "youtube_cc" ? "YouTube CC (Original)" : "AI Generated Subtitles"),
+      $sourceType: transcript.sourceType || "ai",
+      $isActive: isNewActive ? 1 : 0,
       $language: transcript.language || "id",
       $rawText: transcript.rawText,
       $wordsJson: JSON.stringify(transcript.words),
       $srtContent: transcript.srtContent || "",
       $createdAt: transcript.createdAt || new Date().toISOString(),
+      $updatedAt: transcript.updatedAt || new Date().toISOString(),
     });
+  }
+
+  setActiveTranscript(projectId: string, transcriptId: string): boolean {
+    try {
+      this.db.transaction(() => {
+        this.db.prepare("UPDATE transcripts SET isActive = 0 WHERE projectId = ?").run(projectId);
+        this.db.prepare("UPDATE transcripts SET isActive = 1 WHERE id = ? AND projectId = ?").run(transcriptId, projectId);
+      })();
+      return true;
+    } catch (err) {
+      dbLogger.error({ projectId, transcriptId, err }, "Failed to set active transcript");
+      return false;
+    }
+  }
+
+  deleteTranscript(projectId: string, transcriptId: string): boolean {
+    try {
+      let wasActive = false;
+      const target = this.db.query("SELECT isActive FROM transcripts WHERE id = ? AND projectId = ?").get(transcriptId, projectId) as { isActive: number } | null;
+      if (target && target.isActive === 1) wasActive = true;
+
+      const res = this.db.prepare("DELETE FROM transcripts WHERE id = ? AND projectId = ?").run(transcriptId, projectId);
+      if (res.changes > 0 && wasActive) {
+        const remaining = this.db.query("SELECT id FROM transcripts WHERE projectId = ? ORDER BY createdAt DESC LIMIT 1").get(projectId) as { id: string } | null;
+        if (remaining) {
+          this.db.prepare("UPDATE transcripts SET isActive = 1 WHERE id = ?").run(remaining.id);
+        }
+      }
+      return res.changes > 0;
+    } catch (err) {
+      dbLogger.error({ projectId, transcriptId, err }, "Failed to delete transcript");
+      return false;
+    }
   }
 
   // --- Clips ---

@@ -84,30 +84,30 @@ const PROVIDER_METADATA: Record<
     label: "KIE AI",
     keyTitle: "KIE AI API Key",
     getUrl: "https://kie.ai/api-key",
-    placeholder: "sk-...",
+    placeholder: "Masukkan KIE AI API key...",
   },
   gemini: {
     label: "Gemini",
     keyTitle: "Google Gemini API Key",
     getUrl: "https://aistudio.google.com/api-keys",
-    placeholder: "AIzaSy...",
+    placeholder: "Masukkan Google Gemini API key...",
   },
   openai: {
     label: "OpenAI",
     keyTitle: "OpenAI API Key",
     getUrl: "https://platform.openai.com/api-keys",
-    placeholder: "sk-proj-...",
+    placeholder: "Masukkan OpenAI API key...",
   },
   anthropic: {
     label: "Claude",
     keyTitle: "Anthropic Claude API Key",
     getUrl: "https://platform.claude.com/settings/workspaces/default/keys",
-    placeholder: "sk-ant-...",
+    placeholder: "Masukkan Claude API key...",
   },
   openai_compatible: {
     label: "Custom",
     keyTitle: "Custom Provider API Key",
-    placeholder: "sk-...",
+    placeholder: "Masukkan Custom API key...",
   },
 };
 
@@ -259,7 +259,7 @@ export function AiSettingsModal() {
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.3 }}>
             <TuneIcon sx={{ color: "#3b82f6", fontSize: "1.25rem" }} />
             <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#fafafa", fontSize: "1rem", letterSpacing: "-0.01em" }}>
-              Autoclip &amp; AI Engine Configuration
+              Configuration
             </Typography>
           </Box>
           <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.75rem", display: "block" }}>
@@ -309,7 +309,7 @@ export function AiSettingsModal() {
                     id: "kieai",
                     label: "KIE AI",
                     icon: <KieAiIcon style={{ color: "#3b82f6", width: 22, height: 22 }} />,
-                    defaultUrl: "https://api.kie.ai/gemini-3-6-flash-openai/v1",
+                    defaultUrl: "https://api.kie.ai",
                     defaultTranscribe: "gemini-3-7-flash",
                     defaultHighlight: "gemini-3-7-flash",
                   },
@@ -317,7 +317,7 @@ export function AiSettingsModal() {
                     id: "gemini",
                     label: "Gemini",
                     icon: <GeminiIcon style={{ color: "#8E75FF", width: 22, height: 22 }} />,
-                    defaultUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+                    defaultUrl: "https://generativelanguage.googleapis.com/v1beta",
                     defaultTranscribe: "gemini-3.7-flash",
                     defaultHighlight: "gemini-3.7-flash",
                   },
@@ -326,15 +326,15 @@ export function AiSettingsModal() {
                     label: "OpenAI",
                     icon: <OpenAiIcon style={{ color: "#10A37F", width: 22, height: 22 }} />,
                     defaultUrl: "https://api.openai.com/v1",
-                    defaultTranscribe: "gpt-5-6-terra",
-                    defaultHighlight: "gpt-5-6-terra",
+                    defaultTranscribe: "gpt-transcribe",
+                    defaultHighlight: "gpt-5.6-luna",
                   },
                   {
                     id: "anthropic",
                     label: "Claude",
                     icon: <AnthropicIcon style={{ color: "#D97757", width: 22, height: 22 }} />,
                     defaultUrl: "https://api.anthropic.com/v1",
-                    defaultTranscribe: "claude-sonnet-5",
+                    defaultTranscribe: "gemini-3-7-flash",
                     defaultHighlight: "claude-sonnet-5",
                   },
                   {
@@ -491,7 +491,7 @@ export function AiSettingsModal() {
                       },
                     });
                   }}
-                  placeholder={PROVIDER_METADATA[aiSettings.provider]?.placeholder || "sk-..."}
+                  placeholder={PROVIDER_METADATA[aiSettings.provider]?.placeholder || "Masukkan API Key..."}
                   slotProps={{
                     input: {
                       endAdornment: (
@@ -561,7 +561,7 @@ export function AiSettingsModal() {
               {aiSettings.provider === "kieai" && (
                 <Box sx={{ display: "flex", flexDirection: "column", gap: 0.6 }}>
                   <Typography variant="caption" sx={{ color: "#d4d4d8", fontWeight: 700, fontSize: "0.75rem" }}>
-                    Model AI KIE (Transkrip &amp; Pengolahan Narasi)
+                    Model AI KIE (Pengolahan Narasi)
                   </Typography>
                   <FormControl fullWidth size="small">
                     <Select
@@ -570,7 +570,7 @@ export function AiSettingsModal() {
                         const selectedVal = e.target.value;
                         setAiSettings({
                           ...aiSettings,
-                          transcribeModel: selectedVal,
+                          transcribeModel: "gemini-3-7-flash",
                           highlightModel: selectedVal,
                         });
                       }}
@@ -591,42 +591,79 @@ export function AiSettingsModal() {
 
               {/* OPENAI Model Selector */}
               {aiSettings.provider === "openai" && (
-                <Box sx={{ display: "flex", flexDirection: "column", gap: 0.6 }}>
-                  <Typography variant="caption" sx={{ color: "#d4d4d8", fontWeight: 700, fontSize: "0.75rem" }}>
-                    Model OpenAI GPT-5.6 (Transkrip &amp; Pengolahan Narasi)
-                  </Typography>
-                  <FormControl fullWidth size="small">
-                    <Select
-                      value={aiSettings.highlightModel || "gpt-5-6-terra"}
-                      onChange={(e) => {
-                        const selectedVal = e.target.value;
-                        setAiSettings({
-                          ...aiSettings,
-                          transcribeModel: selectedVal,
-                          highlightModel: selectedVal,
-                        });
-                      }}
-                      sx={{
-                        bgcolor: "#14141a",
-                        color: "#ffffff",
-                        borderRadius: 1,
-                        fontSize: "0.8rem",
-                        "& .MuiOutlinedInput-notchedOutline": { borderColor: "#23232b" },
-                      }}
-                    >
-                      <MenuItem value="gpt-5-6-terra">GPT 5.6 Terra</MenuItem>
-                      <MenuItem value="gpt-5-6-sol">GPT 5.6 Sol</MenuItem>
-                      <MenuItem value="gpt-5-6-luna">GPT 5.6 Luna</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Box>
+                <Grid container spacing={1.5}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Box sx={{ display: "flex", flexDirection: "column", gap: 0.6 }}>
+                      <Typography variant="caption" sx={{ color: "#d4d4d8", fontWeight: 700, fontSize: "0.75rem" }}>
+                        Model Transkrip Audio (Speech-to-Text)
+                      </Typography>
+                      <FormControl fullWidth size="small">
+                        <Select
+                          value={aiSettings.transcribeModel || "gpt-transcribe"}
+                          onChange={(e) => {
+                            setAiSettings({
+                              ...aiSettings,
+                              transcribeModel: e.target.value,
+                            });
+                          }}
+                          sx={{
+                            bgcolor: "#14141a",
+                            color: "#ffffff",
+                            borderRadius: 1,
+                            fontSize: "0.8rem",
+                            "& .MuiOutlinedInput-notchedOutline": { borderColor: "#23232b" },
+                          }}
+                        >
+                          <MenuItem value="gpt-transcribe">GPT Transcribe</MenuItem>
+                          <MenuItem value="gpt-4o-transcribe">GPT-4o Transcribe</MenuItem>
+                          <MenuItem value="gpt-4o-mini-transcribe">GPT-4o Mini Transcribe</MenuItem>
+                          <MenuItem value="whisper-1">Whisper 1</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Box>
+                  </Grid>
+
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Box sx={{ display: "flex", flexDirection: "column", gap: 0.6 }}>
+                      <Typography variant="caption" sx={{ color: "#d4d4d8", fontWeight: 700, fontSize: "0.75rem" }}>
+                        Model Pengolahan Narasi &amp; Hook (LLM)
+                      </Typography>
+                      <FormControl fullWidth size="small">
+                        <Select
+                          value={aiSettings.highlightModel || "gpt-5.6-luna"}
+                          onChange={(e) => {
+                            setAiSettings({
+                              ...aiSettings,
+                              highlightModel: e.target.value,
+                            });
+                          }}
+                          sx={{
+                            bgcolor: "#14141a",
+                            color: "#ffffff",
+                            borderRadius: 1,
+                            fontSize: "0.8rem",
+                            "& .MuiOutlinedInput-notchedOutline": { borderColor: "#23232b" },
+                          }}
+                        >
+                          <MenuItem value="gpt-5.6-luna">GPT 5.6 Luna</MenuItem>
+                          <MenuItem value="gpt-5-6-terra">GPT 5.6 Terra</MenuItem>
+                          <MenuItem value="gpt-5-6-sol">GPT 5.6 Sol</MenuItem>
+                          <MenuItem value="gpt-5-6-luna">GPT 5.6 Luna (Alt)</MenuItem>
+                          <MenuItem value="gpt-4o">GPT 4o</MenuItem>
+                          <MenuItem value="gpt-4o-mini">GPT 4o Mini</MenuItem>
+                          <MenuItem value="gpt-image-2">GPT Image 2</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Box>
+                  </Grid>
+                </Grid>
               )}
 
               {/* ANTHROPIC Model Selector */}
               {aiSettings.provider === "anthropic" && (
                 <Box sx={{ display: "flex", flexDirection: "column", gap: 0.6 }}>
                   <Typography variant="caption" sx={{ color: "#d4d4d8", fontWeight: 700, fontSize: "0.75rem" }}>
-                    Model Claude (Transkrip &amp; Pengolahan Narasi)
+                    Model Claude (Pengolahan Narasi)
                   </Typography>
                   <FormControl fullWidth size="small">
                     <Select
@@ -635,7 +672,7 @@ export function AiSettingsModal() {
                         const selectedVal = e.target.value;
                         setAiSettings({
                           ...aiSettings,
-                          transcribeModel: selectedVal,
+                          transcribeModel: "gemini-3-7-flash",
                           highlightModel: selectedVal,
                         });
                       }}
@@ -681,6 +718,7 @@ export function AiSettingsModal() {
                         "& .MuiOutlinedInput-notchedOutline": { borderColor: "#23232b" },
                       }}
                     >
+                      <MenuItem value="gemini-3.5-transcribe">Gemini 3.5 Transcribe</MenuItem>
                       <MenuItem value="gemini-3.7-flash">Gemini 3.7 Flash</MenuItem>
                       <MenuItem value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</MenuItem>
                       <MenuItem value="gemini-3.6-flash">Gemini 3.6 Flash</MenuItem>

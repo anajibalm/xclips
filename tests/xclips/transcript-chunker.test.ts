@@ -105,7 +105,7 @@ describe("xclips - Transcript Chunker & Highlight Reducer", () => {
     }
   });
 
-  it("should return static 3 models (gpt-5-6-terra, gpt-5-6-sol, gpt-5-6-luna) for openai provider", async () => {
+  it("should return static models including gpt-transcribe, gpt-5.6-luna, gpt-image-2 for openai provider", async () => {
     const { xclipsService } = await import("@/lib/xclips.service");
     const res = await xclipsService.fetchAvailableModels(
       "openai",
@@ -115,7 +115,12 @@ describe("xclips - Transcript Chunker & Highlight Reducer", () => {
 
     expect(res.success).toBe(true);
     if (res.success) {
-      expect(res.data).toEqual(["gpt-5-6-terra", "gpt-5-6-sol", "gpt-5-6-luna"]);
+      expect(res.data).toContain("gpt-transcribe");
+      expect(res.data).toContain("gpt-5.6-luna");
+      expect(res.data).toContain("gpt-image-2");
+      expect(res.data).toContain("gpt-4o-transcribe");
+      expect(res.data).toContain("gpt-4o-mini-transcribe");
+      expect(res.data).toContain("whisper-1");
     }
   });
 
@@ -138,12 +143,13 @@ describe("xclips - Transcript Chunker & Highlight Reducer", () => {
     }
   });
 
-  it("should return static 3 models (gemini-3.7-flash, gemini-3.1-pro-preview, gemini-3.6-flash) for gemini provider", async () => {
+  it("should return static models (gemini-3.5-transcribe, gemini-3.7-flash, gemini-3.1-pro-preview, gemini-3.6-flash) for gemini provider", async () => {
     const { xclipsService } = await import("@/lib/xclips.service");
     const res = await xclipsService.fetchAvailableModels("gemini", "https://generativelanguage.googleapis.com", "");
     expect(res.success).toBe(true);
     if (res.success) {
       expect(res.data).toEqual([
+        "gemini-3.5-transcribe",
         "gemini-3.7-flash",
         "gemini-3.1-pro-preview",
         "gemini-3.6-flash",

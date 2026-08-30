@@ -12,7 +12,13 @@ import {
   XclipsAiSettingsSchema,
   AiProviderType,
 } from "@/lib/xclips/types";
-import { probeMedia, normalizeToCfr, extractAudioWav } from "@/lib/xclips/vfr-probe";
+import {
+  probeMedia,
+  normalizeToCfr,
+  extractAudioWav,
+  extractCompressedAudio,
+  extractAudioSegment,
+} from "@/lib/xclips/vfr-probe";
 import { detectTokenFillers } from "@/lib/xclips/filler-detector";
 import {
   chunkTranscript,
@@ -80,10 +86,24 @@ export class XclipsService {
   }
 
   /**
+   * Resolves the settings file path with full test environment isolation
+   */
+  getSettingsPath(): string {
+    if (
+      process.env.NODE_ENV === "test" ||
+      process.env.BUN_ENV === "test" ||
+      process.env.XCLIPS_TEST === "true"
+    ) {
+      return path.resolve(process.cwd(), "vault", "xclips", "settings.test.json");
+    }
+    return path.resolve(process.cwd(), "vault", "xclips", "settings.json");
+  }
+
+  /**
    * Reads persistent AI configuration from vault/xclips/settings.json
    */
   getAiSettings(): XclipsAiSettings {
-    const settingsPath = path.resolve(process.cwd(), "vault", "xclips", "settings.json");
+    const settingsPath = this.getSettingsPath();
     const defaultApiKeys: Record<AiProviderType, string> = {
       kieai: process.env.KIE_AI_API_KEY || "",
       gemini: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "",
@@ -114,7 +134,7 @@ export class XclipsService {
     return {
       provider: "kieai",
       baseUrl: "https://api.kie.ai/gemini-3-6-flash-openai/v1",
-      apiKey: defaultApiKeys.kieai,
+      apiKey: defaultApiKeys.kieai || "",
       apiKeys: defaultApiKeys,
       transcribeModel: "gemini-3-7-flash",
       highlightModel: "gemini-3-7-flash",
@@ -126,7 +146,7 @@ export class XclipsService {
   }
 
   /**
-   * Saves AI configuration to vault/xclips/settings.json
+   * Saves AI configuration to vault/xclips/settings.json (or settings.test.json in tests)
    */
   saveAiSettings(settings: Partial<XclipsAiSettings>): Result<XclipsAiSettings> {
     try {
@@ -150,11 +170,11 @@ export class XclipsService {
         apiKey: updatedApiKeys[targetProvider] || "",
       };
       const validated = XclipsAiSettingsSchema.parse(merged);
-      const settingsDir = path.resolve(process.cwd(), "vault", "xclips");
+      const settingsPath = this.getSettingsPath();
+      const settingsDir = path.dirname(settingsPath);
       if (!fs.existsSync(settingsDir)) {
         fs.mkdirSync(settingsDir, { recursive: true });
       }
-      const settingsPath = path.join(settingsDir, "settings.json");
       fs.writeFileSync(settingsPath, JSON.stringify(validated, null, 2), "utf-8");
       aiLogger.info({ provider: validated.provider, highlightModel: validated.highlightModel }, "Saved xclips AI settings with provider-specific API keys");
       return { success: true, data: validated };
@@ -200,9 +220,17 @@ export class XclipsService {
         return {
           success: true,
           data: [
+            "gpt-5.6-luna",
             "gpt-5-6-terra",
             "gpt-5-6-sol",
             "gpt-5-6-luna",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-transcribe",
+            "gpt-4o-transcribe",
+            "gpt-4o-mini-transcribe",
+            "whisper-1",
+            "gpt-image-2",
           ],
         };
       }
@@ -211,6 +239,7 @@ export class XclipsService {
         return {
           success: true,
           data: [
+            "gemini-3.5-transcribe",
             "gemini-3.7-flash",
             "gemini-3.1-pro-preview",
             "gemini-3.6-flash",
@@ -343,17 +372,95 @@ export class XclipsService {
         return { success: false, error: `Gemini Auth Error (${res.status})` };
       }
 
-      // KIE AI, OpenAI, and Custom (OpenAI Compatible)
+      if (provider === "kieai") {
+        // 1. Try Native Gemini endpoint on Kie AI
+        const cleanBase = baseUrl.replace(/\/gemini\/v1.*$/, "").replace(/\/+$/, "");
+        const targetUrl = `${cleanBase}/gemini/v1/models/gemini-3-7-flash:generateContent`;
+        try {
+          const res = await fetch(targetUrl, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              contents: [{ role: "user", parts: [{ text: "ping" }] }],
+              generationConfig: { maxOutputTokens: 1 },
+            }),
+            signal: AbortSignal.timeout(8000),
+          });
+
+          if (res.ok) {
+            const resJson = (await res.json().catch(() => ({}))) as { code?: number; msg?: string };
+            if (resJson.code === 401 || resJson.msg?.toLowerCase().includes("unauthorized")) {
+              return { success: false, error: resJson.msg || "KIE AI: API Key Tidak Valid / Unauthorized" };
+            }
+            return { success: true, data: { status: "ok", message: "API Key KIE AI Valid & Terhubung!" } };
+          }
+        } catch {}
+
+        // 2. Fallback to OpenAI-compatible endpoint on Kie AI
+        const openAiUrl = "https://api.kie.ai/gemini-3-6-flash-openai/v1/chat/completions";
+        const res2 = await fetch(openAiUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "gemini-3-7-flash",
+            messages: [{ role: "user", content: "ping" }],
+            max_tokens: 1,
+          }),
+          signal: AbortSignal.timeout(8000),
+        });
+
+        if (res2.ok) {
+          const resJson = (await res2.json().catch(() => ({}))) as { code?: number; msg?: string; error?: { message?: string } };
+          if (resJson.code === 401 || resJson.error) {
+            return { success: false, error: resJson.msg || resJson.error?.message || "KIE AI: API Key Tidak Valid" };
+          }
+          return { success: true, data: { status: "ok", message: "API Key KIE AI Valid & Terhubung!" } };
+        }
+
+        return { success: false, error: `KIE AI Error (${res2.status})` };
+      }
+
+      if (provider === "openai") {
+        // Direct official OpenAI model list endpoint (token-free and always works for valid keys)
+        const modelsUrl = baseUrl.includes("/v1")
+          ? `${baseUrl.replace(/\/+$/, "")}/models`
+          : `${baseUrl.replace(/\/+$/, "")}/v1/models`;
+
+        try {
+          const res = await fetch(modelsUrl, {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+            },
+            signal: AbortSignal.timeout(12000),
+          });
+
+          if (res.ok) {
+            return { success: true, data: { status: "ok", message: "API Key OpenAI Valid & Terhubung!" } };
+          }
+          if (res.status === 401 || res.status === 403) {
+            return { success: false, error: "API Key OpenAI tidak valid / unauthorized (401/403)" };
+          }
+          const errJson = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+          return { success: false, error: errJson?.error?.message || `OpenAI Auth Error (${res.status})` };
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          return { success: false, error: `Gagal terhubung ke OpenAI: ${errMsg}` };
+        }
+      }
+
+      // Custom (OpenAI Compatible)
       const targetUrl = baseUrl.endsWith("/chat/completions")
         ? baseUrl
         : `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
 
-      const testModel =
-        provider === "kieai"
-          ? (model || "gemini-3-7-flash")
-          : provider === "openai"
-          ? (model || "gpt-5-6-terra")
-          : (model || "gpt-4o");
+      const testModel = model || "gpt-4o";
 
       const res = await fetch(targetUrl, {
         method: "POST",
@@ -473,13 +580,17 @@ export class XclipsService {
         if (words.length > 0) {
           detectTokenFillers(words);
           const transcript: XclipsTranscript = {
-            id: `tr_${Date.now()}`,
+            id: `tr_yt_${Date.now()}`,
             projectId: project.id,
+            label: "YouTube Subtitles (CC)",
+            sourceType: "youtube_cc",
+            isActive: true,
             language: "id",
             rawText: words.map((w) => w.word).join(" "),
             srtContent,
             words,
             createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
           };
           xclipsDb.saveTranscript(transcript);
         }
@@ -544,47 +655,482 @@ export class XclipsService {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-
     xclipsDb.saveProject(project);
     return { success: true, data: project };
   }
 
   /**
-   * Transcribes project audio using configured AI model
+   * Universal Smart AI Dispatcher supporting Native Gemini (Kie AI & Google AI Studio) and OpenAI standard formats
+   */
+  private async dispatchAiContent(params: {
+    provider: AiProviderType;
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    systemPrompt?: string;
+    userPrompt: string;
+    base64Audio?: string;
+    audioFormat?: "mp3" | "wav";
+    timeoutMs?: number;
+  }): Promise<Result<string>> {
+    const {
+      provider,
+      baseUrl,
+      apiKey,
+      model,
+      systemPrompt,
+      userPrompt,
+      base64Audio,
+      audioFormat = "mp3",
+      timeoutMs = 120000,
+    } = params;
+
+    const isKieAi = provider === "kieai";
+    const isGeminiDirect = provider === "gemini" || baseUrl.includes("generativelanguage.googleapis.com");
+    const isGeminiModel = model.toLowerCase().startsWith("gemini") || model.toLowerCase().includes("flash") || model.toLowerCase().includes("pro");
+
+    try {
+      if (isKieAi || (isGeminiDirect && isGeminiModel)) {
+        // Native Gemini format with inline_data
+        let targetUrl = "";
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+
+        if (isKieAi) {
+          const cleanBase = baseUrl.replace(/\/gemini\/v1.*$/, "").replace(/\/+$/, "");
+          targetUrl = `${cleanBase}/gemini/v1/models/${model}:generateContent`;
+          headers["Authorization"] = `Bearer ${apiKey}`;
+        } else {
+          // Google AI Studio
+          const cleanBase = baseUrl.replace(/\/models.*$/, "").replace(/\/+$/, "");
+          targetUrl = `${cleanBase}/models/${model}:generateContent?key=${apiKey}`;
+        }
+
+        const promptCombined = systemPrompt ? `${systemPrompt}\n\n${userPrompt}` : userPrompt;
+        const parts: Array<Record<string, unknown>> = [{ text: promptCombined }];
+
+        if (base64Audio) {
+          parts.push({
+            inline_data: {
+              mime_type: audioFormat === "mp3" ? "audio/mp3" : "audio/wav",
+              data: base64Audio,
+            },
+          });
+        }
+
+        const generationConfig: Record<string, unknown> = {
+          temperature: 0.1,
+        };
+
+        if (base64Audio) {
+          generationConfig.audioTranscriptionConfig = {
+            wordTimestamp: true,
+            diarization: true,
+          };
+        }
+
+        const payload = {
+          contents: [
+            {
+              role: "user",
+              parts,
+            },
+          ],
+          generationConfig,
+        };
+
+        const response = await fetch(targetUrl, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+
+        if (!response.ok) {
+          const errText = await response.text().catch(() => "");
+          return {
+            success: false,
+            error: `Gemini API Error (${response.status}): ${errText.slice(0, 200)}`,
+          };
+        }
+
+        const resJson = await response.json();
+        const textContent =
+          resJson.candidates?.[0]?.content?.parts?.[0]?.text ||
+          resJson.choices?.[0]?.message?.content ||
+          "";
+
+        return { success: true, data: textContent };
+      }
+
+      // OpenAI / Anthropic / Custom compatible format
+      const targetUrl = baseUrl.endsWith("/chat/completions")
+        ? baseUrl
+        : `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
+
+      const messages: Array<Record<string, unknown>> = [];
+      if (systemPrompt) {
+        messages.push({ role: "system", content: systemPrompt });
+      }
+
+      if (base64Audio) {
+        messages.push({
+          role: "user",
+          content: [
+            { type: "text", text: userPrompt },
+            {
+              type: "input_audio",
+              input_audio: {
+                data: base64Audio,
+                format: audioFormat,
+              },
+            },
+          ],
+        });
+      } else {
+        messages.push({ role: "user", content: userPrompt });
+      }
+
+      const payload = {
+        model,
+        messages,
+        temperature: 0.1,
+      };
+
+      const response = await fetch(targetUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => "");
+        return {
+          success: false,
+          error: `AI API Error (${response.status}): ${errText.slice(0, 200)}`,
+        };
+      }
+
+      const resJson = await response.json();
+      const textContent = resJson.choices?.[0]?.message?.content || "";
+      return { success: true, data: textContent };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Gagal memproses request AI";
+      return { success: false, error: msg };
+    }
+  }
+
+  /**
+   * Helper to parse JSON or fallback regex for word timestamps from AI response
+   */
+  private parseTranscriptWords(rawStr: string): { fullText: string; words: WordTimestamp[] } {
+    const cleanStr = rawStr
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
+
+    try {
+      const jsonMatch = cleanStr.match(/\{[\s\S]*\}/);
+      const target = jsonMatch ? jsonMatch[0] : cleanStr;
+      const parsed = JSON.parse(target);
+      if (parsed && Array.isArray(parsed.words) && parsed.words.length > 0) {
+        const words: WordTimestamp[] = parsed.words
+          .filter((w: any) => w && typeof w.word === "string")
+          .map((w: any) => ({
+            word: String(w.word).trim(),
+            start: typeof w.start === "number" ? w.start : parseFloat(String(w.start || 0)),
+            end: typeof w.end === "number" ? w.end : parseFloat(String(w.end || 0)),
+            confidence: 1.0,
+            isFiller: false,
+            excluded: false,
+          }))
+          .filter((w: WordTimestamp) => !isNaN(w.start) && !isNaN(w.end) && w.word.length > 0);
+
+        if (words.length > 0) {
+          return {
+            fullText: parsed.fullText || words.map((w) => w.word).join(" "),
+            words,
+          };
+        }
+      }
+    } catch (_err) {
+      // If JSON.parse fails, continue to regex fallback
+    }
+
+    // Fallback: extract word-level timestamps using regex
+    const words: WordTimestamp[] = [];
+    const tokenRegex = /\{\s*"word"\s*:\s*"([^"]+)"\s*,\s*"start"\s*:\s*([0-9.]+)\s*,\s*"end"\s*:\s*([0-9.]+)/g;
+    let match;
+    while ((match = tokenRegex.exec(cleanStr)) !== null) {
+      const word = match[1].trim();
+      const start = parseFloat(match[2]);
+      const end = parseFloat(match[3]);
+      if (word && !isNaN(start) && !isNaN(end)) {
+        words.push({
+          word,
+          start,
+          end,
+          confidence: 1.0,
+          isFiller: false,
+          excluded: false,
+        });
+      }
+    }
+
+    return {
+      fullText: words.map((w) => w.word).join(" "),
+      words,
+    };
+  }
+
+  /**
+   * Dedicated OpenAI Whisper Speech-to-Text with word-level granularity
+   */
+  private async transcribeWithOpenAiWhisper(params: {
+    audioPath: string;
+    apiKey: string;
+    baseUrl?: string;
+    model?: string;
+    timeoutMs?: number;
+  }): Promise<Result<{ fullText: string; words: WordTimestamp[] }>> {
+    const { audioPath, apiKey, baseUrl, model = "whisper-1", timeoutMs = 60000 } = params;
+
+    if (!fs.existsSync(audioPath)) {
+      return { success: false, error: "Berkas audio tidak ditemukan untuk transkripsi Whisper" };
+    }
+
+    try {
+      const cleanBase = baseUrl ? baseUrl.replace(/\/+$/, "") : "https://api.openai.com/v1";
+      const targetUrl = cleanBase.endsWith("/audio/transcriptions")
+        ? cleanBase
+        : cleanBase.includes("/v1")
+          ? `${cleanBase}/audio/transcriptions`
+          : `${cleanBase}/v1/audio/transcriptions`;
+
+      const audioBuffer = fs.readFileSync(audioPath);
+      const fileName = path.basename(audioPath);
+      const mimeType = audioPath.endsWith(".mp3") ? "audio/mpeg" : "audio/wav";
+
+      const formData = new FormData();
+      const audioBlob = new Blob([audioBuffer], { type: mimeType });
+      formData.append("file", audioBlob, fileName);
+      formData.append("model", model || "whisper-1");
+      formData.append("response_format", "verbose_json");
+      formData.append("timestamp_granularities[]", "word");
+
+      const res = await fetch(targetUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: formData,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+
+      if (!res.ok) {
+        const errJson = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+        const errMsg = errJson?.error?.message || `Whisper Error HTTP ${res.status}`;
+        return { success: false, error: errMsg };
+      }
+
+      const resJson = (await res.json()) as {
+        text?: string;
+        words?: Array<{ word?: string; start?: number; end?: number }>;
+        segments?: Array<{ text?: string; start?: number; end?: number }>;
+      };
+
+      const fullText = resJson.text || "";
+      const words: WordTimestamp[] = [];
+
+      if (Array.isArray(resJson.words) && resJson.words.length > 0) {
+        for (const w of resJson.words) {
+          if (w.word && typeof w.start === "number" && typeof w.end === "number") {
+            words.push({
+              word: w.word.trim(),
+              start: Math.max(0, Number(w.start.toFixed(2))),
+              end: Math.max(Number(w.start.toFixed(2)), Number(w.end.toFixed(2))),
+              confidence: 1.0,
+              isFiller: false,
+              excluded: false,
+            });
+          }
+        }
+      } else if (Array.isArray(resJson.segments) && resJson.segments.length > 0) {
+        // Fallback: segment timestamps converted to words if word granularity is absent
+        for (const seg of resJson.segments) {
+          const segText = seg.text?.trim() || "";
+          const segWords = segText.split(/\s+/).filter(Boolean);
+          const segDuration = Math.max(0.1, (seg.end || 0) - (seg.start || 0));
+          const perWordDuration = segDuration / Math.max(1, segWords.length);
+          segWords.forEach((wordStr, wIdx) => {
+            const start = (seg.start || 0) + wIdx * perWordDuration;
+            const end = start + perWordDuration;
+            words.push({
+              word: wordStr,
+              start: Number(start.toFixed(2)),
+              end: Number(end.toFixed(2)),
+              confidence: 1.0,
+              isFiller: false,
+              excluded: false,
+            });
+          });
+        }
+      }
+
+      return {
+        success: true,
+        data: {
+          fullText: fullText || words.map((w) => w.word).join(" "),
+          words,
+        },
+      };
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      return { success: false, error: `Gagal memproses Whisper transcription: ${errMsg}` };
+    }
+  }
+
+  /**
+   * Transcribes project audio using configured AI model with lightweight compression and multi-chunking
    */
   async transcribeProject(
     projectId: string,
-    apiKeyOverride?: string
+    options?: { model?: string; apiKey?: string; label?: string; provider?: AiProviderType } | string
   ): Promise<Result<XclipsTranscript>> {
     const project = xclipsDb.getProject(projectId);
     if (!project) return { success: false, error: "Proyek tidak ditemukan" };
 
+    const apiKeyOverride = typeof options === "string" ? options : options?.apiKey;
+    const modelOverride = typeof options === "object" ? options?.model : undefined;
+    const providerOverride = typeof options === "object" ? options?.provider : undefined;
+
     const settings = this.getAiSettings();
+
+    // Auto-detect target provider from model name if not explicitly provided
+    let targetProvider: AiProviderType = providerOverride || settings.provider;
+    if (!providerOverride && modelOverride) {
+      if (modelOverride.startsWith("gemini-3.7") || modelOverride.startsWith("gemini-3.5") || modelOverride.startsWith("gemini-3.1") || modelOverride.startsWith("gemini-3.6")) {
+        targetProvider = "gemini";
+      } else if (modelOverride === "gemini-3-7-flash") {
+        targetProvider = "kieai";
+      } else if (modelOverride.startsWith("whisper") || modelOverride.startsWith("gpt-") || modelOverride.includes("transcribe")) {
+        targetProvider = "openai";
+      } else if (modelOverride.startsWith("claude-")) {
+        targetProvider = "anthropic";
+      }
+    }
+
+    const providerUrlMap: Record<AiProviderType, string> = {
+      kieai: "https://api.kie.ai",
+      gemini: "https://generativelanguage.googleapis.com/v1beta",
+      openai: "https://api.openai.com/v1",
+      anthropic: "https://api.anthropic.com/v1",
+      openai_compatible: settings.baseUrl || "https://api.openai.com/v1",
+    };
+
+    const targetBaseUrl = (settings.provider === targetProvider && settings.baseUrl) ? settings.baseUrl : providerUrlMap[targetProvider];
     const apiKey =
       apiKeyOverride ||
-      settings.apiKeys?.[settings.provider] ||
-      settings.apiKey ||
+      settings.apiKeys?.[targetProvider] ||
+      (settings.provider === targetProvider ? settings.apiKey : undefined) ||
       process.env.KIE_AI_API_KEY;
-    if (!apiKey) {
-      aiLogger.warn({ projectId }, "Transcription requested without API key");
+
+    if (!apiKey || !apiKey.trim()) {
+      aiLogger.warn({ projectId, targetProvider }, "Transcription requested without API key for target provider");
       return {
         success: false,
-        error: "API Key AI belum dikonfigurasi. Buka Settings pada tab Autoclip.",
+        error: `API Key untuk provider ${targetProvider.toUpperCase()} belum dikonfigurasi. Buka Pengaturan AI.`,
       };
     }
 
-    if (!project.audioPath || !fs.existsSync(project.audioPath)) {
-      aiLogger.error({ projectId, audioPath: project.audioPath }, "Audio file not found for transcription");
+    const videoPath = project.normalizedPath || project.sourcePath;
+    const cacheDir = path.resolve(process.cwd(), "vault", "xclips", "cache", projectId);
+    fs.mkdirSync(cacheDir, { recursive: true });
+
+    // Use compressed MP3 audio for 6x faster upload and reliable API payload size
+    const compressedAudioPath = path.join(cacheDir, "audio_compressed.mp3");
+    if (!fs.existsSync(compressedAudioPath) && fs.existsSync(videoPath)) {
+      await extractCompressedAudio(videoPath, compressedAudioPath, "48k");
+    }
+
+    const audioToUse = fs.existsSync(compressedAudioPath)
+      ? compressedAudioPath
+      : (project.audioPath && fs.existsSync(project.audioPath) ? project.audioPath : null);
+
+    if (!audioToUse) {
+      aiLogger.error({ projectId }, "Audio file not found for transcription");
       return { success: false, error: "File audio proyek tidak ditemukan" };
     }
 
     try {
-      const startMs = Date.now();
-      const audioBuffer = fs.readFileSync(project.audioPath);
-      const base64Audio = audioBuffer.toString("base64");
-      aiLogger.info({ projectId, audioBytes: audioBuffer.length, model: settings.transcribeModel }, "Dispatching audio transcription request");
+      const modelToUse = modelOverride || settings.transcribeModel || settings.highlightModel || "gemini-3-7-flash";
+      const totalDuration = project.durationSec || 60;
+      const CHUNK_DURATION = 900; // 15 minutes per chunk if duration > 30 minutes
 
-      const systemPrompt = `Anda adalah transkriber audio profesional bahasa Indonesia dan Inggris.
+      const allWords: WordTimestamp[] = [];
+      let fullTextCombined = "";
+
+      const isWhisperOrTranscribe =
+        targetProvider === "openai" ||
+        modelToUse.toLowerCase().includes("whisper") ||
+        modelToUse.toLowerCase().includes("transcribe");
+
+      if (isWhisperOrTranscribe) {
+        // OpenAI Whisper / Transcribe STT API (/v1/audio/transcriptions)
+        if (totalDuration <= 1800) {
+          aiLogger.info({ projectId, model: modelToUse, provider: targetProvider }, "Dispatching single OpenAI Whisper transcription request");
+          const whisperRes = await this.transcribeWithOpenAiWhisper({
+            audioPath: audioToUse,
+            apiKey,
+            baseUrl: targetBaseUrl,
+            model: modelToUse || "whisper-1",
+            timeoutMs: 60000,
+          });
+
+          if (!whisperRes.success) {
+            return { success: false, error: whisperRes.error };
+          }
+
+          fullTextCombined = whisperRes.data.fullText;
+          allWords.push(...whisperRes.data.words);
+        } else {
+          const chunkCount = Math.ceil(totalDuration / CHUNK_DURATION);
+          aiLogger.info({ projectId, totalDuration, chunkCount, provider: targetProvider }, "Starting multi-chunk OpenAI Whisper audio transcription");
+
+          for (let cIdx = 0; cIdx < chunkCount; cIdx++) {
+            const chunkStart = cIdx * CHUNK_DURATION;
+            const chunkDuration = Math.min(CHUNK_DURATION, totalDuration - chunkStart);
+            const chunkPath = path.join(cacheDir, `audio_chunk_${cIdx}.mp3`);
+
+            await extractAudioSegment(videoPath, chunkPath, chunkStart, chunkDuration);
+            if (!fs.existsSync(chunkPath)) continue;
+
+            const whisperRes = await this.transcribeWithOpenAiWhisper({
+              audioPath: chunkPath,
+              apiKey,
+              baseUrl: targetBaseUrl,
+              model: modelToUse || "whisper-1",
+              timeoutMs: 60000,
+            });
+
+            if (whisperRes.success) {
+              if (whisperRes.data.fullText) fullTextCombined += " " + whisperRes.data.fullText;
+              for (const w of whisperRes.data.words) {
+                allWords.push({
+                  ...w,
+                  start: parseFloat((w.start + chunkStart).toFixed(2)),
+                  end: parseFloat((w.end + chunkStart).toFixed(2)),
+                });
+              }
+            }
+          }
+        }
+      } else {
+        // Gemini / KIE AI Multimodal Audio
+        const systemPrompt = `Anda adalah transkriber audio profesional bahasa Indonesia dan Inggris.
 Tugas Anda adalah mentranskripsikan audio ke dalam urutan kata-per-kata yang akurat dengan timestamp detik mulai dan selesai.
 Format output WAJIB HANYA berupa JSON valid:
 {
@@ -595,89 +1141,106 @@ Format output WAJIB HANYA berupa JSON valid:
   ]
 }`;
 
-      const modelToUse = settings.provider === "kieai"
-        ? (settings.transcribeModel || settings.highlightModel || "gemini-3-7-flash")
-        : (settings.transcribeModel || "whisper-1");
+        // Single chunk if duration <= 1800s (30 min)
+        if (totalDuration <= 1800) {
+          const audioBuffer = fs.readFileSync(audioToUse);
+          const base64Audio = audioBuffer.toString("base64");
+          const audioFormat = audioToUse.endsWith(".mp3") ? "mp3" : "wav";
 
-      const payload = {
-        model: modelToUse,
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "Transkrip audio berikut dengan format JSON:" },
-              {
-                type: "input_audio",
-                input_audio: {
-                  data: base64Audio,
-                  format: "wav",
-                },
-              },
-            ],
-          },
-        ],
-        temperature: 0.1,
-      };
+          aiLogger.info({ projectId, audioBytes: audioBuffer.length, model: modelToUse, provider: targetProvider, format: audioFormat }, "Dispatching single audio transcription request");
 
-      const targetUrl = settings.baseUrl.endsWith("/chat/completions")
-        ? settings.baseUrl
-        : `${settings.baseUrl.replace(/\/+$/, "")}/chat/completions`;
+          const dispatchRes = await this.dispatchAiContent({
+            provider: targetProvider,
+            baseUrl: targetBaseUrl,
+            apiKey,
+            model: modelToUse,
+            systemPrompt,
+            userPrompt: "Transkrip audio berikut dengan format JSON kata-per-kata:",
+            base64Audio,
+            audioFormat,
+            timeoutMs: 45000,
+          });
 
-      const response = await fetch(targetUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(180000), // 3 min timeout
-      });
+          if (!dispatchRes.success) {
+            return { success: false, error: dispatchRes.error };
+          }
 
-      const latencyMs = Date.now() - startMs;
+          const parsed = this.parseTranscriptWords(dispatchRes.data);
+          fullTextCombined = parsed.fullText;
+          allWords.push(...parsed.words);
+        } else {
+          // Multi-chunk for videos longer than 30 minutes
+          const chunkCount = Math.ceil(totalDuration / CHUNK_DURATION);
+          aiLogger.info({ projectId, totalDuration, chunkCount, provider: targetProvider }, "Starting multi-chunk audio transcription");
 
-      if (!response.ok) {
-        const errText = await response.text();
-        aiLogger.error({ projectId, status: response.status, latencyMs, errText: errText.slice(0, 500) }, "Transcription API returned non-OK status");
+          for (let cIdx = 0; cIdx < chunkCount; cIdx++) {
+            const chunkStart = cIdx * CHUNK_DURATION;
+            const chunkDuration = Math.min(CHUNK_DURATION, totalDuration - chunkStart);
+            const chunkPath = path.join(cacheDir, `audio_chunk_${cIdx}.mp3`);
+
+            await extractAudioSegment(videoPath, chunkPath, chunkStart, chunkDuration);
+
+            if (!fs.existsSync(chunkPath)) continue;
+
+            const audioBuffer = fs.readFileSync(chunkPath);
+            const base64Audio = audioBuffer.toString("base64");
+
+            const dispatchRes = await this.dispatchAiContent({
+              provider: targetProvider,
+              baseUrl: targetBaseUrl,
+              apiKey,
+              model: modelToUse,
+              systemPrompt,
+              userPrompt: `Transkrip audio segmen ${cIdx + 1}/${chunkCount} dengan format JSON:`,
+              base64Audio,
+              audioFormat: "mp3",
+              timeoutMs: 45000,
+            });
+
+            if (dispatchRes.success) {
+              const parsed = this.parseTranscriptWords(dispatchRes.data);
+              if (parsed.fullText) fullTextCombined += " " + parsed.fullText;
+              for (const w of parsed.words) {
+                allWords.push({
+                  ...w,
+                  start: parseFloat((w.start + chunkStart).toFixed(2)),
+                  end: parseFloat((w.end + chunkStart).toFixed(2)),
+                });
+              }
+            }
+          }
+        }
+      }
+
+      if (allWords.length === 0) {
         return {
           success: false,
-          error: `AI Transcription API Error (${response.status}): ${errText.slice(0, 200)}`,
+          error: `Transkripsi dengan model ${modelToUse} menghasilkan teks kosong atau format tidak sesuai. Pastikan model mendukung input audio multimodal.`,
         };
       }
 
-      const resJson = await response.json();
-      const content = resJson.choices?.[0]?.message?.content || "";
-
-      // Parse JSON from response
-      const cleanJsonStr = content.replace(/```json/g, "").replace(/```/g, "").trim();
-      const parsedData = JSON.parse(cleanJsonStr);
-
-      const words: WordTimestamp[] = (parsedData.words || []).map(
-        (w: { word: string; start: number; end: number }) => ({
-          word: w.word,
-          start: parseFloat(w.start.toString()),
-          end: parseFloat(w.end.toString()),
-          confidence: 1.0,
-          isFiller: false,
-          excluded: false,
-        })
-      );
-
       // Detect Indonesian filler words at token level
-      detectTokenFillers(words);
+      detectTokenFillers(allWords);
+
+      const labelOverride = typeof options === "object" ? options?.label : undefined;
+      const label = labelOverride?.trim() || `Track-${xclipsDb.getProjectTranscripts(project.id).length + 1}`;
 
       const transcript: XclipsTranscript = {
-        id: `tr_${Date.now()}`,
+        id: `tr_ai_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         projectId: project.id,
+        label,
+        sourceType: "ai",
+        isActive: true,
         language: "id",
-        rawText: parsedData.fullText || words.map((w) => w.word).join(" "),
-        srtContent: generateSrtFromWords(words),
-        words,
+        rawText: fullTextCombined.trim() || allWords.map((w) => w.word).join(" "),
+        srtContent: generateSrtFromWords(allWords),
+        words: allWords,
         createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
 
       xclipsDb.saveTranscript(transcript);
-      aiLogger.info({ projectId, wordsCount: words.length, latencyMs }, "Audio transcribed and parsed successfully");
+      aiLogger.info({ projectId, wordsCount: allWords.length, model: modelToUse, trackId: transcript.id }, "Audio transcribed and saved as active subtitle track");
       return { success: true, data: transcript };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Gagal melakukan transkripsi AI";
@@ -688,103 +1251,167 @@ Format output WAJIB HANYA berupa JSON valid:
   }
 
   /**
-   * Fetches or restores original YouTube subtitles (CC / auto-caption) for a project
+   * Fetches subtitles directly from YouTube source via yt-dlp
    */
   async fetchYouTubeSubtitles(projectId: string): Promise<Result<XclipsTranscript>> {
     const project = xclipsDb.getProject(projectId);
     if (!project) return { success: false, error: "Proyek tidak ditemukan" };
 
-    const youtubeId = (function (sourcePath: string): string | null {
-      if (!sourcePath) return null;
-      const bracketMatch = sourcePath.match(/\[([a-zA-Z0-9_-]{11})\]/);
-      if (bracketMatch) return bracketMatch[1];
-      const urlMatch = sourcePath.match(/(?:v=|\/|be\/)([a-zA-Z0-9_-]{11})/);
-      if (urlMatch) return urlMatch[1];
-      return null;
-    })(project.sourcePath);
-
-    const isYt = Boolean(youtubeId) || project.sourceType === "youtube";
-    if (!isYt) {
-      return { success: false, error: "Bukan video YouTube atau URL YouTube tidak ditemukan." };
+    if (!project.sourcePath) {
+      return { success: false, error: "File sumber video tidak ditemukan" };
     }
 
-    const videoUrl = youtubeId ? `https://www.youtube.com/watch?v=${youtubeId}` : project.sourcePath;
-    const cacheDir = path.resolve(process.cwd(), "vault", "xclips", "cache", projectId);
-    fs.mkdirSync(cacheDir, { recursive: true });
+    try {
+      const cacheDir = path.resolve(process.cwd(), "vault", "xclips", "cache", projectId);
+      fs.mkdirSync(cacheDir, { recursive: true });
 
-    // 1. Check if an existing .srt file is already in cacheDir
-    const existingFiles = fs.readdirSync(cacheDir);
-    let srtFile = existingFiles.find((f) => f.endsWith(".srt"));
-    let srtPath = srtFile ? path.join(cacheDir, srtFile) : undefined;
-
-    // 2. If not found, download subtitles via yt-dlp
-    if (!srtPath || !fs.existsSync(srtPath)) {
-      const ytdlp = findYtDlpBinary();
-      const outputTemplate = path.join(cacheDir, "%(title)s [%(id)s].%(ext)s");
-      await new Promise<void>((resolve) => {
-        const proc = spawn(
-          ytdlp,
-          [
-            "--write-subs",
-            "--write-auto-subs",
-            "--sub-lang",
-            "id,id-orig,en,en-orig",
-            "--sub-format",
-            "srt",
-            "--skip-download",
-            "--no-warnings",
-            "-o",
-            outputTemplate,
-            videoUrl,
-          ],
-          { windowsHide: true }
-        );
-        proc.on("close", () => resolve());
-        proc.on("error", () => resolve());
-      });
-
-      const updatedFiles = fs.readdirSync(cacheDir);
-      srtFile = updatedFiles.find((f) => f.endsWith(".srt"));
-      if (srtFile) {
-        srtPath = path.join(cacheDir, srtFile);
+      let srtPath: string | null = null;
+      const downloadsDir = path.dirname(project.sourcePath);
+      if (fs.existsSync(downloadsDir)) {
+        const files = fs.readdirSync(downloadsDir);
+        const srtFile = files.find((f) => f.endsWith(".srt") || f.endsWith(".vtt"));
+        if (srtFile) srtPath = path.join(downloadsDir, srtFile);
       }
-    }
 
-    if (!srtPath || !fs.existsSync(srtPath)) {
-      return {
-        success: false,
-        error: "Subtitle YouTube (CC / Auto-caption) tidak ditemukan untuk video ini.",
+      if (!srtPath || !fs.existsSync(srtPath)) {
+        const idMatch = project.sourcePath.match(/\[([a-zA-Z0-9_-]{11})\]/);
+        const ytUrl = idMatch ? `https://www.youtube.com/watch?v=${idMatch[1]}` : (project.sourcePath.startsWith("http") ? project.sourcePath : null);
+        if (ytUrl) {
+          const ytdlp = findYtDlpBinary();
+          const outputTemplate = path.join(cacheDir, "%(title)s [%(id)s].%(ext)s");
+          await new Promise<void>((resolve) => {
+            const proc = spawn(
+              ytdlp,
+              [
+                "--write-subs",
+                "--write-auto-subs",
+                "--sub-lang",
+                "id,id-orig,en,en-orig",
+                "--sub-format",
+                "srt",
+                "--skip-download",
+                "--no-warnings",
+                "-o",
+                outputTemplate,
+                ytUrl,
+              ],
+              { windowsHide: true }
+            );
+            proc.on("close", () => resolve());
+            proc.on("error", () => resolve());
+          });
+
+          const updatedFiles = fs.readdirSync(cacheDir);
+          const downloadedSrt = updatedFiles.find((f) => f.endsWith(".srt"));
+          if (downloadedSrt) {
+            srtPath = path.join(cacheDir, downloadedSrt);
+          }
+        }
+      }
+
+      if (!srtPath || !fs.existsSync(srtPath)) {
+        return {
+          success: false,
+          error: "Subtitle YouTube (CC) tidak ditemukan untuk video ini. Gunakan fitur AI Transcribe.",
+        };
+      }
+
+      const srtContent = fs.readFileSync(srtPath, "utf-8");
+      const words = parseSrtToWords(srtContent);
+
+      if (words.length === 0) {
+        return {
+          success: false,
+          error: "Gagal mem-parsing subtitle YouTube. Gunakan fitur AI Transcribe.",
+        };
+      }
+
+      detectTokenFillers(words);
+
+      const transcript: XclipsTranscript = {
+        id: `tr_yt_${Date.now()}`,
+        projectId: project.id,
+        label: "YouTube Subtitles (CC)",
+        sourceType: "youtube_cc",
+        isActive: true,
+        language: "id",
+        rawText: words.map((w) => w.word).join(" "),
+        srtContent,
+        words,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
+
+      xclipsDb.saveTranscript(transcript);
+      aiLogger.info({ projectId, wordsCount: words.length, trackId: transcript.id }, "YouTube subtitles loaded and saved as active track");
+      return { success: true, data: transcript };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Gagal memuat subtitle YouTube";
+      return { success: false, error: msg };
     }
-
-    const srtContent = fs.readFileSync(srtPath, "utf-8");
-    const words = parseSrtToWords(srtContent);
-    if (words.length === 0) {
-      return {
-        success: false,
-        error: "Subtitle YouTube kosong atau tidak dapat di-parse.",
-      };
-    }
-
-    detectTokenFillers(words);
-
-    const transcript: XclipsTranscript = {
-      id: `tr_yt_${Date.now()}`,
-      projectId: project.id,
-      language: "id",
-      rawText: words.map((w) => w.word).join(" "),
-      srtContent,
-      words,
-      createdAt: new Date().toISOString(),
-    };
-
-    xclipsDb.saveTranscript(transcript);
-    aiLogger.info({ projectId, wordsCount: words.length }, "Restored YouTube subtitle transcript");
-    return { success: true, data: transcript };
   }
 
   /**
-   * Discovers viral clip candidates using Map-Reduce LLM scoring with configured narrative settings
+   * Retrieves all saved subtitle tracks for a project
+   */
+  getProjectSubtitles(projectId: string): Result<XclipsTranscript[]> {
+    const tracks = xclipsDb.getProjectTranscripts(projectId);
+    return { success: true, data: tracks };
+  }
+
+  /**
+   * Switches the active subtitle track for a project
+   */
+  switchActiveSubtitle(projectId: string, transcriptId: string): Result<XclipsTranscript> {
+    const ok = xclipsDb.setActiveTranscript(projectId, transcriptId);
+    if (!ok) return { success: false, error: "Gagal mengaktifkan track subtitle" };
+
+    const active = xclipsDb.getTranscript(projectId, transcriptId);
+    if (!active) return { success: false, error: "Track subtitle tidak ditemukan" };
+
+    return { success: true, data: active };
+  }
+
+  /**
+   * Deletes a specific subtitle track for a project
+   */
+  deleteProjectSubtitle(
+    projectId: string,
+    transcriptId: string
+  ): Result<{ remaining: XclipsTranscript[]; active: XclipsTranscript | null }> {
+    const ok = xclipsDb.deleteTranscript(projectId, transcriptId);
+    if (!ok) return { success: false, error: "Gagal menghapus track subtitle" };
+
+    const remaining = xclipsDb.getProjectTranscripts(projectId);
+    const active = xclipsDb.getTranscript(projectId);
+    return { success: true, data: { remaining, active } };
+  }
+
+  /**
+   * Auto-saves word edits to the active transcript track
+   */
+  saveTranscriptWords(
+    projectId: string,
+    words: WordTimestamp[],
+    transcriptId?: string
+  ): Result<XclipsTranscript> {
+    const current = xclipsDb.getTranscript(projectId, transcriptId);
+    if (!current) return { success: false, error: "Transkrip tidak ditemukan" };
+
+    const updated: XclipsTranscript = {
+      ...current,
+      words,
+      rawText: words.map((w) => w.word).join(" "),
+      srtContent: generateSrtFromWords(words),
+      updatedAt: new Date().toISOString(),
+    };
+
+    xclipsDb.saveTranscript(updated);
+    return { success: true, data: updated };
+  }
+
+  /**
+   * Scans transcript using Map-Reduce AI highlight reducer
    */
   async discoverHighlights(
     projectId: string,
@@ -811,10 +1438,6 @@ Format output WAJIB HANYA berupa JSON valid:
     aiLogger.info({ projectId, chunksCount: chunks.length, totalWords: transcript.words.length, topic: settings.topicPrompt }, "Starting Map-Reduce highlight discovery");
     const allRawHighlights: CandidateHighlight[] = [];
 
-    const targetUrl = settings.baseUrl.endsWith("/chat/completions")
-      ? settings.baseUrl
-      : `${settings.baseUrl.replace(/\/+$/, "")}/chat/completions`;
-
     for (const chunk of chunks) {
       const prompt = buildHighlightPrompt(chunk, {
         topicPrompt: settings.topicPrompt,
@@ -826,36 +1449,24 @@ Format output WAJIB HANYA berupa JSON valid:
           ? (settings.highlightModel || settings.transcribeModel || "gemini-3-7-flash")
           : (settings.highlightModel || "gemini-3-7-flash");
 
-        const payload = {
+        const dispatchRes = await this.dispatchAiContent({
+          provider: settings.provider,
+          baseUrl: settings.baseUrl,
+          apiKey,
           model: modelToUse,
-          messages: [
-            { role: "user", content: prompt },
-          ],
-          temperature: 0.2,
-        };
-
-        const response = await fetch(targetUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(60000),
+          userPrompt: prompt,
+          timeoutMs: 60000,
         });
 
-        if (response.ok) {
-          const resJson = await response.json();
-          const content = resJson.choices?.[0]?.message?.content || "";
-          const cleanJsonStr = content.replace(/```json/g, "").replace(/```/g, "").trim();
+        if (dispatchRes.success) {
+          const cleanJsonStr = dispatchRes.data.replace(/```json/g, "").replace(/```/g, "").trim();
           const parsed = JSON.parse(cleanJsonStr);
           if (Array.isArray(parsed.highlights)) {
             allRawHighlights.push(...parsed.highlights);
             aiLogger.debug({ chunkIndex: chunk.chunkIndex, foundCount: parsed.highlights.length }, "Scored highlight candidates for chunk");
           }
         } else {
-          const errText = await response.text();
-          aiLogger.warn({ chunkIndex: chunk.chunkIndex, status: response.status, errText: errText.slice(0, 300) }, "Failed scoring chunk");
+          aiLogger.warn({ chunkIndex: chunk.chunkIndex, err: dispatchRes.error }, "Failed scoring chunk");
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
