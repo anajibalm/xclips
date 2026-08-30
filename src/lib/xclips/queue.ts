@@ -161,7 +161,8 @@ class JobQueueManager {
         0, // remapped words start at 0 (rendered video origin)
         totalRenderedSec,
         clip.subtitleStyle,
-        assSubtitlePath
+        assSubtitlePath,
+        clip.aspectRatio
       );
       if (fs.existsSync(assSubtitlePath)) {
         actualAssPath = assSubtitlePath;

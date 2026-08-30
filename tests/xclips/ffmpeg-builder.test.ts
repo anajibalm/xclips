@@ -127,10 +127,11 @@ describe("xclips - FFmpeg Filter Complex Builder", () => {
     expect(plainRes.success).toBe(true);
     const plainContent = fs.readFileSync(testAssPath, "utf-8");
     expect(plainContent).toContain("Style: Default,Inter,38,&H00FFFFFF");
+    expect(plainContent).toContain("\\an5\\pos(");
     expect(plainContent).toContain("Halo semua selamat datang");
     expect(plainContent).not.toContain("{\\kf}");
 
-    // Test Hormozi preset
+    // Test Hormozi preset with position and rotation
     const hormoziRes = generateAssSubtitles(
       words,
       0.0,
@@ -147,7 +148,9 @@ describe("xclips - FFmpeg Filter Complex Builder", () => {
         boxOpacity: 0.0,
         allCaps: true,
         autoEmoji: false,
+        positionX: 50,
         positionY: 78,
+        rotation: 12,
         karaokeEnabled: true,
       },
       testAssPath
@@ -156,6 +159,7 @@ describe("xclips - FFmpeg Filter Complex Builder", () => {
     expect(hormoziRes.success).toBe(true);
     const hormoziContent = fs.readFileSync(testAssPath, "utf-8");
     expect(hormoziContent).toContain("Style: Default,Impact,44,&H00FFFFFF");
+    expect(hormoziContent).toContain("\\frz12");
     expect(hormoziContent).toContain("{\\k");
     expect(hormoziContent).toContain("HALO");
 
@@ -247,6 +251,34 @@ describe("xclips - FFmpeg Filter Complex Builder", () => {
     );
     expect(landscapeSplitCmd.filterComplex).toContain("hstack=inputs=2");
     expect(landscapeSplitCmd.filterComplex).toContain("scale=960:1080");
+  });
+
+  it("should apply video transform (scale, panX, panY, rotation) in filter_complex", () => {
+    const transformCmd = buildFfmpegCommand(
+      {
+        sourceVideo: "C:/test/sample.mp4",
+        sourceWidth: 1920,
+        sourceHeight: 1080,
+        clipStart: 0,
+        clipEnd: 15,
+        keepIntervals: [{ start: 0, end: 15, duration: 15 }],
+        aspectRatio: "9:16",
+        layoutMode: "blur_bg",
+        videoScale: 1.5,
+        videoPanX: 0.25,
+        videoPanY: -0.15,
+        videoRotation: 15,
+      },
+      "C:/test/output_transform.mp4",
+      "cpu"
+    );
+
+    // Verify scale zoom
+    expect(transformCmd.filterComplex).toContain("scale=trunc(iw*1.50/2)*2");
+    // Verify rotation
+    expect(transformCmd.filterComplex).toContain("rotate=0.2618");
+    // Verify overlay with pan offset
+    expect(transformCmd.filterComplex).toContain("overlay=(W-w)/2 + (0.087*W):(H-h)/2 + (-0.052*H)");
   });
 });
 

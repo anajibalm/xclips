@@ -54,7 +54,7 @@ export const SubtitleStyleSchema = z.object({
   enabled: z.boolean().default(true),
   preset: SubtitlePresetSchema.default("plain"),
   fontFamily: z.string().default("Inter"),
-  fontSize: z.number().min(0).max(999).default(22),
+  fontSize: z.number().min(0).max(999).default(44),
   primaryColor: z.string().default("#FFFFFF"), // CSS / UI Hex
   secondaryColor: z.string().optional(),
   highlightColor: z.string().default("#FACC15"), // Yellow hex for active karaoke word
@@ -65,7 +65,13 @@ export const SubtitleStyleSchema = z.object({
   allCaps: z.boolean().default(false),
   textCase: z.enum(["uppercase", "capitalize", "lowercase"]).optional().default("uppercase"),
   autoEmoji: z.boolean().default(false),
-  positionY: z.number().default(80), // Percentage from top (e.g. 80%)
+  positionX: z.number().optional().default(50), // Percentage from left (0-100%, 50% = center)
+  positionY: z.number().optional().default(80), // Percentage from top (0-100%, 80% = lower-third)
+  rotation: z.number().optional().default(0), // Rotation angle in degrees (-360 to 360)
+  boxWidthMode: z.enum(["auto", "custom"]).optional().default("auto"),
+  boxWidth: z.number().optional().default(85), // Width percentage (20-100%)
+  scaleX: z.number().optional().default(1),
+  scaleY: z.number().optional().default(1),
   karaokeEnabled: z.boolean().default(true),
 });
 
@@ -114,6 +120,10 @@ export interface XclipsClip {
   aspectRatio?: AspectRatio; // default 9:16
   layoutMode: LayoutMode;
   panOffsetX: number; // -1.0 to 1.0
+  videoScale?: number; // 0.5 to 3.0 (default 1.0)
+  videoPanX?: number; // -1.0 to 1.0 (default 0)
+  videoPanY?: number; // -1.0 to 1.0 (default 0)
+  videoRotation?: number; // -180 to 180 (default 0)
   subtitleStyle: SubtitleStyle;
   removeFillers: boolean;
   removeSilence: boolean;

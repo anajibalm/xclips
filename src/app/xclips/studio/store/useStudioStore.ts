@@ -28,6 +28,10 @@ interface StudioState {
   studioAspectRatio: AspectRatio;
   studioLayoutMode: LayoutMode;
   studioPanOffsetX: number;
+  studioVideoScale: number;
+  studioVideoPanX: number;
+  studioVideoPanY: number;
+  studioVideoRotation: number;
   studioSubtitleStyle: SubtitleStyle;
   volume: number;
   isMuted: boolean;
@@ -105,6 +109,10 @@ interface StudioState {
   setStudioAspectRatio: (ratio: AspectRatio) => void;
   setStudioLayoutMode: (mode: LayoutMode) => void;
   setStudioPanOffsetX: (pan: number) => void;
+  setStudioVideoScale: (scale: number) => void;
+  setStudioVideoPanX: (x: number) => void;
+  setStudioVideoPanY: (y: number) => void;
+  setStudioVideoRotation: (rot: number) => void;
   setStudioSubtitleStyle: (style: SubtitleStyle | ((prev: SubtitleStyle) => SubtitleStyle)) => void;
   setVolume: (volume: number | ((prev: number) => number)) => void;
   setIsMuted: (muted: boolean | ((prev: boolean) => boolean)) => void;
@@ -217,6 +225,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   studioAspectRatio: "9:16",
   studioLayoutMode: "blur_bg",
   studioPanOffsetX: 0,
+  studioVideoScale: 1.0,
+  studioVideoPanX: 0,
+  studioVideoPanY: 0,
+  studioVideoRotation: 0,
   studioSubtitleStyle: DEFAULT_SUBTITLE_STYLE,
   volume: 100,
   isMuted: false,
@@ -318,12 +330,54 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
   },
   setStudioPanOffsetX: (pan) => {
-    set({ studioPanOffsetX: pan });
+    set({ studioPanOffsetX: pan, studioVideoPanX: pan });
     const { selectedClip } = get();
     if (selectedClip) {
       get().handleSaveClip({
         ...selectedClip,
         panOffsetX: pan,
+        videoPanX: pan,
+      });
+    }
+  },
+  setStudioVideoScale: (scale) => {
+    set({ studioVideoScale: scale });
+    const { selectedClip } = get();
+    if (selectedClip) {
+      get().handleSaveClip({
+        ...selectedClip,
+        videoScale: scale,
+      });
+    }
+  },
+  setStudioVideoPanX: (x) => {
+    set({ studioVideoPanX: x, studioPanOffsetX: x });
+    const { selectedClip } = get();
+    if (selectedClip) {
+      get().handleSaveClip({
+        ...selectedClip,
+        videoPanX: x,
+        panOffsetX: x,
+      });
+    }
+  },
+  setStudioVideoPanY: (y) => {
+    set({ studioVideoPanY: y });
+    const { selectedClip } = get();
+    if (selectedClip) {
+      get().handleSaveClip({
+        ...selectedClip,
+        videoPanY: y,
+      });
+    }
+  },
+  setStudioVideoRotation: (rot) => {
+    set({ studioVideoRotation: rot });
+    const { selectedClip } = get();
+    if (selectedClip) {
+      get().handleSaveClip({
+        ...selectedClip,
+        videoRotation: rot,
       });
     }
   },

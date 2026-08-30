@@ -179,7 +179,7 @@ export function StudioTimeline({ onSeek, onToggleFullscreen, onTogglePlayPause }
               </IconButton>
             </Tooltip>
 
-            {/* Vertical Volume Slider Popup */}
+            {/* Vertical Volume Slider Popup (Minimal) */}
             {showVolumeSlider && (
               <Box
                 sx={{
@@ -189,7 +189,7 @@ export function StudioTimeline({ onSeek, onToggleFullscreen, onTogglePlayPause }
                   transform: "translateX(-50%)",
                   mb: 0.8,
                   px: 0.8,
-                  py: 1,
+                  py: 1.2,
                   bgcolor: "#18181b",
                   border: "1px solid #27272a",
                   borderRadius: 1.5,
@@ -197,23 +197,11 @@ export function StudioTimeline({ onSeek, onToggleFullscreen, onTogglePlayPause }
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
-                  height: 96,
+                  height: 84,
                   zIndex: 20,
                   backdropFilter: "blur(8px)",
                 }}
               >
-                <Typography
-                  variant="caption"
-                  sx={{
-                    color: isMuted ? "#ef4444" : "#00e5ff",
-                    fontSize: "0.62rem",
-                    fontWeight: 700,
-                    mb: 0.6,
-                    userSelect: "none",
-                  }}
-                >
-                  {isMuted ? "0%" : `${volume}%`}
-                </Typography>
                 <Slider
                   orientation="vertical"
                   size="small"

@@ -1644,7 +1644,7 @@ Format output WAJIB HANYA berupa JSON valid:
       enabled: true,
       preset: "plain",
       fontFamily: "Inter",
-      fontSize: 22,
+      fontSize: 44,
       primaryColor: "#FFFFFF",
       secondaryColor: "#FFFFFF",
       highlightColor: "#FFFFFF",
@@ -1655,7 +1655,13 @@ Format output WAJIB HANYA berupa JSON valid:
       allCaps: false,
       textCase: "uppercase",
       autoEmoji: false,
+      positionX: 50,
       positionY: 80,
+      rotation: 0,
+      boxWidthMode: "auto",
+      boxWidth: 85,
+      scaleX: 1,
+      scaleY: 1,
       karaokeEnabled: false,
     };
 

@@ -11,7 +11,7 @@ export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
   enabled: true,
   preset: "plain",
   fontFamily: "Inter",
-  fontSize: 22,
+  fontSize: 44,
   primaryColor: "#FFFFFF",
   secondaryColor: "#FFFFFF",
   highlightColor: "#FFFFFF",
@@ -23,7 +23,13 @@ export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
   allCaps: false,
   textCase: "uppercase",
   autoEmoji: false,
+  positionX: 50,
   positionY: 80,
+  rotation: 0,
+  boxWidthMode: "auto",
+  boxWidth: 85,
+  scaleX: 1,
+  scaleY: 1,
 };
 
 export const GOOGLE_FONTS_CATALOG: GoogleFontOption[] = [
@@ -52,7 +58,7 @@ export const GOOGLE_FONTS_CATALOG: GoogleFontOption[] = [
 export const PRESET_STYLES: Record<string, Partial<SubtitleStyle>> = {
   plain: {
     fontFamily: "Inter",
-    fontSize: 22,
+    fontSize: 44,
     primaryColor: "#FFFFFF",
     secondaryColor: "#FFFFFF",
     highlightColor: "#FFFFFF",

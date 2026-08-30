@@ -13,6 +13,10 @@ export interface FilterComplexOptions {
   aspectRatio?: AspectRatio;
   layoutMode: LayoutMode;
   panOffsetX?: number; // -1.0 to 1.0 (0.0 = centered)
+  videoScale?: number; // 0.5 to 3.0 (default 1.0)
+  videoPanX?: number; // -1.0 to 1.0 (default 0)
+  videoPanY?: number; // -1.0 to 1.0 (default 0)
+  videoRotation?: number; // -180 to 180 (default 0)
   assSubtitlePath?: string;
   targetWidth?: number;
   targetHeight?: number;
@@ -49,9 +53,11 @@ export function buildFfmpegCommand(
   outputPath: string,
   hwaccel: "nvenc" | "qsv" | "amf" | "cpu" = "cpu"
 ): FfmpegCommandResult {
-  const dims = getDimensionsForAspectRatio(options.aspectRatio);
-  const targetW = options.targetWidth || dims.width;
-  const targetH = options.targetHeight || dims.height;
+  const { width: targetW, height: targetH } =
+    options.targetWidth && options.targetHeight
+      ? { width: options.targetWidth, height: options.targetHeight }
+      : getDimensionsForAspectRatio(options.aspectRatio);
+
   const targetFps = options.targetFps || 30;
   const intervals = options.keepIntervals;
 
@@ -95,22 +101,36 @@ export function buildFfmpegCommand(
     filterChains.push(`[a_trim_0]acopy[a_concatenated]`);
   }
 
-  // Step 3: Layout Reframing for Target Aspect Ratio
+  // Video Transform properties
+  const videoScale = options.videoScale ?? 1.0;
+  const panX = options.videoPanX ?? options.panOffsetX ?? 0.0;
+  const panY = options.videoPanY ?? 0.0;
+  const rotation = options.videoRotation ?? 0;
+
+  // Step 3: Layout Reframing for Target Aspect Ratio with Video Transform support
   if (options.layoutMode === "blur_bg") {
-    // Background: scale to fill targetW:targetH and boxblur
-    // Foreground: scale to fit inside targetW:targetH cleanly with letterbox/pillarbox
+    let fgFilters = `scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease`;
+    if (videoScale !== 1.0) {
+      fgFilters += `,scale=trunc(iw*${videoScale.toFixed(2)}/2)*2:trunc(ih*${videoScale.toFixed(2)}/2)*2`;
+    }
+    if (rotation !== 0) {
+      const rotRad = (rotation * Math.PI) / 180;
+      fgFilters += `,rotate=${rotRad.toFixed(4)}:ow=rotw(${rotRad.toFixed(4)}):oh=roth(${rotRad.toFixed(4)}):c=none`;
+    }
+    fgFilters += `,scale=trunc(iw/2)*2:trunc(ih/2)*2`;
+
+    const overlayX = panX !== 0 ? `(W-w)/2 + (${(panX * 0.35).toFixed(3)}*W)` : `(W-w)/2`;
+    const overlayY = panY !== 0 ? `(H-h)/2 + (${(panY * 0.35).toFixed(3)}*H)` : `(H-h)/2`;
+
     filterChains.push(
       `[v_concatenated]split=2[v_bg_in][v_fg_in]`,
       `[v_bg_in]scale=${targetW}:${targetH}:force_original_aspect_ratio=increase,crop=${targetW}:${targetH},boxblur=25:5[v_bg]`,
-      `[v_fg_in]scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2[v_fg]`,
-      `[v_bg][v_fg]overlay=(W-w)/2:(H-h)/2[v_framed]`
+      `[v_fg_in]${fgFilters}[v_fg]`,
+      `[v_bg][v_fg]overlay=${overlayX}:${overlayY}[v_framed]`
     );
   } else if (options.layoutMode === "center_crop") {
-    // Scale to cover target dimension, crop with pan offset
-    const panOffset = options.panOffsetX || 0.0;
-    // panOffset 0 = center, -1.0 = left edge, 1.0 = right edge
-    const cropXExpr = `(in_w-out_w)/2 + (${panOffset.toFixed(2)} * (in_w-out_w)/2)`;
-    const cropYExpr = `(in_h-out_h)/2`;
+    const cropXExpr = `(in_w-out_w)/2 + (${panX.toFixed(2)} * (in_w-out_w)/2)`;
+    const cropYExpr = `(in_h-out_h)/2 + (${panY.toFixed(2)} * (in_h-out_h)/2)`;
     filterChains.push(
       `[v_concatenated]scale=${targetW}:${targetH}:force_original_aspect_ratio=increase,crop=${targetW}:${targetH}:${cropXExpr}:${cropYExpr}[v_framed]`
     );
@@ -217,7 +237,8 @@ export function generateAssSubtitles(
   clipStartSec: number,
   clipEndSec: number,
   style: SubtitleStyle,
-  outputPath: string
+  outputPath: string,
+  aspectRatio: AspectRatio = "9:16"
 ): Result<string> {
   try {
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -233,18 +254,19 @@ export function generateAssSubtitles(
     const boxAlpha = Math.round((1 - (style.boxOpacity ?? 0.7)) * 255).toString(16).padStart(2, "0").toUpperCase();
     const boxColor = hexToAssColor(style.boxColor || "#000000", boxAlpha);
 
+    const dims = getDimensionsForAspectRatio(aspectRatio);
     const fontSize = style.fontSize || 42;
     const fontFamily = style.fontFamily || "Inter";
     const outlineWidth = style.outlineWidth ?? (style.preset === "plain" ? 2 : 3.5);
     const borderStyle = style.preset === "clean_box" ? 3 : 1;
     const bold = style.preset === "minimal" ? 0 : -1;
-    const marginV = Math.round(1920 * (1 - (style.positionY || 80) / 100));
+    const marginV = Math.round(dims.height * (1 - (style.positionY || 80) / 100));
 
     const header = `[Script Info]
 Title: xclips Dynamic Subtitles
 ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
+PlayResX: ${dims.width}
+PlayResY: ${dims.height}
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
@@ -259,6 +281,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     const phrases = segmentPhrases(clipWords, {
       maxWords: style.preset === "plain" ? 6 : 4,
     });
+
+    const posX = Math.round((dims.width * (style.positionX ?? 50)) / 100);
+    const posY = Math.round((dims.height * (style.positionY ?? 80)) / 100);
+    const rotZ = style.rotation ?? 0;
+    const transformTag = `{\\an5\\pos(${posX},${posY})${rotZ !== 0 ? `\\frz${rotZ}` : ""}}`;
 
     const events: string[] = [];
 
@@ -278,10 +305,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       };
 
       if (style.preset === "plain" || !style.karaokeEnabled) {
-        // Standard clean subtitle (no individual word karaoke timing tags)
+        // Standard clean subtitle with position and rotation tags
         const plainText = formatCase(phrase.text);
         events.push(
-          `Dialogue: 0,${formatAssTime(phraseStart)},${formatAssTime(phraseEnd)},Default,,0,0,0,,${plainText}`
+          `Dialogue: 0,${formatAssTime(phraseStart)},${formatAssTime(phraseEnd)},Default,,0,0,0,,${transformTag}${plainText}`
         );
       } else {
         // Karaoke active word tags: {\k<duration_in_centiseconds>}word
@@ -301,7 +328,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         const textPayload = phraseTokens.join(" ");
         events.push(
-          `Dialogue: 0,${formatAssTime(phraseStart)},${formatAssTime(phraseEnd)},Default,,0,0,0,,${textPayload}`
+          `Dialogue: 0,${formatAssTime(phraseStart)},${formatAssTime(phraseEnd)},Default,,0,0,0,,${transformTag}${textPayload}`
         );
       }
     }

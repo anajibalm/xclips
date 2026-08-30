@@ -48,7 +48,7 @@ export function useVideoPlaybackSync() {
     }
   }, [isPlaying, setIsPlaying]);
 
-  // Synchronize HTML5 video element with volume and mute state
+  // Synchronize HTML5 video element with volume and mute state (Hard isolate bgVideo)
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.volume = Math.max(0, Math.min(1, (volume ?? 100) / 100));
@@ -56,8 +56,27 @@ export function useVideoPlaybackSync() {
     }
     if (bgVideoRef.current) {
       bgVideoRef.current.muted = true;
+      bgVideoRef.current.volume = 0;
     }
   }, [volume, isMuted]);
+
+  // Auto-pause playback when document is hidden or window loses focus
+  useEffect(() => {
+    const handleVisibilityOrBlur = () => {
+      if (document.hidden) {
+        setIsPlaying(false);
+        if (videoRef.current) videoRef.current.pause();
+        if (bgVideoRef.current) bgVideoRef.current.pause();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityOrBlur);
+    window.addEventListener("blur", handleVisibilityOrBlur);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityOrBlur);
+      window.removeEventListener("blur", handleVisibilityOrBlur);
+    };
+  }, [setIsPlaying]);
 
   // Synchronize time when selected clip changes (memoized on ID)
   useEffect(() => {

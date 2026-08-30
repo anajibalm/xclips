@@ -90,6 +90,14 @@ export function TabFramingStyle() {
   const setStudioLayoutMode = useStudioStore((s) => s.setStudioLayoutMode);
   const studioPanOffsetX = useStudioStore((s) => s.studioPanOffsetX);
   const setStudioPanOffsetX = useStudioStore((s) => s.setStudioPanOffsetX);
+  const studioVideoScale = useStudioStore((s) => s.studioVideoScale);
+  const setStudioVideoScale = useStudioStore((s) => s.setStudioVideoScale);
+  const studioVideoPanX = useStudioStore((s) => s.studioVideoPanX);
+  const setStudioVideoPanX = useStudioStore((s) => s.setStudioVideoPanX);
+  const studioVideoPanY = useStudioStore((s) => s.studioVideoPanY);
+  const setStudioVideoPanY = useStudioStore((s) => s.setStudioVideoPanY);
+  const studioVideoRotation = useStudioStore((s) => s.studioVideoRotation);
+  const setStudioVideoRotation = useStudioStore((s) => s.setStudioVideoRotation);
   const studioSubtitleStyle = useStudioStore((s) => s.studioSubtitleStyle);
   const setStudioSubtitleStyle = useStudioStore((s) => s.setStudioSubtitleStyle);
 
@@ -99,7 +107,52 @@ export function TabFramingStyle() {
   const currentAspectRatio: AspectRatio = selectedClip?.aspectRatio || studioAspectRatio || "9:16";
   const currentLayoutMode: LayoutMode = selectedClip?.layoutMode || studioLayoutMode || "blur_bg";
   const currentPanOffsetX: number = selectedClip?.panOffsetX ?? studioPanOffsetX ?? 0;
+  const currentVideoScale: number = selectedClip?.videoScale ?? studioVideoScale ?? 1.0;
+  const currentVideoPanX: number = selectedClip?.videoPanX ?? selectedClip?.panOffsetX ?? studioVideoPanX ?? 0;
+  const currentVideoPanY: number = selectedClip?.videoPanY ?? studioVideoPanY ?? 0;
+  const currentVideoRotation: number = selectedClip?.videoRotation ?? studioVideoRotation ?? 0;
   const currentStyle: SubtitleStyle = selectedClip?.subtitleStyle || studioSubtitleStyle || DEFAULT_SUBTITLE_STYLE;
+
+  const updateVideoScale = (scale: number) => {
+    setStudioVideoScale(scale);
+    if (selectedClip) {
+      handleSaveClip({
+        ...selectedClip,
+        videoScale: scale,
+      });
+    }
+  };
+
+  const updateVideoPanX = (x: number) => {
+    setStudioVideoPanX(x);
+    if (selectedClip) {
+      handleSaveClip({
+        ...selectedClip,
+        videoPanX: x,
+        panOffsetX: x,
+      });
+    }
+  };
+
+  const updateVideoPanY = (y: number) => {
+    setStudioVideoPanY(y);
+    if (selectedClip) {
+      handleSaveClip({
+        ...selectedClip,
+        videoPanY: y,
+      });
+    }
+  };
+
+  const updateVideoRotation = (rot: number) => {
+    setStudioVideoRotation(rot);
+    if (selectedClip) {
+      handleSaveClip({
+        ...selectedClip,
+        videoRotation: rot,
+      });
+    }
+  };
 
   const updateSubtitleStyle = (newStyle: SubtitleStyle) => {
     setStudioSubtitleStyle(newStyle);
@@ -387,7 +440,7 @@ export function TabFramingStyle() {
           {currentLayoutMode === "center_crop" && (
             <Box sx={{ mb: 2.5, p: 1.5, bgcolor: "#141418", borderRadius: 1, border: "1px solid #27272a" }}>
               <Typography variant="caption" sx={{ color: "#a1a1aa", display: "block", mb: 0.5, fontWeight: 600 }}>
-                Horizontal Pan Offset ({(currentPanOffsetX || 0).toFixed(2)})
+                Horizontal Speaker Pan ({(currentPanOffsetX || 0).toFixed(2)})
               </Typography>
               <Slider
                 min={-1.0}
@@ -400,6 +453,141 @@ export function TabFramingStyle() {
               />
             </Box>
           )}
+
+          {/* 3. VIDEO TRANSFORM & PLACEMENT */}
+          <Box sx={{ mb: 2.5, p: 2, bgcolor: "#141418", borderRadius: 1.5, border: "1px solid #27272a" }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5 }}>
+              <Box>
+                <Typography variant="subtitle2" sx={{ color: "#fafafa", fontWeight: 800, fontSize: "0.88rem" }}>
+                  3. Video Transform &amp; Placement
+                </Typography>
+                <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.72rem" }}>
+                  Sesuaikan ukuran zoom, posisi pan horizontal/vertikal, dan rotasi video.
+                </Typography>
+              </Box>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => {
+                  updateVideoScale(1.0);
+                  updateVideoPanX(0);
+                  updateVideoPanY(0);
+                  updateVideoRotation(0);
+                }}
+                sx={{
+                  color: "#a1a1aa",
+                  borderColor: "#27272a",
+                  fontSize: "0.7rem",
+                  py: 0.2,
+                  px: 1,
+                  textTransform: "none",
+                  "&:hover": { borderColor: "#00e5ff", color: "#00e5ff" },
+                }}
+              >
+                Reset All
+              </Button>
+            </Box>
+
+            {/* Video Zoom / Scale Slider */}
+            <Box sx={{ mb: 2 }}>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
+                <Typography variant="caption" sx={{ color: "#a1a1aa", fontWeight: 600 }}>
+                  Zoom / Scale ({Math.round(currentVideoScale * 100)}%)
+                </Typography>
+                <Button
+                  size="small"
+                  variant="text"
+                  onClick={() => updateVideoScale(1.0)}
+                  sx={{ color: "#71717a", fontSize: "0.68rem", p: 0, minWidth: "auto", textTransform: "none" }}
+                >
+                  100%
+                </Button>
+              </Box>
+              <Slider
+                min={0.5}
+                max={3.0}
+                step={0.05}
+                value={currentVideoScale}
+                onChange={(_, val) => updateVideoScale(val as number)}
+                sx={{ color: "#00e5ff" }}
+              />
+            </Box>
+
+            {/* Horizontal Position X Slider */}
+            <Box sx={{ mb: 2 }}>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
+                <Typography variant="caption" sx={{ color: "#a1a1aa", fontWeight: 600 }}>
+                  Horizontal Position X ({Math.round(currentVideoPanX * 100)}%)
+                </Typography>
+                <Button
+                  size="small"
+                  variant="text"
+                  onClick={() => updateVideoPanX(0)}
+                  sx={{ color: "#71717a", fontSize: "0.68rem", p: 0, minWidth: "auto", textTransform: "none" }}
+                >
+                  Center (0)
+                </Button>
+              </Box>
+              <Slider
+                min={-1.0}
+                max={1.0}
+                step={0.02}
+                value={currentVideoPanX}
+                onChange={(_, val) => updateVideoPanX(val as number)}
+                sx={{ color: "#00e5ff" }}
+              />
+            </Box>
+
+            {/* Vertical Position Y Slider */}
+            <Box sx={{ mb: 2 }}>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
+                <Typography variant="caption" sx={{ color: "#a1a1aa", fontWeight: 600 }}>
+                  Vertical Position Y ({Math.round(currentVideoPanY * 100)}%)
+                </Typography>
+                <Button
+                  size="small"
+                  variant="text"
+                  onClick={() => updateVideoPanY(0)}
+                  sx={{ color: "#71717a", fontSize: "0.68rem", p: 0, minWidth: "auto", textTransform: "none" }}
+                >
+                  Center (0)
+                </Button>
+              </Box>
+              <Slider
+                min={-1.0}
+                max={1.0}
+                step={0.02}
+                value={currentVideoPanY}
+                onChange={(_, val) => updateVideoPanY(val as number)}
+                sx={{ color: "#00e5ff" }}
+              />
+            </Box>
+
+            {/* Video Rotation Slider */}
+            <Box>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
+                <Typography variant="caption" sx={{ color: "#a1a1aa", fontWeight: 600 }}>
+                  Rotation ({currentVideoRotation}°)
+                </Typography>
+                <Button
+                  size="small"
+                  variant="text"
+                  onClick={() => updateVideoRotation(0)}
+                  sx={{ color: "#71717a", fontSize: "0.68rem", p: 0, minWidth: "auto", textTransform: "none" }}
+                >
+                  0°
+                </Button>
+              </Box>
+              <Slider
+                min={-180}
+                max={180}
+                step={1}
+                value={currentVideoRotation}
+                onChange={(_, val) => updateVideoRotation(val as number)}
+                sx={{ color: "#00e5ff" }}
+              />
+            </Box>
+          </Box>
         </Box>
       )}
 
@@ -809,14 +997,14 @@ export function TabFramingStyle() {
 
             {/* Sub-Column 2: Sliders (Size, Outline, Position Y) */}
             <Grid size={{ xs: 12, md: 6 }}>
-              {/* Font Size (Min: 0, Max: 999, Default: 22) */}
+              {/* Font Size (Min: 0, Max: 999, Default: 44) */}
               <Box sx={{ mb: 2 }}>
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
                   <Typography variant="caption" sx={{ color: "#e4e4e7", fontWeight: 600 }}>Font Size</Typography>
                   <TextField
                     size="small"
                     type="number"
-                    value={currentStyle.fontSize ?? 22}
+                    value={currentStyle.fontSize ?? 44}
                     onChange={(e) => {
                       const val = parseInt(e.target.value, 10);
                       const clamped = isNaN(val) ? 0 : Math.max(0, Math.min(999, val));
@@ -845,7 +1033,7 @@ export function TabFramingStyle() {
                   min={0}
                   max={999}
                   step={1}
-                  value={Math.max(0, Math.min(999, currentStyle.fontSize ?? 22))}
+                  value={Math.max(0, Math.min(999, currentStyle.fontSize ?? 44))}
                   onChange={(_, val) =>
                     updateSubtitleStylePreview({ ...currentStyle, fontSize: val as number })
                   }
@@ -877,17 +1065,54 @@ export function TabFramingStyle() {
                 />
               </Box>
 
-              {/* Position Y */}
-              <Box sx={{ mb: 1 }}>
-                <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-                  <Typography variant="caption" sx={{ color: "#e4e4e7", fontWeight: 600 }}>Vertical Position (Y)</Typography>
-                  <Typography variant="caption" sx={{ color: "#a1a1aa", fontFamily: "monospace" }}>{currentStyle.positionY || 80}%</Typography>
+              {/* Position X (Horizontal) */}
+              <Box sx={{ mb: 2 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
+                  <Typography variant="caption" sx={{ color: "#e4e4e7", fontWeight: 600 }}>Horizontal Position (X)</Typography>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <Typography variant="caption" sx={{ color: "#60a5fa", fontFamily: "monospace", fontWeight: 700 }}>
+                      {currentStyle.positionX ?? 50}%
+                    </Typography>
+                    {(currentStyle.positionX ?? 50) !== 50 && (
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => updateSubtitleStyleCommitted({ ...currentStyle, positionX: 50 })}
+                        sx={{ fontSize: "0.62rem", py: 0, px: 0.8, height: 18, minWidth: 0, color: "#a1a1aa", bgcolor: "#1f1f24" }}
+                      >
+                        Center
+                      </Button>
+                    )}
+                  </Box>
                 </Box>
                 <Slider
-                  min={50}
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={currentStyle.positionX ?? 50}
+                  onChange={(_, val) =>
+                    updateSubtitleStylePreview({ ...currentStyle, positionX: val as number })
+                  }
+                  onChangeCommitted={(_, val) =>
+                    updateSubtitleStyleCommitted({ ...currentStyle, positionX: val as number })
+                  }
+                  sx={{ color: "#3b82f6" }}
+                />
+              </Box>
+
+              {/* Position Y (Vertical) */}
+              <Box sx={{ mb: 2 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
+                  <Typography variant="caption" sx={{ color: "#e4e4e7", fontWeight: 600 }}>Vertical Position (Y)</Typography>
+                  <Typography variant="caption" sx={{ color: "#60a5fa", fontFamily: "monospace", fontWeight: 700 }}>
+                    {currentStyle.positionY ?? 80}%
+                  </Typography>
+                </Box>
+                <Slider
+                  min={5}
                   max={95}
                   step={1}
-                  value={currentStyle.positionY || 80}
+                  value={currentStyle.positionY ?? 80}
                   onChange={(_, val) =>
                     updateSubtitleStylePreview({ ...currentStyle, positionY: val as number })
                   }
@@ -896,6 +1121,119 @@ export function TabFramingStyle() {
                   }
                   sx={{ color: "#3b82f6" }}
                 />
+              </Box>
+
+              {/* Rotation Angle */}
+              <Box sx={{ mb: 1 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
+                  <Typography variant="caption" sx={{ color: "#e4e4e7", fontWeight: 600 }}>Rotation Angle</Typography>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <Typography variant="caption" sx={{ color: "#60a5fa", fontFamily: "monospace", fontWeight: 700 }}>
+                      {currentStyle.rotation ?? 0}°
+                    </Typography>
+                    {(currentStyle.rotation ?? 0) !== 0 && (
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => updateSubtitleStyleCommitted({ ...currentStyle, rotation: 0 })}
+                        sx={{ fontSize: "0.62rem", py: 0, px: 0.8, height: 18, minWidth: 0, color: "#a1a1aa", bgcolor: "#1f1f24" }}
+                      >
+                        Reset 0°
+                      </Button>
+                    )}
+                  </Box>
+                </Box>
+                <Slider
+                  min={-180}
+                  max={180}
+                  step={1}
+                  value={currentStyle.rotation ?? 0}
+                  onChange={(_, val) =>
+                    updateSubtitleStylePreview({ ...currentStyle, rotation: val as number })
+                  }
+                  onChangeCommitted={(_, val) =>
+                    updateSubtitleStyleCommitted({ ...currentStyle, rotation: val as number })
+                  }
+                  sx={{ color: "#3b82f6" }}
+                />
+              </Box>
+
+              {/* Box Width & Wrap Mode */}
+              <Box sx={{ mb: 1 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.8 }}>
+                  <Typography variant="caption" sx={{ color: "#e4e4e7", fontWeight: 600 }}>Box Width (Wrap Mode)</Typography>
+                  <Box sx={{ display: "flex", gap: 0.5 }}>
+                    <Button
+                      size="small"
+                      variant={currentStyle.boxWidthMode === "custom" ? "outlined" : "contained"}
+                      onClick={() =>
+                        updateSubtitleStyleCommitted({ ...currentStyle, boxWidthMode: "auto" })
+                      }
+                      sx={{
+                        fontSize: "0.62rem",
+                        py: 0.2,
+                        px: 0.8,
+                        height: 20,
+                        minWidth: 0,
+                        textTransform: "none",
+                        fontWeight: 700,
+                        bgcolor: currentStyle.boxWidthMode === "custom" ? "transparent" : "#3b82f6",
+                        color: currentStyle.boxWidthMode === "custom" ? "#a1a1aa" : "#ffffff",
+                        borderColor: "#27272a",
+                      }}
+                    >
+                      Auto (Fit Text)
+                    </Button>
+                    <Button
+                      size="small"
+                      variant={currentStyle.boxWidthMode === "custom" ? "contained" : "outlined"}
+                      onClick={() =>
+                        updateSubtitleStyleCommitted({
+                          ...currentStyle,
+                          boxWidthMode: "custom",
+                          boxWidth: currentStyle.boxWidth ?? 85,
+                        })
+                      }
+                      sx={{
+                        fontSize: "0.62rem",
+                        py: 0.2,
+                        px: 0.8,
+                        height: 20,
+                        minWidth: 0,
+                        textTransform: "none",
+                        fontWeight: 700,
+                        bgcolor: currentStyle.boxWidthMode === "custom" ? "#3b82f6" : "transparent",
+                        color: currentStyle.boxWidthMode === "custom" ? "#ffffff" : "#a1a1aa",
+                        borderColor: "#27272a",
+                      }}
+                    >
+                      Custom Width
+                    </Button>
+                  </Box>
+                </Box>
+                {currentStyle.boxWidthMode === "custom" && (
+                  <Box sx={{ mt: 1 }}>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
+                      <Typography variant="caption" sx={{ color: "#a1a1aa", fontSize: "0.72rem" }}>Width Limit</Typography>
+                      <Typography variant="caption" sx={{ color: "#60a5fa", fontFamily: "monospace", fontWeight: 700 }}>
+                        {currentStyle.boxWidth ?? 85}%
+                      </Typography>
+                    </Box>
+                    <Slider
+                      min={20}
+                      max={100}
+                      step={1}
+                      value={currentStyle.boxWidth ?? 85}
+                      onChange={(_, val) =>
+                        updateSubtitleStylePreview({ ...currentStyle, boxWidth: val as number })
+                      }
+                      onChangeCommitted={(_, val) =>
+                        updateSubtitleStyleCommitted({ ...currentStyle, boxWidth: val as number })
+                      }
+                      sx={{ color: "#3b82f6" }}
+                    />
+                  </Box>
+                )}
               </Box>
             </Grid>
           </Grid>
