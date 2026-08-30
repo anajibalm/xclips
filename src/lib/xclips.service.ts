@@ -172,8 +172,10 @@ export class XclipsService {
         return {
           success: true,
           data: [
+            "gemini-3-6-flash",
             "gemini-3-7-flash",
             "gpt-5-6-terra",
+            "gpt-4o",
           ],
         };
       }
@@ -653,7 +655,7 @@ export class XclipsService {
 
     try {
       if (isKieAi || (isGeminiDirect && isGeminiModel)) {
-        // Native Gemini format with inline_data
+        // Native Gemini REST format
         let targetUrl = "";
         const headers: Record<string, string> = { "Content-Type": "application/json" };
 
@@ -672,8 +674,8 @@ export class XclipsService {
 
         if (base64Audio) {
           parts.push({
-            inline_data: {
-              mime_type: audioFormat === "mp3" ? "audio/mp3" : "audio/wav",
+            inlineData: {
+              mimeType: audioFormat === "mp3" ? "audio/mp3" : "audio/wav",
               data: base64Audio,
             },
           });
@@ -681,14 +683,12 @@ export class XclipsService {
 
         const generationConfig: Record<string, unknown> = {
           temperature: 0.1,
+          maxOutputTokens: 8192,
+          responseMimeType: "application/json",
+          thinkingConfig: {
+            thinkingBudget: 0,
+          },
         };
-
-        if (base64Audio) {
-          generationConfig.audioTranscriptionConfig = {
-            wordTimestamp: true,
-            diarization: true,
-          };
-        }
 
         const payload = {
           contents: [
@@ -700,12 +700,64 @@ export class XclipsService {
           generationConfig,
         };
 
-        const response = await fetch(targetUrl, {
+        let response = await fetch(targetUrl, {
           method: "POST",
           headers,
           body: JSON.stringify(payload),
           signal: AbortSignal.timeout(timeoutMs),
         });
+
+        // If thinkingConfig causes an issue with older proxies, retry without thinkingConfig
+        if (!response.ok && isKieAi && response.status === 400) {
+          const errCheck = await response.clone().text().catch(() => "");
+          if (errCheck.includes("thinkingConfig")) {
+            delete generationConfig.thinkingConfig;
+            response = await fetch(targetUrl, {
+              method: "POST",
+              headers,
+              body: JSON.stringify(payload),
+              signal: AbortSignal.timeout(timeoutMs),
+            });
+          }
+        }
+
+        // Fallback to OpenAI-compatible endpoint if Kie AI returns 404 on /gemini/v1
+        if (!response.ok && isKieAi && response.status === 404) {
+          const fallbackUrl = `${baseUrl.replace(/\/+$/, "")}/v1/chat/completions`;
+          const fallbackPayload = {
+            model,
+            messages: [
+              ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
+              {
+                role: "user",
+                content: base64Audio
+                  ? [
+                      { type: "text", text: userPrompt },
+                      {
+                        type: "input_audio",
+                        input_audio: {
+                          data: base64Audio,
+                          format: audioFormat,
+                        },
+                      },
+                    ]
+                  : userPrompt,
+              },
+            ],
+            temperature: 0.1,
+            max_tokens: 8192,
+          };
+
+          response = await fetch(fallbackUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify(fallbackPayload),
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+        }
 
         if (!response.ok) {
           const errText = await response.text().catch(() => "");
@@ -716,10 +768,18 @@ export class XclipsService {
         }
 
         const resJson = await response.json();
-        const textContent =
-          resJson.candidates?.[0]?.content?.parts?.[0]?.text ||
-          resJson.choices?.[0]?.message?.content ||
-          "";
+        let textContent = "";
+        const candidateParts = resJson.candidates?.[0]?.content?.parts;
+        if (Array.isArray(candidateParts) && candidateParts.length > 0) {
+          const nonThoughtParts = candidateParts.filter((p: Record<string, unknown>) => !p.thought && typeof p.text === "string");
+          if (nonThoughtParts.length > 0) {
+            textContent = nonThoughtParts.map((p: Record<string, unknown>) => p.text).join("");
+          } else {
+            textContent = candidateParts.map((p: Record<string, unknown>) => (typeof p.text === "string" ? p.text : "")).join("");
+          }
+        } else {
+          textContent = resJson.choices?.[0]?.message?.content || "";
+        }
 
         return { success: true, data: textContent };
       }
@@ -756,6 +816,7 @@ export class XclipsService {
         model,
         messages,
         temperature: 0.1,
+        max_tokens: 8192,
       };
 
       const response = await fetch(targetUrl, {
@@ -789,6 +850,10 @@ export class XclipsService {
    * Helper to parse JSON or fallback regex for word timestamps from AI response
    */
   private parseTranscriptWords(rawStr: string): { fullText: string; words: WordTimestamp[] } {
+    if (!rawStr || typeof rawStr !== "string") {
+      return { fullText: "", words: [] };
+    }
+
     const cleanStr = rawStr
       .replace(/^```(?:json)?\s*/i, "")
       .replace(/\s*```$/i, "")
@@ -797,43 +862,66 @@ export class XclipsService {
     try {
       const jsonMatch = cleanStr.match(/\{[\s\S]*\}/);
       const target = jsonMatch ? jsonMatch[0] : cleanStr;
-      const parsed = JSON.parse(target) as { fullText?: string; words?: unknown[] };
-      if (parsed && Array.isArray(parsed.words) && parsed.words.length > 0) {
+      const parsed = JSON.parse(target) as {
+        fullText?: string;
+        text?: string;
+        words?: unknown[];
+        segments?: unknown[];
+      };
+      const rawWords = parsed?.words || parsed?.segments;
+      if (parsed && Array.isArray(rawWords) && rawWords.length > 0) {
         const words: WordTimestamp[] = [];
-        for (const item of parsed.words) {
+        for (const item of rawWords) {
           if (item && typeof item === "object") {
-            const w = item as Record<string, unknown>;
-            const wordStr = typeof w.word === "string" ? w.word.trim() : "";
-            const startNum = typeof w.start === "number" ? w.start : parseFloat(String(w.start || 0));
-            const endNum = typeof w.end === "number" ? w.end : parseFloat(String(w.end || 0));
+            if (Array.isArray(item)) {
+              // Compact array format: [word, start, end]
+              const wordStr = String(item[0] || "").trim();
+              const startNum = parseFloat(String(item[1] || 0));
+              const endNum = parseFloat(String(item[2] || 0));
+              if (wordStr.length > 0 && !isNaN(startNum) && !isNaN(endNum)) {
+                words.push({
+                  word: wordStr,
+                  start: parseFloat(startNum.toFixed(2)),
+                  end: parseFloat(Math.max(startNum + 0.05, endNum).toFixed(2)),
+                  confidence: 1.0,
+                  isFiller: false,
+                  excluded: false,
+                });
+              }
+            } else {
+              const w = item as Record<string, unknown>;
+              const wordStr = typeof w.word === "string" ? w.word.trim() : typeof w.text === "string" ? w.text.trim() : "";
+              const startNum = typeof w.start === "number" ? w.start : parseFloat(String(w.start || 0));
+              const endNum = typeof w.end === "number" ? w.end : parseFloat(String(w.end || 0));
 
-            if (wordStr.length > 0 && !isNaN(startNum) && !isNaN(endNum)) {
-              words.push({
-                word: wordStr,
-                start: parseFloat(startNum.toFixed(2)),
-                end: parseFloat(endNum.toFixed(2)),
-                confidence: 1.0,
-                isFiller: false,
-                excluded: false,
-              });
+              if (wordStr.length > 0 && !isNaN(startNum) && !isNaN(endNum)) {
+                words.push({
+                  word: wordStr,
+                  start: parseFloat(startNum.toFixed(2)),
+                  end: parseFloat(Math.max(startNum + 0.05, endNum).toFixed(2)),
+                  confidence: 1.0,
+                  isFiller: false,
+                  excluded: false,
+                });
+              }
             }
           }
         }
 
         if (words.length > 0) {
           return {
-            fullText: parsed.fullText || words.map((w) => w.word).join(" "),
+            fullText: parsed.fullText || parsed.text || words.map((w) => w.word).join(" "),
             words,
           };
         }
       }
     } catch (_err) {
-      // If JSON.parse fails, continue to regex fallback
+      // If JSON.parse fails (e.g. truncated JSON from large audio chunk), fallback to regex token extractor
     }
 
-    // Fallback: extract word-level timestamps using regex
+    // Fallback 1: extract word-level timestamps using regex (handles truncated/unterminated JSON)
     const words: WordTimestamp[] = [];
-    const tokenRegex = /\{\s*"word"\s*:\s*"([^"]+)"\s*,\s*"start"\s*:\s*([0-9.]+)\s*,\s*"end"\s*:\s*([0-9.]+)/g;
+    const tokenRegex = /\{\s*"(?:word|text)"\s*:\s*"([^"]+)"\s*,\s*"start"\s*:\s*([0-9.]+)\s*,\s*"end"\s*:\s*([0-9.]+)/g;
     let match;
     while ((match = tokenRegex.exec(cleanStr)) !== null) {
       const word = match[1].trim();
@@ -843,12 +931,63 @@ export class XclipsService {
         words.push({
           word,
           start: parseFloat(start.toFixed(2)),
-          end: parseFloat(end.toFixed(2)),
+          end: parseFloat(Math.max(start + 0.05, end).toFixed(2)),
           confidence: 1.0,
           isFiller: false,
           excluded: false,
         });
       }
+    }
+
+    if (words.length > 0) {
+      return {
+        fullText: words.map((w) => w.word).join(" "),
+        words,
+      };
+    }
+
+    // Fallback 2: Array-of-arrays regex fallback (e.g. [ "halo", 0.12, 0.45 ])
+    const arrayTokenRegex = /\[\s*"([^"]+)"\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*\]/g;
+    let arrMatch;
+    while ((arrMatch = arrayTokenRegex.exec(cleanStr)) !== null) {
+      const word = arrMatch[1].trim();
+      const start = parseFloat(arrMatch[2]);
+      const end = parseFloat(arrMatch[3]);
+      if (word && !isNaN(start) && !isNaN(end)) {
+        words.push({
+          word,
+          start: parseFloat(start.toFixed(2)),
+          end: parseFloat(Math.max(start + 0.05, end).toFixed(2)),
+          confidence: 1.0,
+          isFiller: false,
+          excluded: false,
+        });
+      }
+    }
+
+    if (words.length > 0) {
+      return {
+        fullText: words.map((w) => w.word).join(" "),
+        words,
+      };
+    }
+
+    // Fallback 3: If model returned plain text or a fullText field without word timestamps
+    const textOnlyMatch = cleanStr.match(/"fullText"\s*:\s*"([^"]+)"/i) || cleanStr.match(/"text"\s*:\s*"([^"]+)"/i);
+    const textContent = textOnlyMatch ? textOnlyMatch[1] : cleanStr.replace(/[{}[\]"]/g, "").trim();
+    if (textContent.length > 0) {
+      const tokens = textContent.split(/\s+/).filter(Boolean);
+      const estStep = 0.35;
+      tokens.forEach((t, i) => {
+        words.push({
+          word: t,
+          start: parseFloat((i * estStep).toFixed(2)),
+          end: parseFloat(((i + 1) * estStep).toFixed(2)),
+          confidence: 0.8,
+          isFiller: false,
+          excluded: false,
+        });
+      });
     }
 
     return {
@@ -1118,7 +1257,7 @@ export class XclipsService {
       } else {
         // Gemini / KIE AI Multimodal Audio
         const systemPrompt = `Anda adalah transkriber audio profesional bahasa Indonesia dan Inggris.
-Tugas Anda adalah mentranskripsikan audio ke dalam urutan kata-per-kata yang akurat dengan timestamp detik mulai dan selesai.
+Tugas Anda adalah mentranskripsikan audio ke dalam urutan kata-per-kata yang akurat dengan timestamp detik mulai dan selesai relatif terhadap audio input.
 Format output WAJIB HANYA berupa JSON valid:
 {
   "fullText": "Teks lengkap seluruh audio...",
@@ -1132,8 +1271,9 @@ Format output WAJIB HANYA berupa JSON valid:
         if (modelToUse === "gpt-4o-transcribe") modelToUse = "gpt-4o";
         if (modelToUse === "gpt-4o-mini-transcribe") modelToUse = "gpt-4o-mini";
 
-        // Single chunk if duration <= 1800s (30 min)
-        if (totalDuration <= 1800) {
+        const LLM_CHUNK_DURATION = 45; // 45 seconds per chunk for sub-second token generation
+
+        if (totalDuration <= LLM_CHUNK_DURATION) {
           const audioBuffer = fs.readFileSync(audioToUse);
           const base64Audio = audioBuffer.toString("base64");
           const audioFormat = audioToUse.endsWith(".mp3") ? "mp3" : "wav";
@@ -1149,7 +1289,7 @@ Format output WAJIB HANYA berupa JSON valid:
             userPrompt: "Transkrip audio berikut dengan format JSON kata-per-kata:",
             base64Audio,
             audioFormat,
-            timeoutMs: 120000,
+            timeoutMs: 60000,
           });
 
           if (!dispatchRes.success) {
@@ -1160,45 +1300,69 @@ Format output WAJIB HANYA berupa JSON valid:
           fullTextCombined = parsed.fullText;
           allWords.push(...parsed.words);
         } else {
-          // Multi-chunk for videos longer than 30 minutes
-          const chunkCount = Math.ceil(totalDuration / CHUNK_DURATION);
-          aiLogger.info({ projectId, totalDuration, chunkCount, provider: targetProvider }, "Starting multi-chunk audio transcription");
+          // Multi-chunk for videos longer than 45 seconds with concurrency pool
+          const chunkCount = Math.ceil(totalDuration / LLM_CHUNK_DURATION);
+          aiLogger.info({ projectId, totalDuration, chunkCount, chunkSizeSec: LLM_CHUNK_DURATION, provider: targetProvider }, "Starting multi-chunk audio transcription");
 
-          for (let cIdx = 0; cIdx < chunkCount; cIdx++) {
-            const chunkStart = cIdx * CHUNK_DURATION;
-            const chunkDuration = Math.min(CHUNK_DURATION, totalDuration - chunkStart);
-            const chunkPath = path.join(cacheDir, `audio_chunk_${cIdx}.mp3`);
+          const chunkResults: Array<{ cIdx: number; fullText: string; words: WordTimestamp[] }> = [];
+          const CONCURRENCY = 3;
+          let currentIdx = 0;
 
-            await extractAudioSegment(videoPath, chunkPath, chunkStart, chunkDuration);
+          const worker = async () => {
+            while (currentIdx < chunkCount) {
+              const cIdx = currentIdx++;
+              const chunkStart = cIdx * LLM_CHUNK_DURATION;
+              const chunkDuration = Math.min(LLM_CHUNK_DURATION, totalDuration - chunkStart);
+              const chunkPath = path.join(cacheDir, `audio_chunk_${cIdx}.mp3`);
 
-            if (!fs.existsSync(chunkPath)) continue;
+              await extractAudioSegment(audioToUse, chunkPath, chunkStart, chunkDuration);
 
-            const audioBuffer = fs.readFileSync(chunkPath);
-            const base64Audio = audioBuffer.toString("base64");
+              if (!fs.existsSync(chunkPath)) continue;
 
-            const dispatchRes = await this.dispatchAiContent({
-              provider: targetProvider,
-              baseUrl: targetBaseUrl,
-              apiKey,
-              model: modelToUse,
-              systemPrompt,
-              userPrompt: `Transkrip audio segmen ${cIdx + 1}/${chunkCount} dengan format JSON:`,
-              base64Audio,
-              audioFormat: "mp3",
-              timeoutMs: 120000,
-            });
+              const audioBuffer = fs.readFileSync(chunkPath);
+              const base64Audio = audioBuffer.toString("base64");
 
-            if (dispatchRes.success) {
-              const parsed = this.parseTranscriptWords(dispatchRes.data);
-              if (parsed.fullText) fullTextCombined += " " + parsed.fullText;
-              for (const w of parsed.words) {
-                allWords.push({
+              aiLogger.debug({ chunkIndex: cIdx + 1, chunkCount, chunkStart, chunkDuration }, "Transcribing audio chunk");
+
+              const dispatchRes = await this.dispatchAiContent({
+                provider: targetProvider,
+                baseUrl: targetBaseUrl,
+                apiKey,
+                model: modelToUse,
+                systemPrompt,
+                userPrompt: `Transkrip audio segmen ${cIdx + 1}/${chunkCount} dengan format JSON kata-per-kata:`,
+                base64Audio,
+                audioFormat: "mp3",
+                timeoutMs: 60000,
+              });
+
+              if (dispatchRes.success) {
+                const parsed = this.parseTranscriptWords(dispatchRes.data);
+                const remappedWords = parsed.words.map((w) => ({
                   ...w,
                   start: parseFloat((w.start + chunkStart).toFixed(2)),
                   end: parseFloat((w.end + chunkStart).toFixed(2)),
+                }));
+                chunkResults.push({
+                  cIdx,
+                  fullText: parsed.fullText,
+                  words: remappedWords,
                 });
+              } else {
+                aiLogger.warn({ chunkIndex: cIdx + 1, err: dispatchRes.error }, "Chunk transcription failed, continuing with remaining chunks");
               }
             }
+          };
+
+          await Promise.all(Array.from({ length: Math.min(CONCURRENCY, chunkCount) }, () => worker()));
+
+          // Sort chunks chronologically by index
+          chunkResults.sort((a, b) => a.cIdx - b.cIdx);
+          for (const res of chunkResults) {
+            if (res.fullText) {
+              fullTextCombined += (fullTextCombined ? " " : "") + res.fullText;
+            }
+            allWords.push(...res.words);
           }
         }
       }

@@ -1141,6 +1141,21 @@ app.post("/api/xclips/clips", async (c) => {
   }
 });
 
+app.put("/api/xclips/clips/:id", async (c) => {
+  try {
+    const id = c.req.param("id");
+    const clip = await c.req.json();
+    if (!clip || !clip.id || clip.id !== id) {
+      return c.json({ ok: false, message: "Payload klip tidak valid" }, 400);
+    }
+    xclipsDb.saveClip(clip);
+    return c.json({ ok: true, clip });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Gagal memperbarui klip";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
 app.delete("/api/xclips/clips/:id", (c) => {
   const id = c.req.param("id");
   const deleted = xclipsDb.deleteClip(id);

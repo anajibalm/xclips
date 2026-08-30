@@ -219,16 +219,23 @@ export function AiSettingsModal() {
   const handleAutoSearchModels = async () => {
     setSearchingModels(true);
     try {
-      const queryParams = new URLSearchParams();
-      queryParams.set("provider", aiSettings.provider);
-      if (aiSettings.apiKey) queryParams.set("apiKey", aiSettings.apiKey);
-      if (aiSettings.baseUrl) queryParams.set("baseUrl", aiSettings.baseUrl);
-
-      const res = await apiFetch<{ ok: boolean; highlightModels?: string[] }>(
-        `/api/xclips/settings/models?${queryParams.toString()}`
+      const activeKey = aiSettings.apiKeys?.[aiSettings.provider] || aiSettings.apiKey;
+      const res = await apiFetch<{ ok: boolean; models?: string[]; highlightModels?: string[] }>(
+        "/api/xclips/ai/models",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            provider: aiSettings.provider,
+            apiKey: activeKey,
+            baseUrl: aiSettings.baseUrl,
+          }),
+        }
       );
-      if (res.ok && res.data?.highlightModels) {
-        setAvailableModels(res.data.highlightModels);
+      if (res.ok && res.data) {
+        const list = res.data.models || res.data.highlightModels || [];
+        if (list.length > 0) {
+          setAvailableModels(list);
+        }
       }
     } finally {
       setSearchingModels(false);
@@ -565,12 +572,12 @@ export function AiSettingsModal() {
                   </Typography>
                   <FormControl fullWidth size="small">
                     <Select
-                      value={aiSettings.highlightModel || "gemini-3-7-flash"}
+                      value={aiSettings.highlightModel || "gemini-3-6-flash"}
                       onChange={(e) => {
                         const selectedVal = e.target.value;
                         setAiSettings({
                           ...aiSettings,
-                          transcribeModel: "gemini-3-7-flash",
+                          transcribeModel: selectedVal,
                           highlightModel: selectedVal,
                         });
                       }}
@@ -582,8 +589,10 @@ export function AiSettingsModal() {
                         "& .MuiOutlinedInput-notchedOutline": { borderColor: "#23232b" },
                       }}
                     >
+                      <MenuItem value="gemini-3-6-flash">Gemini 3.6 Flash (Recommended)</MenuItem>
                       <MenuItem value="gemini-3-7-flash">Gemini 3.7 Flash</MenuItem>
                       <MenuItem value="gpt-5-6-terra">GPT 5.6 Terra</MenuItem>
+                      <MenuItem value="gpt-4o">GPT-4o</MenuItem>
                     </Select>
                   </FormControl>
                 </Box>

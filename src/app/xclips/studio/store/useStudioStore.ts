@@ -579,18 +579,18 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   fetchAvailableModels: async (provider, apiKey, baseUrl) => {
     set({ modelsLoading: true });
     try {
-      const queryParams = new URLSearchParams();
-      queryParams.set("provider", provider);
-      if (apiKey) queryParams.set("apiKey", apiKey);
-      if (baseUrl) queryParams.set("baseUrl", baseUrl);
-
-      const res = await apiFetch<{ ok: boolean; highlightModels?: string[]; transcribeModels?: string[] }>(
-        `/api/xclips/settings/models?${queryParams.toString()}`
+      const res = await apiFetch<{ ok: boolean; models?: string[]; highlightModels?: string[]; transcribeModels?: string[] }>(
+        "/api/xclips/ai/models",
+        {
+          method: "POST",
+          body: JSON.stringify({ provider, apiKey, baseUrl }),
+        }
       );
       if (res.ok && res.data) {
+        const modelList = res.data.models || res.data.highlightModels || [];
         set({
-          availableHighlightModels: res.data.highlightModels || [],
-          availableTranscribeModels: res.data.transcribeModels || [],
+          availableHighlightModels: modelList,
+          availableTranscribeModels: res.data.transcribeModels || modelList,
         });
       }
     } catch {

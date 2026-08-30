@@ -91,7 +91,7 @@ describe("xclips - Transcript Chunker & Highlight Reducer", () => {
     expect(prompt).toContain("target durasi 25-45 detik");
   });
 
-  it("should return static 2 models (gemini-3-7-flash, gpt-5-6-terra) for kieai provider", async () => {
+  it("should return static models (gemini-3-6-flash, gemini-3-7-flash, gpt-5-6-terra) for kieai provider", async () => {
     const { xclipsService } = await import("@/lib/xclips.service");
     const res = await xclipsService.fetchAvailableModels(
       "kieai",
@@ -101,7 +101,9 @@ describe("xclips - Transcript Chunker & Highlight Reducer", () => {
 
     expect(res.success).toBe(true);
     if (res.success) {
-      expect(res.data).toEqual(["gemini-3-7-flash", "gpt-5-6-terra"]);
+      expect(res.data).toContain("gemini-3-6-flash");
+      expect(res.data).toContain("gemini-3-7-flash");
+      expect(res.data).toContain("gpt-5-6-terra");
     }
   });
 

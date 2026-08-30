@@ -61,6 +61,13 @@ const PROVIDER_TRANSCRIBE_GROUPS: ProviderGroup[] = [
     label: "KIE AI (Multimodal Audio)",
     models: [
       {
+        id: "gemini-3-6-flash",
+        name: "gemini-3-6-flash",
+        provider: "kieai",
+        category: "multimodal",
+        description: "High-speed balanced multimodal transcribe (Recommended)",
+      },
+      {
         id: "gemini-3-7-flash",
         name: "gemini-3-7-flash",
         provider: "kieai",
