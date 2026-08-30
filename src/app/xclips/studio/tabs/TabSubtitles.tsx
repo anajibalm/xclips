@@ -26,7 +26,8 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DownloadIcon from "@mui/icons-material/Download";
 import SearchIcon from "@mui/icons-material/Search";
 import RecordVoiceOverIcon from "@mui/icons-material/RecordVoiceOver";
-import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
+import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import DeleteIcon from "@mui/icons-material/Delete";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { useStudioStore } from "../store/useStudioStore";
@@ -37,6 +38,8 @@ import { XclipsTranscript } from "@/lib/xclips/types";
 
 export function TabSubtitles() {
   const virtualScrollRef = useRef<HTMLDivElement>(null);
+  const activeInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingCursorPosRef = useRef<{ index: number; pos: number } | null>(null);
   const [editingPhraseIndex, setEditingPhraseIndex] = useState<number | null>(null);
   const [trackToDelete, setTrackToDelete] = useState<XclipsTranscript | null>(null);
   const [isDeletingTrack, setIsDeletingTrack] = useState<boolean>(false);
@@ -62,10 +65,6 @@ export function TabSubtitles() {
   const searchQuery = useStudioStore((s) => s.searchQuery);
   const setSearchQuery = useStudioStore((s) => s.setSearchQuery);
   const setScrollTop = useStudioStore((s) => s.setScrollTop);
-  const dragOverPhraseIndex = useStudioStore((s) => s.dragOverPhraseIndex);
-  const setDragOverPhraseIndex = useStudioStore((s) => s.setDragOverPhraseIndex);
-  const draggedPhraseIndex = useStudioStore((s) => s.draggedPhraseIndex);
-  const setDraggedPhraseIndex = useStudioStore((s) => s.setDraggedPhraseIndex);
   const handleSeek = useStudioStore((s) => s.handleSeek);
 
   const {
@@ -75,9 +74,27 @@ export function TabSubtitles() {
     visibleRange,
     currentActivePhrase,
     handleUpdatePhraseText,
+    handleSplitPhrase,
+    handleMergeWithPreviousPhrase,
+    handleMergeWithNextPhrase,
     handleReorderPhrases,
     renderHighlightedText,
   } = useTranscriptVirtualizer(virtualScrollRef);
+
+  // Restore cursor selection accurately when splitting or merging phrases
+  React.useEffect(() => {
+    if (pendingCursorPosRef.current && editingPhraseIndex === pendingCursorPosRef.current.index) {
+      const { pos } = pendingCursorPosRef.current;
+      const inputEl = activeInputRef.current;
+      if (inputEl) {
+        inputEl.focus();
+        try {
+          inputEl.setSelectionRange(pos, pos);
+        } catch {}
+      }
+      pendingCursorPosRef.current = null;
+    }
+  }, [editingPhraseIndex, phraseSegments]);
 
   const isYouTubeProject =
     project?.sourceType === "youtube" ||
@@ -475,40 +492,6 @@ export function TabSubtitles() {
               >
                 Download .SRT
               </Button>
-
-              {autoSaveStatus === "saving" && (
-                <Chip
-                  icon={<CircularProgress size={12} sx={{ color: "#60a5fa !important" }} />}
-                  label="Auto-saving..."
-                  size="small"
-                  sx={{
-                    height: 26,
-                    bgcolor: "rgba(59, 130, 246, 0.15)",
-                    color: "#93c5fd",
-                    fontWeight: 700,
-                    fontSize: "0.72rem",
-                    borderRadius: 0.8,
-                    border: "1px solid rgba(59, 130, 246, 0.3)",
-                  }}
-                />
-              )}
-
-              {autoSaveStatus === "saved" && (
-                <Chip
-                  icon={<CheckCircleIcon sx={{ fontSize: "0.9rem !important", color: "#4ade80" }} />}
-                  label="Auto-saved"
-                  size="small"
-                  sx={{
-                    height: 26,
-                    bgcolor: "rgba(34, 197, 94, 0.15)",
-                    color: "#4ade80",
-                    fontWeight: 700,
-                    fontSize: "0.72rem",
-                    borderRadius: 0.8,
-                    border: "1px solid rgba(34, 197, 94, 0.3)",
-                  }}
-                />
-              )}
             </Box>
           </Box>
 
@@ -584,8 +567,6 @@ export function TabSubtitles() {
 
                     // Exactly one active playhead matching the video preview
                     const isActive = currentActivePhrase !== undefined && (currentActivePhrase.id === seg.id || currentActivePhrase.index === seg.index);
-                    const isDragOver = dragOverPhraseIndex === seg.index;
-                    const isBeingDragged = draggedPhraseIndex === seg.index;
                     const hasSearchMatch = searchQuery.trim() && seg.text.toLowerCase().includes(searchQuery.toLowerCase());
 
                     return (
@@ -604,38 +585,18 @@ export function TabSubtitles() {
                       >
                         <Card
                           onClick={() => handleSeek(seg.startSec)}
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                            setDragOverPhraseIndex(seg.index);
-                          }}
-                          onDragLeave={() => {
-                            if (dragOverPhraseIndex === seg.index) setDragOverPhraseIndex(null);
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            if (draggedPhraseIndex !== null && draggedPhraseIndex !== seg.index) {
-                              handleReorderPhrases(draggedPhraseIndex, seg.index);
-                            }
-                            setDraggedPhraseIndex(null);
-                            setDragOverPhraseIndex(null);
-                          }}
                           sx={{
                             height: "100%",
                             p: 0.6,
                             px: 1,
                             boxSizing: "border-box",
-                            bgcolor: isDragOver
-                              ? "rgba(59, 130, 246, 0.2)"
-                              : isActive
+                            bgcolor: isActive
                               ? "rgba(59, 130, 246, 0.12)"
                               : "#121216",
-                            border: isDragOver
-                              ? "2px dashed #3b82f6"
-                              : isActive
+                            border: isActive
                               ? "1.5px solid #3b82f6"
                               : "1px solid #232328",
                             borderRadius: 1,
-                            opacity: isBeingDragged ? 0.4 : 1,
                             display: "flex",
                             flexDirection: "row",
                             alignItems: "center",
@@ -646,23 +607,45 @@ export function TabSubtitles() {
                         >
                           {/* Single Horizontal Row */}
                           <Box sx={{ display: "flex", alignItems: "center", gap: 0.8, width: "100%" }}>
-                            {/* Drag Handle & Phrase Index */}
-                            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexShrink: 0 }}>
-                              <Box
-                                draggable
-                                onDragStart={(e) => {
-                                  e.stopPropagation();
-                                  setDraggedPhraseIndex(seg.index);
-                                }}
-                                sx={{
-                                  cursor: "grab",
-                                  color: "#52525b",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  "&:hover": { color: "#e4e4e7" },
-                                }}
-                              >
-                                <DragIndicatorIcon sx={{ fontSize: "0.95rem" }} />
+                            {/* Up / Down Reorder Navigation Buttons & Phrase Index */}
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 0.3, flexShrink: 0 }}>
+                              <Box sx={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                                <IconButton
+                                  size="small"
+                                  disabled={seg.index === 0}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleReorderPhrases(seg.index, seg.index - 1);
+                                  }}
+                                  sx={{
+                                    p: 0,
+                                    width: 16,
+                                    height: 11,
+                                    color: seg.index === 0 ? "#3f3f46" : "#a1a1aa",
+                                    "&:hover": { color: "#38bdf8" },
+                                  }}
+                                  title="Pindahkan ke atas (Shift Up)"
+                                >
+                                  <KeyboardArrowUpIcon sx={{ fontSize: "1.05rem" }} />
+                                </IconButton>
+                                <IconButton
+                                  size="small"
+                                  disabled={seg.index === phraseSegments.length - 1}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleReorderPhrases(seg.index, seg.index + 1);
+                                  }}
+                                  sx={{
+                                    p: 0,
+                                    width: 16,
+                                    height: 11,
+                                    color: seg.index === phraseSegments.length - 1 ? "#3f3f46" : "#a1a1aa",
+                                    "&:hover": { color: "#38bdf8" },
+                                  }}
+                                  title="Pindahkan ke bawah (Shift Down)"
+                                >
+                                  <KeyboardArrowDownIcon sx={{ fontSize: "1.05rem" }} />
+                                </IconButton>
                               </Box>
                               <Chip
                                 label={`#${(seg.index + 1).toString().padStart(2, "0")}`}
@@ -736,6 +719,61 @@ export function TabSubtitles() {
                                 autoFocus={editingPhraseIndex === seg.index}
                                 onBlur={() => setEditingPhraseIndex(null)}
                                 onChange={(e) => handleUpdatePhraseText(seg.index, e.target.value)}
+                                inputRef={(el: HTMLInputElement | null) => {
+                                  if (editingPhraseIndex === seg.index && el) {
+                                    activeInputRef.current = el;
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  const inputEl = e.target as HTMLInputElement;
+                                  if (!inputEl) return;
+                                  const cursorPos = inputEl.selectionStart ?? inputEl.value.length;
+                                  const selEnd = inputEl.selectionEnd ?? cursorPos;
+
+                                  // Split on Enter
+                                  if (e.key === "Enter" && !e.shiftKey) {
+                                    e.preventDefault();
+                                    const didSplit = handleSplitPhrase(seg.index, cursorPos, inputEl.value);
+                                    if (didSplit) {
+                                      pendingCursorPosRef.current = { index: seg.index + 1, pos: 0 };
+                                      setEditingPhraseIndex(seg.index + 1);
+                                    }
+                                    return;
+                                  }
+
+                                  // Dissolve empty phrase 0 on Backspace or Delete if other phrases exist
+                                  if ((e.key === "Backspace" || e.key === "Delete") && inputEl.value === "" && seg.index === 0 && phraseSegments.length > 1) {
+                                    e.preventDefault();
+                                    const result = handleMergeWithNextPhrase(0);
+                                    if (result) {
+                                      pendingCursorPosRef.current = { index: 0, pos: 0 };
+                                      setEditingPhraseIndex(0);
+                                    }
+                                    return;
+                                  }
+
+                                  // Merge with previous phrase on Backspace at start (cursorPos === 0)
+                                  if (e.key === "Backspace" && cursorPos === 0 && selEnd === 0 && seg.index > 0) {
+                                    e.preventDefault();
+                                    const result = handleMergeWithPreviousPhrase(seg.index);
+                                    if (result) {
+                                      pendingCursorPosRef.current = { index: result.mergedIndex, pos: result.cursorOffset };
+                                      setEditingPhraseIndex(result.mergedIndex);
+                                    }
+                                    return;
+                                  }
+
+                                  // Merge with next phrase on Delete at end of phrase
+                                  if (e.key === "Delete" && cursorPos === inputEl.value.length && selEnd === inputEl.value.length && seg.index < phraseSegments.length - 1) {
+                                    e.preventDefault();
+                                    const result = handleMergeWithNextPhrase(seg.index);
+                                    if (result) {
+                                      pendingCursorPosRef.current = { index: result.mergedIndex, pos: result.cursorOffset };
+                                      setEditingPhraseIndex(result.mergedIndex);
+                                    }
+                                    return;
+                                  }
+                                }}
                                 onFocus={() => handleSeek(seg.startSec)}
                                 slotProps={{
                                   htmlInput: {

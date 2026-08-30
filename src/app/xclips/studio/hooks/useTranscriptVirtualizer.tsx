@@ -101,20 +101,23 @@ export function useTranscriptVirtualizer(virtualScrollRef: React.RefObject<HTMLD
     );
   }, [filteredPhrases, currentTime, subtitleOffsetMs]);
 
-  const isAutoScrollingRef = useRef(false);
+  // Auto-scroll to active playing phrase (Instant Jump without layout thrashing)
   useEffect(() => {
     if (!autoScrollToPlayhead || activePhraseIndex === -1 || !virtualScrollRef.current) return;
     const pos = itemPositions.positions[activePhraseIndex];
-    if (!pos || isAutoScrollingRef.current) return;
+    if (!pos) return;
 
-    const targetScroll = Math.max(0, pos.top - containerHeight / 2 + pos.height / 2);
-    const diff = Math.abs(virtualScrollRef.current.scrollTop - targetScroll);
-    if (diff > 140) {
-      isAutoScrollingRef.current = true;
-      virtualScrollRef.current.scrollTo({ top: targetScroll, behavior: "smooth" });
-      setTimeout(() => {
-        isAutoScrollingRef.current = false;
-      }, 400);
+    const el = virtualScrollRef.current;
+    const currentScrollTop = el.scrollTop;
+    const viewportHeight = el.clientHeight || containerHeight;
+
+    // Check if active item is outside current viewport bounds
+    const isAboveViewport = pos.top < currentScrollTop;
+    const isBelowViewport = pos.top + pos.height > currentScrollTop + viewportHeight;
+
+    if (isAboveViewport || isBelowViewport) {
+      const targetScroll = Math.max(0, Math.round(pos.top - viewportHeight / 2 + pos.height / 2));
+      el.scrollTop = targetScroll;
     }
   }, [activePhraseIndex, autoScrollToPlayhead, itemPositions, virtualScrollRef, containerHeight]);
 
@@ -123,19 +126,88 @@ export function useTranscriptVirtualizer(virtualScrollRef: React.RefObject<HTMLD
     const segment = phraseSegments[phraseIndex];
     if (!segment) return;
 
-    const newWordTokens = newText.trim().split(/\s+/).filter(Boolean);
-    if (newWordTokens.length === 0) return;
+    const trimmed = newText.trim();
+    let newWordsForPhrase: WordTimestamp[] = [];
 
-    const dur = Math.max(0.2, segment.endSec - segment.startSec);
-    const tokenDur = dur / newWordTokens.length;
+    if (!trimmed) {
+      // User deleted all characters: preserve empty placeholder word so the phrase is cleared smoothly
+      newWordsForPhrase = [
+        {
+          word: "",
+          start: segment.startSec,
+          end: segment.endSec,
+          confidence: 1.0,
+          isFiller: false,
+          excluded: false,
+          breakAfter: true,
+        },
+      ];
+    } else {
+      const newWordTokens = trimmed.split(/\s+/).filter(Boolean);
+      const dur = Math.max(0.2, segment.endSec - segment.startSec);
+      const tokenDur = dur / newWordTokens.length;
 
-    const newWordsForPhrase: WordTimestamp[] = newWordTokens.map((token, i) => {
-      // Try to preserve original word timestamps if token unchanged
-      const origWord = segment.words[i];
-      if (origWord && origWord.word.toLowerCase() === token.toLowerCase() && newWordTokens.length === segment.words.length) {
-        return { ...origWord, word: token };
+      newWordsForPhrase = newWordTokens.map((token, i) => {
+        const isLastToken = i === newWordTokens.length - 1;
+        const origWord = segment.words[i];
+        if (origWord && origWord.word.toLowerCase() === token.toLowerCase() && newWordTokens.length === segment.words.length) {
+          return { ...origWord, word: token, breakAfter: isLastToken };
+        }
+
+        return {
+          word: token,
+          start: parseFloat((segment.startSec + i * tokenDur).toFixed(2)),
+          end: parseFloat((segment.startSec + (i + 1) * tokenDur).toFixed(2)),
+          confidence: 1.0,
+          isFiller: false,
+          excluded: false,
+          breakAfter: isLastToken,
+        };
+      });
+    }
+
+    const updatedFullList: WordTimestamp[] = [];
+    phraseSegments.forEach((seg, sIdx) => {
+      if (sIdx === phraseIndex) {
+        updatedFullList.push(...newWordsForPhrase);
+      } else {
+        const segWords = seg.words.map((w, wIdx) => ({
+          ...w,
+          breakAfter: wIdx === seg.words.length - 1,
+        }));
+        updatedFullList.push(...segWords);
       }
+    });
 
+    setEditableWords(updatedFullList);
+  };
+
+  // Split a phrase at cursor position into two distinct phrases
+  const handleSplitPhrase = (phraseIndex: number, cursorPosition: number, fullText: string): boolean => {
+    const segment = phraseSegments[phraseIndex];
+    if (!segment) return false;
+
+    const textBefore = fullText.slice(0, cursorPosition).trim();
+    const textAfter = fullText.slice(cursorPosition).trim();
+
+    // If either part is empty, cannot split
+    if (!textBefore || !textAfter) return false;
+
+    const tokensBefore = textBefore.split(/\s+/).filter(Boolean);
+    const tokensAfter = textAfter.split(/\s+/).filter(Boolean);
+    const totalTokens = tokensBefore.length + tokensAfter.length;
+    if (totalTokens === 0) return false;
+
+    const dur = Math.max(0.4, segment.endSec - segment.startSec);
+    const tokenDur = dur / totalTokens;
+
+    // Build words for first split phrase
+    const wordsBefore: WordTimestamp[] = tokensBefore.map((token, i) => {
+      const isLast = i === tokensBefore.length - 1;
+      const origWord = segment.words[i];
+      if (origWord && origWord.word.toLowerCase() === token.toLowerCase() && i < segment.words.length) {
+        return { ...origWord, word: token, breakAfter: isLast };
+      }
       return {
         word: token,
         start: parseFloat((segment.startSec + i * tokenDur).toFixed(2)),
@@ -143,31 +215,109 @@ export function useTranscriptVirtualizer(virtualScrollRef: React.RefObject<HTMLD
         confidence: 1.0,
         isFiller: false,
         excluded: false,
+        breakAfter: isLast,
+      };
+    });
+
+    // Boundary timestamp between phrase 1 and phrase 2
+    const splitBoundarySec = wordsBefore.length > 0 
+      ? wordsBefore[wordsBefore.length - 1].end 
+      : segment.startSec + (tokensBefore.length * tokenDur);
+
+    // Build words for second split phrase
+    const wordsAfter: WordTimestamp[] = tokensAfter.map((token, i) => {
+      const origIdx = tokensBefore.length + i;
+      const isLast = i === tokensAfter.length - 1;
+      const origWord = segment.words[origIdx];
+      if (origWord && origWord.word.toLowerCase() === token.toLowerCase() && origIdx < segment.words.length) {
+        return { ...origWord, word: token, breakAfter: isLast };
+      }
+      return {
+        word: token,
+        start: parseFloat((splitBoundarySec + i * tokenDur).toFixed(2)),
+        end: parseFloat((splitBoundarySec + (i + 1) * tokenDur).toFixed(2)),
+        confidence: 1.0,
+        isFiller: false,
+        excluded: false,
+        breakAfter: isLast,
       };
     });
 
     const updatedFullList: WordTimestamp[] = [];
     phraseSegments.forEach((seg, sIdx) => {
       if (sIdx === phraseIndex) {
-        updatedFullList.push(...newWordsForPhrase);
+        updatedFullList.push(...wordsBefore, ...wordsAfter);
       } else {
-        updatedFullList.push(...seg.words);
+        const segWords = seg.words.map((w, wIdx) => ({
+          ...w,
+          breakAfter: wIdx === seg.words.length - 1,
+        }));
+        updatedFullList.push(...segWords);
       }
     });
 
     setEditableWords(updatedFullList);
+    return true;
   };
 
-  // Reorder phrase segments via drag and drop
+  // Merge phrase with previous phrase on Backspace at start (cursor index 0)
+  const handleMergeWithPreviousPhrase = (phraseIndex: number): { mergedIndex: number; cursorOffset: number } | null => {
+    if (phraseIndex <= 0 || phraseIndex >= phraseSegments.length) return null;
+
+    const prevSegment = phraseSegments[phraseIndex - 1];
+    const currSegment = phraseSegments[phraseIndex];
+    if (!prevSegment || !currSegment) return null;
+
+    const prevWords = prevSegment.words.map((w) => ({ ...w, breakAfter: false }));
+    const currWords = currSegment.words.map((w, idx) => ({
+      ...w,
+      breakAfter: idx === currSegment.words.length - 1,
+    }));
+
+    const mergedWords = [...prevWords, ...currWords];
+
+    const updatedFullList: WordTimestamp[] = [];
+    phraseSegments.forEach((seg, sIdx) => {
+      if (sIdx === phraseIndex - 1) {
+        updatedFullList.push(...mergedWords);
+      } else if (sIdx === phraseIndex) {
+        // merged into previous, skip
+      } else {
+        const segWords = seg.words.map((w, wIdx) => ({
+          ...w,
+          breakAfter: wIdx === seg.words.length - 1,
+        }));
+        updatedFullList.push(...segWords);
+      }
+    });
+
+    setEditableWords(updatedFullList);
+    return {
+      mergedIndex: phraseIndex - 1,
+      cursorOffset: prevSegment.text.length,
+    };
+  };
+
+  // Merge phrase with next phrase on Delete key at end of phrase
+  const handleMergeWithNextPhrase = (phraseIndex: number): { mergedIndex: number; cursorOffset: number } | null => {
+    if (phraseIndex < 0 || phraseIndex >= phraseSegments.length - 1) return null;
+    return handleMergeWithPreviousPhrase(phraseIndex + 1);
+  };
+
+  // Reorder phrase segments via index shifting (Up/Down)
   const handleReorderPhrases = (fromIndex: number, toIndex: number) => {
-    if (fromIndex === toIndex) return;
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= phraseSegments.length || toIndex >= phraseSegments.length) return;
     const reordered = [...phraseSegments];
     const [moved] = reordered.splice(fromIndex, 1);
     reordered.splice(toIndex, 0, moved);
 
     const newWordsList: WordTimestamp[] = [];
     reordered.forEach((seg) => {
-      newWordsList.push(...seg.words);
+      const segWords = seg.words.map((w, wIdx) => ({
+        ...w,
+        breakAfter: wIdx === seg.words.length - 1,
+      }));
+      newWordsList.push(...segWords);
     });
     setEditableWords(newWordsList);
   };
@@ -213,6 +363,9 @@ export function useTranscriptVirtualizer(virtualScrollRef: React.RefObject<HTMLD
     currentActivePhrase,
     activePhraseIndex,
     handleUpdatePhraseText,
+    handleSplitPhrase,
+    handleMergeWithPreviousPhrase,
+    handleMergeWithNextPhrase,
     handleReorderPhrases,
     renderHighlightedText,
   };

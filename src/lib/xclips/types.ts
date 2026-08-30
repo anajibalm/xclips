@@ -11,6 +11,7 @@ export const WordTimestampSchema = z.object({
   confidence: z.number().optional().default(1.0),
   isFiller: z.boolean().optional().default(false),
   excluded: z.boolean().optional().default(false),
+  breakAfter: z.boolean().optional(),
 });
 
 export type WordTimestamp = z.infer<typeof WordTimestampSchema>;

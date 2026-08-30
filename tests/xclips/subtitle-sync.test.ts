@@ -187,4 +187,114 @@ Selamat mendengarkan
       expect(words[3].word).toBe("Selamat");
     });
   });
+
+  describe("Phrase Split & Reorder Verification", () => {
+    it("should segment and allow splitting a phrase into two distinct segments", () => {
+      const initialWords: WordTimestamp[] = [
+        { word: "Selamat", start: 1.0, end: 1.5 },
+        { word: "pagi", start: 1.5, end: 2.0 },
+        { word: "sahabat", start: 2.0, end: 2.5 },
+        { word: "semua", start: 2.5, end: 3.0 },
+      ];
+
+      const initialPhrases = segmentPhrases(initialWords);
+      expect(initialPhrases.length).toBe(1);
+      expect(initialPhrases[0].text).toBe("Selamat pagi sahabat semua");
+
+      // Split after "Selamat pagi"
+      const wordsPart1: WordTimestamp[] = [
+        { word: "Selamat", start: 1.0, end: 1.5 },
+        { word: "pagi.", start: 1.5, end: 2.0 },
+      ];
+      const wordsPart2: WordTimestamp[] = [
+        { word: "Sahabat", start: 2.0, end: 2.5 },
+        { word: "semua", start: 2.5, end: 3.0 },
+      ];
+      const splitWords = [...wordsPart1, ...wordsPart2];
+      const splitPhrases = segmentPhrases(splitWords);
+
+      expect(splitPhrases.length).toBe(2);
+      expect(splitPhrases[0].text).toBe("Selamat pagi.");
+      expect(splitPhrases[1].text).toBe("Sahabat semua");
+      expect(splitPhrases[0].startSec).toBe(1.0);
+      expect(splitPhrases[0].endSec).toBe(2.0);
+      expect(splitPhrases[1].startSec).toBe(2.0);
+      expect(splitPhrases[1].endSec).toBe(3.0);
+    });
+
+    it("should maintain timestamp integrity after reordering phrase segments", () => {
+      const phrase1Words: WordTimestamp[] = [
+        { word: "Frasa", start: 1.0, end: 1.5 },
+        { word: "Satu.", start: 1.5, end: 2.0, breakAfter: true },
+      ];
+      const phrase2Words: WordTimestamp[] = [
+        { word: "Frasa", start: 3.0, end: 3.5 },
+        { word: "Dua.", start: 3.5, end: 4.0, breakAfter: true },
+      ];
+
+      // Reorder phrase 2 before phrase 1
+      const reorderedWords = [...phrase2Words, ...phrase1Words];
+      const reorderedPhrases = segmentPhrases(reorderedWords);
+
+      expect(reorderedPhrases.length).toBe(2);
+      expect(reorderedPhrases[0].text).toBe("Frasa Dua.");
+      expect(reorderedPhrases[1].text).toBe("Frasa Satu.");
+      expect(reorderedPhrases[0].startSec).toBe(3.0);
+      expect(reorderedPhrases[1].startSec).toBe(1.0);
+    });
+
+    it("should NOT absorb words from the next phrase when deleting words in the first phrase (backspace isolation)", () => {
+      const phrase1Words: WordTimestamp[] = [
+        { word: "Hanya", start: 1.0, end: 1.5, breakAfter: true }, // reduced to 1 word with breakAfter
+      ];
+      const phrase2Words: WordTimestamp[] = [
+        { word: "kalimat", start: 2.0, end: 2.5 },
+        { word: "berikutnya", start: 2.5, end: 3.0, breakAfter: true },
+      ];
+
+      const allWords = [...phrase1Words, ...phrase2Words];
+      const phrases = segmentPhrases(allWords);
+
+      // Must remain 2 separate phrases, not merged into 1
+      expect(phrases.length).toBe(2);
+      expect(phrases[0].text).toBe("Hanya");
+      expect(phrases[1].text).toBe("kalimat berikutnya");
+    });
+
+    it("should merge two phrases into one when breakAfter is cleared (backspace at start)", () => {
+      const phrase1Words: WordTimestamp[] = [
+        { word: "Halo", start: 1.0, end: 1.5, breakAfter: false }, // break cleared on merge
+      ];
+      const phrase2Words: WordTimestamp[] = [
+        { word: "dunia", start: 1.5, end: 2.0, breakAfter: true },
+      ];
+
+      const mergedWords = [...phrase1Words, ...phrase2Words];
+      const phrases = segmentPhrases(mergedWords);
+
+      expect(phrases.length).toBe(1);
+      expect(phrases[0].text).toBe("Halo dunia");
+      expect(phrases[0].startSec).toBe(1.0);
+      expect(phrases[0].endSec).toBe(2.0);
+    });
+
+    it("should allow clearing all text in the first phrase (empty placeholder word) without crashing or disappearing", () => {
+      const phrase1Words: WordTimestamp[] = [
+        { word: "", start: 1.0, end: 2.0, breakAfter: true }, // empty phrase placeholder
+      ];
+      const phrase2Words: WordTimestamp[] = [
+        { word: "Kalimat", start: 2.5, end: 3.0 },
+        { word: "kedua", start: 3.0, end: 3.5, breakAfter: true },
+      ];
+
+      const allWords = [...phrase1Words, ...phrase2Words];
+      const phrases = segmentPhrases(allWords);
+
+      expect(phrases.length).toBe(2);
+      expect(phrases[0].text).toBe("");
+      expect(phrases[0].startSec).toBe(1.0);
+      expect(phrases[0].endSec).toBe(2.0);
+      expect(phrases[1].text).toBe("Kalimat kedua");
+    });
+  });
 });

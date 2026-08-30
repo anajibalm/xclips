@@ -41,8 +41,11 @@ export function segmentPhrases(
   const maxGapSec = options?.maxGapSec ?? DEFAULT_MAX_GAP_SEC;
   const breakRegex = options?.breakRegex ?? DEFAULT_BREAK_REGEX;
 
-  const validWords = words.filter((w) => !w.excluded && w.word && w.word.trim().length > 0);
+  const validWords = words.filter((w) => !w.excluded && w.word !== undefined && w.word !== null);
   if (validWords.length === 0) return [];
+
+  // Check if explicit segmentation markers (breakAfter) exist
+  const hasExplicitBreaks = validWords.some((w) => w.breakAfter === true);
 
   const phrases: PhraseSegment[] = [];
   let currentWords: WordTimestamp[] = [];
@@ -51,21 +54,34 @@ export function segmentPhrases(
     const word = validWords[i];
     const prevWord = currentWords[currentWords.length - 1];
 
-    // Check if there is a significant pause gap between words
-    const isGapBreak = prevWord ? word.start - prevWord.end >= maxGapSec : false;
-    const isPunctuationBreak = prevWord ? breakRegex.test(prevWord.word.trim()) : false;
-    const isMaxWordsReached = currentWords.length >= maxWords;
+    let shouldBreak = false;
+    if (prevWord) {
+      if (hasExplicitBreaks) {
+        // Strict explicit break: only break where breakAfter was set
+        shouldBreak = prevWord.breakAfter === true;
+      } else {
+        // Heuristic break for unsegmented raw words
+        const isGapBreak = word.start - prevWord.end >= maxGapSec;
+        const isPunctuationBreak = prevWord.word ? breakRegex.test(prevWord.word.trim()) : false;
+        const isMaxWordsReached = currentWords.length >= maxWords;
+        shouldBreak = isGapBreak || isPunctuationBreak || isMaxWordsReached;
+      }
+    }
 
-    if (currentWords.length > 0 && (isGapBreak || isPunctuationBreak || isMaxWordsReached)) {
+    if (currentWords.length > 0 && shouldBreak) {
       const phraseStart = currentWords[0].start;
       const phraseEnd = currentWords[currentWords.length - 1].end;
+      // Ensure the boundary word is marked with breakAfter
+      const finalWords = currentWords.map((w, idx) =>
+        idx === currentWords.length - 1 ? { ...w, breakAfter: true } : w
+      );
       phrases.push({
         id: `phrase_${phrases.length}_${Math.round(phraseStart * 100)}`,
         index: phrases.length,
         startSec: phraseStart,
         endSec: phraseEnd,
-        text: currentWords.map((w) => w.word).join(" "),
-        words: [...currentWords],
+        text: finalWords.map((w) => w.word).filter(Boolean).join(" ").trim(),
+        words: finalWords,
       });
       currentWords = [];
     }
@@ -76,13 +92,16 @@ export function segmentPhrases(
   if (currentWords.length > 0) {
     const phraseStart = currentWords[0].start;
     const phraseEnd = currentWords[currentWords.length - 1].end;
+    const finalWords = currentWords.map((w, idx) =>
+      idx === currentWords.length - 1 ? { ...w, breakAfter: true } : w
+    );
     phrases.push({
       id: `phrase_${phrases.length}_${Math.round(phraseStart * 100)}`,
       index: phrases.length,
       startSec: phraseStart,
       endSec: phraseEnd,
-      text: currentWords.map((w) => w.word).join(" "),
-      words: [...currentWords],
+      text: finalWords.map((w) => w.word).filter(Boolean).join(" ").trim(),
+      words: finalWords,
     });
   }
 
