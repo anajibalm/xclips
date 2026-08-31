@@ -89,6 +89,19 @@ describe("xclips - Transcript Chunker & Highlight Reducer", () => {
     expect(prompt).toContain("Strategi risk management trading kripto");
     expect(prompt).toContain("STRICT NARRATIVE BOUNDARY");
     expect(prompt).toContain("target duration 30-45 seconds");
+    expect(prompt).toContain("LANGUAGE REQUIREMENT (CRITICAL)");
+
+    // Test explicit Indonesian language
+    const promptId = buildHighlightPrompt(chunk, {
+      outputLanguage: "id",
+    });
+    expect(promptId).toContain("BAHASA INDONESIA");
+
+    // Test explicit Spanish language
+    const promptEs = buildHighlightPrompt(chunk, {
+      outputLanguage: "es",
+    });
+    expect(promptEs).toContain("Spanish");
   });
 
   it("should return static models (gemini-3-6-flash, gemini-3-7-flash, gpt-5-6-terra) for kieai provider", async () => {

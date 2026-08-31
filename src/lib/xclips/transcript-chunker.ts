@@ -100,6 +100,7 @@ export function buildHighlightPrompt(
     hookFormula?: string;
     targetDuration?: "short" | "standard" | "long" | "extended";
     strictBoundary?: boolean;
+    outputLanguage?: string;
     videoMetadata?: {
       title?: string;
       channel?: string;
@@ -134,6 +135,26 @@ export function buildHighlightPrompt(
     ? `\nSTRICT NARRATIVE BOUNDARY:\n- Clip start (startSec) MUST align with the beginning of a complete, standalone thought/sentence (with natural opening context).\n- Clip end (endSec) MUST land cleanly after the thought or grammatical sentence concludes (NEVER cut off mid-sentence or leave thoughts hanging).\n`
     : "";
 
+  const langCode = options?.outputLanguage || "auto";
+  let languageInstruction = "";
+  if (langCode === "auto") {
+    languageInstruction = `\nLANGUAGE REQUIREMENT (CRITICAL):\n- Auto-detect the primary spoken language used in the provided TRANSCRIPT chunk.\n- ALL output fields ("title", "hookText", "summary") MUST be written strictly and naturally in that SAME detected transcript language (e.g. if the transcript is in Indonesian, write 100% fluent Indonesian title, hookText, and summary).\n- DO NOT translate or default to English if the transcript is in Indonesian or another non-English language.\n`;
+  } else if (langCode === "id") {
+    languageInstruction = `\nLANGUAGE REQUIREMENT (CRITICAL):\n- ALL output fields ("title", "hookText", "summary") MUST be written strictly in natural, engaging BAHASA INDONESIA.\n- DO NOT output in English or any other language.\n`;
+  } else {
+    const langMap: Record<string, string> = {
+      en: "English",
+      es: "Spanish (Español)",
+      ja: "Japanese (日本語)",
+      ko: "Korean (한국어)",
+      ar: "Arabic (العربية)",
+      de: "German (Deutsch)",
+      fr: "French (Français)",
+    };
+    const targetName = langMap[langCode] || langCode;
+    languageInstruction = `\nLANGUAGE REQUIREMENT (CRITICAL):\n- ALL output fields ("title", "hookText", "summary") MUST be written strictly in ${targetName}.\n`;
+  }
+
   let metadataContext = "";
   if (options?.videoMetadata) {
     const metaParts: string[] = [];
@@ -150,7 +171,7 @@ export function buildHighlightPrompt(
 
   return `You are a professional AI Video Producer & Short-Form Content Strategist (TikTok, Reels, Shorts).
 Your goal is to analyze the following transcript segment (from second ${chunk.startSec.toFixed(0)} to ${chunk.endSec.toFixed(0)}) and identify 2 to 4 highest-value, highly engaging, and coherent short-form clip moments (target duration ${minSec}-${maxSec} seconds per clip).
-${metadataContext}${topicInstruction}${formulaInstruction}${boundaryInstruction}
+${languageInstruction}${metadataContext}${topicInstruction}${formulaInstruction}${boundaryInstruction}
 TRANSCRIPT:
 """
 ${chunk.text}
@@ -162,16 +183,17 @@ OUTPUT RULES:
 {
   "highlights": [
     {
-      "title": "Short Catchy Title (Max 5 Words)",
-      "hookText": "Opening 3-second hook that sparks instant curiosity",
+      "title": "Short Catchy Title in Target Language (Max 5 Words)",
+      "hookText": "Opening 3-second hook in Target Language that sparks instant curiosity",
       "viralScore": 92, // Integer 0-100
       "startSec": 124.5, // Absolute start time in seconds
       "endSec": 178.0, // Absolute end time in seconds
-      "summary": "Brief explanation of core takeaway and why this clip converts"
+      "summary": "Brief explanation in Target Language of core takeaway and why this clip converts"
     }
   ]
 }
-3. Ensure startSec and endSec stay strictly within [${chunk.startSec.toFixed(0)}, ${chunk.endSec.toFixed(0)}] with clip duration between ${minSec} and ${maxSec} seconds.`;
+3. Ensure startSec and endSec stay strictly within [${chunk.startSec.toFixed(0)}, ${chunk.endSec.toFixed(0)}] with clip duration between ${minSec} and ${maxSec} seconds.
+4. Ensure "title", "hookText", and "summary" strictly adhere to the LANGUAGE REQUIREMENT above.`;
 }
 
 /**

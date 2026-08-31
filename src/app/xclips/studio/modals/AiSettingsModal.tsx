@@ -547,7 +547,7 @@ export function AiSettingsModal() {
                   </Typography>
                   <FormControl fullWidth size="small">
                     <Select
-                      value={aiSettings.highlightModel || "gemini-3-6-flash"}
+                      value={aiSettings.highlightModel || "gemini-3-7-flash"}
                       onChange={(e) => {
                         const selectedVal = e.target.value;
                         setAiSettings({
@@ -564,10 +564,10 @@ export function AiSettingsModal() {
                         "& .MuiOutlinedInput-notchedOutline": { borderColor: "#23232b" },
                       }}
                     >
-                      <MenuItem value="gemini-3-6-flash">Gemini 3.6 Flash (Recommended)</MenuItem>
-                      <MenuItem value="gemini-3-7-flash">Gemini 3.7 Flash</MenuItem>
-                      <MenuItem value="gpt-5-6-terra">GPT 5.6 Terra</MenuItem>
+                      <MenuItem value="gemini-3-7-flash">Gemini 3.7 Flash (Recommended)</MenuItem>
+                      <MenuItem value="gemini-3-6-flash">Gemini 3.6 Flash</MenuItem>
                       <MenuItem value="gpt-4o">GPT-4o</MenuItem>
+                      <MenuItem value="gpt-4o-mini">GPT-4o Mini</MenuItem>
                     </Select>
                   </FormControl>
                 </Box>
@@ -583,7 +583,7 @@ export function AiSettingsModal() {
                       </Typography>
                       <FormControl fullWidth size="small">
                         <Select
-                          value={aiSettings.transcribeModel || "gpt-transcribe"}
+                          value={aiSettings.transcribeModel || "whisper-1"}
                           onChange={(e) => {
                             setAiSettings({
                               ...aiSettings,
@@ -598,10 +598,9 @@ export function AiSettingsModal() {
                             "& .MuiOutlinedInput-notchedOutline": { borderColor: "#23232b" },
                           }}
                         >
+                          <MenuItem value="whisper-1">Whisper 1 (Official)</MenuItem>
+                          <MenuItem value="gpt-4o-audio-preview">GPT-4o Audio Preview</MenuItem>
                           <MenuItem value="gpt-transcribe">GPT Transcribe</MenuItem>
-                          <MenuItem value="gpt-4o-transcribe">GPT-4o Transcribe</MenuItem>
-                          <MenuItem value="gpt-4o-mini-transcribe">GPT-4o Mini Transcribe</MenuItem>
-                          <MenuItem value="whisper-1">Whisper 1</MenuItem>
                         </Select>
                       </FormControl>
                     </Box>
@@ -614,7 +613,7 @@ export function AiSettingsModal() {
                       </Typography>
                       <FormControl fullWidth size="small">
                         <Select
-                          value={aiSettings.highlightModel || "gpt-5.6-luna"}
+                          value={aiSettings.highlightModel || "gpt-4o"}
                           onChange={(e) => {
                             setAiSettings({
                               ...aiSettings,
@@ -629,13 +628,11 @@ export function AiSettingsModal() {
                             "& .MuiOutlinedInput-notchedOutline": { borderColor: "#23232b" },
                           }}
                         >
-                          <MenuItem value="gpt-5.6-luna">GPT 5.6 Luna</MenuItem>
-                          <MenuItem value="gpt-5-6-terra">GPT 5.6 Terra</MenuItem>
-                          <MenuItem value="gpt-5-6-sol">GPT 5.6 Sol</MenuItem>
-                          <MenuItem value="gpt-5-6-luna">GPT 5.6 Luna (Alt)</MenuItem>
-                          <MenuItem value="gpt-4o">GPT 4o</MenuItem>
-                          <MenuItem value="gpt-4o-mini">GPT 4o Mini</MenuItem>
-                          <MenuItem value="gpt-image-2">GPT Image 2</MenuItem>
+                          <MenuItem value="gpt-4o">GPT-4o (Recommended)</MenuItem>
+                          <MenuItem value="gpt-4o-mini">GPT-4o Mini (Fast &amp; Cheap)</MenuItem>
+                          <MenuItem value="gpt-4-turbo">GPT-4 Turbo</MenuItem>
+                          <MenuItem value="o3-mini">o3-mini Reasoning</MenuItem>
+                          <MenuItem value="o1-mini">o1-mini</MenuItem>
                         </Select>
                       </FormControl>
                     </Box>

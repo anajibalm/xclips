@@ -76,6 +76,7 @@ export class XclipsDatabase {
         transcriptId TEXT,
         title TEXT NOT NULL,
         hookText TEXT NOT NULL DEFAULT '',
+        text TEXT NOT NULL DEFAULT '',
         viralScore REAL NOT NULL DEFAULT 0,
         startSec REAL NOT NULL,
         endSec REAL NOT NULL,
@@ -182,6 +183,7 @@ export class XclipsDatabase {
       aspectRatio: "TEXT NOT NULL DEFAULT '9:16'",
       transcriptId: "TEXT",
       hookText: "TEXT NOT NULL DEFAULT ''",
+      text: "TEXT NOT NULL DEFAULT ''",
       removeFillers: "INTEGER NOT NULL DEFAULT 1",
       removeSilence: "INTEGER NOT NULL DEFAULT 1",
       renderError: "TEXT",
@@ -499,12 +501,12 @@ export class XclipsDatabase {
 
     const stmt = this.db.prepare(`
       INSERT INTO clips (
-        id, projectId, transcriptId, title, hookText, viralScore,
+        id, projectId, transcriptId, title, hookText, text, viralScore,
         startSec, endSec, aspectRatio, layoutMode, panOffsetX, subtitleStyleJson,
         removeFillers, removeSilence, status, outputPath, renderError,
         createdAt, updatedAt, rawJson
       ) VALUES (
-        $id, $projectId, $transcriptId, $title, $hookText, $viralScore,
+        $id, $projectId, $transcriptId, $title, $hookText, $text, $viralScore,
         $startSec, $endSec, $aspectRatio, $layoutMode, $panOffsetX, $subtitleStyleJson,
         $removeFillers, $removeSilence, $status, $outputPath, $renderError,
         $createdAt, $updatedAt, $rawJson
@@ -513,6 +515,7 @@ export class XclipsDatabase {
         transcriptId = excluded.transcriptId,
         title = excluded.title,
         hookText = excluded.hookText,
+        text = excluded.text,
         viralScore = excluded.viralScore,
         startSec = excluded.startSec,
         endSec = excluded.endSec,
@@ -535,6 +538,7 @@ export class XclipsDatabase {
       $transcriptId: clip.transcriptId || null,
       $title: clip.title || "Untitled Clip",
       $hookText: clip.hookText || "",
+      $text: clip.hookText || clip.title || "",
       $viralScore: clip.viralScore || 0,
       $startSec: clip.startSec,
       $endSec: clip.endSec,
@@ -570,6 +574,17 @@ export class XclipsDatabase {
       return result.changes > 0;
     } catch (err) {
       dbLogger.error({ id, err }, "Failed to delete clip");
+      return false;
+    }
+  }
+
+  deleteAllClips(projectId: string): boolean {
+    try {
+      const stmt = this.db.prepare("DELETE FROM clips WHERE projectId = ?");
+      const result = stmt.run(projectId);
+      return result.changes >= 0;
+    } catch (err) {
+      dbLogger.error({ projectId, err }, "Failed to delete all clips for project");
       return false;
     }
   }

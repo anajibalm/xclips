@@ -28,10 +28,11 @@ import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import ClearIcon from "@mui/icons-material/Clear";
 import SubtitlesIcon from "@mui/icons-material/Subtitles";
 import YouTubeIcon from "@mui/icons-material/YouTube";
+import LanguageIcon from "@mui/icons-material/Language";
 import { useStudioStore } from "../store/useStudioStore";
 import { apiFetch } from "@/lib/api-client";
 import { formatTime } from "../types/studio.types";
-import { AiProviderType, HOOK_FORMULAS, HookFormulaId } from "@/lib/xclips/types";
+import { AiProviderType, HOOK_FORMULAS, HookFormulaId, SUPPORTED_OUTPUT_LANGUAGES } from "@/lib/xclips/types";
 
 const LOCAL_STORAGE_TOPIC_KEY = "xclips_last_topic_prompt";
 
@@ -82,6 +83,7 @@ export function GenerateAutoClipModal() {
   // Local Form States
   const [selectedProvider, setSelectedProvider] = useState<AiProviderType>("kieai");
   const [selectedModel, setSelectedModel] = useState<string>("gemini-3-7-flash");
+  const [selectedLanguage, setSelectedLanguage] = useState<string>("auto");
   const [selectedFormula, setSelectedFormula] = useState<HookFormulaId>("auto");
   const [topicPrompt, setTopicPrompt] = useState<string>("");
   const [selectedDuration, setSelectedDuration] = useState<"short" | "standard" | "long" | "extended">("standard");
@@ -95,8 +97,14 @@ export function GenerateAutoClipModal() {
   useEffect(() => {
     if (isGenerateAutoClipModalOpen) {
       if (aiSettings) {
-        setSelectedProvider(aiSettings.provider || "kieai");
-        setSelectedModel(aiSettings.highlightModel || "gemini-3-7-flash");
+        const prov = (aiSettings.provider || "kieai") as AiProviderType;
+        setSelectedProvider(prov);
+        let defaultModel = aiSettings.highlightModel || (prov === "openai" ? "gpt-4o" : "gemini-3-7-flash");
+        if (prov === "openai" && (defaultModel === "gpt-5-6-terra" || defaultModel === "gpt-5.6-luna" || defaultModel === "gpt-5-6-sol")) {
+          defaultModel = "gpt-4o";
+        }
+        setSelectedModel(defaultModel);
+        setSelectedLanguage(aiSettings.outputLanguage || "auto");
         setSelectedFormula((aiSettings.hookFormula as HookFormulaId) || "auto");
         setSelectedDuration(aiSettings.targetDuration || "standard");
         setSelectedMaxClips(aiSettings.maxClipsCount || 5);
@@ -123,7 +131,7 @@ export function GenerateAutoClipModal() {
   const activeDurationConfig = DURATION_OPTIONS.find((d) => d.id === selectedDuration) || DURATION_OPTIONS[1];
   const maxPossibleClips = videoDurationSec > 0
     ? Math.max(1, Math.floor(videoDurationSec / activeDurationConfig.avgSec))
-    : 10;
+    : 5;
 
   // If current duration exceeds video length, downgrade to standard or short
   useEffect(() => {
@@ -142,91 +150,52 @@ export function GenerateAutoClipModal() {
     }
   }, [maxPossibleClips, selectedMaxClips, videoDurationSec]);
 
-  const handleTopicChange = (val: string) => {
-    setTopicPrompt(val);
+  const handleTopicChange = (newVal: string) => {
+    setTopicPrompt(newVal);
     try {
-      localStorage.setItem(LOCAL_STORAGE_TOPIC_KEY, val);
+      localStorage.setItem(LOCAL_STORAGE_TOPIC_KEY, newVal);
     } catch {
       // Ignore
     }
   };
 
-  const handleAutoDetectTopic = async () => {
+  const handleApplyPreset = (presetPrompt: string) => {
+    handleTopicChange(presetPrompt);
+  };
+
+  const handleDetectTopic = async () => {
+    if (!project) return;
     setIsDetectingTopic(true);
+
     try {
-      const res = await apiFetch<{ ok: boolean; topicPrompt?: string; model?: string }>("/api/xclips/ai/detect-topic", {
-        method: "POST",
-        body: JSON.stringify({
-          projectId: project?.id,
-          title: project?.name,
-          transcriptText: transcript?.rawText,
-          lightModel: aiSettings?.lightModel || "muse-glimmer-30b",
-        }),
-      });
+      const res = await apiFetch<{ ok: boolean; topicPrompt?: string; message?: string }>(
+        "/api/xclips/ai/detect-topic",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            projectId: project.id,
+            title: project.name,
+            transcriptText: transcript?.rawText || "",
+            lightModel: aiSettings?.lightModel || "muse-glimmer-30b",
+            outputLanguage: selectedLanguage,
+          }),
+        }
+      );
 
       if (res.ok && res.data?.topicPrompt) {
         handleTopicChange(res.data.topicPrompt);
-        setIsDetectingTopic(false);
-        return;
       }
     } catch {
-      // Ignore network errors and continue to local fallback
+      // Ignore
     } finally {
       setIsDetectingTopic(false);
     }
-
-    // Client-side local heuristic fallback
-    let detectedTheme = "";
-    if (project?.name) {
-      const cleanName = project.name
-        .replace(/\.(mp4|mkv|webm|mov|avi)$/i, "")
-        .replace(/\[[a-zA-Z0-9_-]{11}\]/g, "")
-        .replace(/[_-]/g, " ")
-        .trim();
-      if (cleanName && cleanName.length > 2) {
-        detectedTheme = cleanName;
-      }
-    }
-
-    if (!detectedTheme && transcript?.rawText) {
-      const words = transcript.rawText
-        .toLowerCase()
-        .replace(/[^a-zA-Z0-9\s]/g, "")
-        .split(/\s+/)
-        .filter((w) => w.length > 4);
-
-      const stopwords = new Set([
-        "about", "their", "there", "which", "would", "could", "should",
-        "dalam", "dengan", "untuk", "adalah", "karena", "mereka", "secara", "seperti",
-        "video", "youtube", "clips", "hello", "welcome", "thanks"
-      ]);
-      const freq: Record<string, number> = {};
-      words.forEach((w) => {
-        if (!stopwords.has(w)) {
-          freq[w] = (freq[w] || 0) + 1;
-        }
-      });
-      const topKeywords = Object.entries(freq)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([k]) => k);
-
-      if (topKeywords.length > 0) {
-        detectedTheme = topKeywords.join(", ");
-      }
-    }
-
-    const autoPrompt = detectedTheme
-      ? `Focus on core takeaways, key strategies, and high-impact discussions regarding "${detectedTheme}".`
-      : "Focus on key insights, memorable soundbites, and actionable takeaways from this video.";
-
-    handleTopicChange(autoPrompt);
   };
 
   const handleStartGeneration = async () => {
-    // Persist settings
+    setIsGenerateAutoClipModalOpen(false);
     if (aiSettings) {
-      const updatedSettings = {
+      await saveAiSettings({
         ...aiSettings,
         provider: selectedProvider,
         highlightModel: selectedModel,
@@ -234,25 +203,19 @@ export function GenerateAutoClipModal() {
         topicPrompt,
         targetDuration: selectedDuration,
         maxClipsCount: selectedMaxClips,
-      };
-      saveAiSettings(updatedSettings);
+        outputLanguage: selectedLanguage,
+      });
     }
 
-    try {
-      localStorage.setItem(LOCAL_STORAGE_TOPIC_KEY, topicPrompt);
-    } catch {
-      // Ignore
-    }
-
-    // Trigger AI pipeline
     await handleDiscoverHighlights({
       provider: selectedProvider,
       model: selectedModel,
-      topicPrompt,
       hookFormula: selectedFormula,
+      topicPrompt,
       targetDuration: selectedDuration,
       maxClipsCount: selectedMaxClips,
-      transcriptId: selectedTrackId || undefined,
+      transcriptId: selectedTrackId || transcript?.id,
+      outputLanguage: selectedLanguage,
     });
   };
 
@@ -267,62 +230,59 @@ export function GenerateAutoClipModal() {
       slotProps={{
         paper: {
           sx: {
-            bgcolor: "#121216",
-            backgroundImage: "none",
+            bgcolor: "#09090b",
             border: "1px solid #27272a",
             borderRadius: 1.5,
+            backgroundImage: "none",
             color: "#fafafa",
-            boxShadow: "0 20px 40px rgba(0,0,0,0.8)",
           },
         },
       }}
     >
-      {/* Modal Header */}
-      <DialogTitle sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", p: 2.5, pb: 1.8, borderBottom: "1px solid #1f1f26" }}>
+      <DialogTitle sx={{ px: 2.5, pt: 2, pb: 1.5, display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #1f1f24" }}>
         <Box>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.3 }}>
-            <BoltIcon sx={{ color: "#3b82f6", fontSize: "1.35rem" }} />
-            <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#fafafa", fontSize: "1rem", letterSpacing: "-0.01em" }}>
-              Generate Clips
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <FlashOnIcon sx={{ color: "#3b82f6", fontSize: "1.2rem" }} />
+            <Typography variant="h6" sx={{ fontWeight: 800, fontSize: "1.05rem", color: "#ffffff" }}>
+              Generate AutoClips (Viral Studio)
             </Typography>
             <Chip
-              label={PROVIDER_NAMES[selectedProvider] || selectedProvider.toUpperCase()}
+              label={PROVIDER_NAMES[selectedProvider]}
               size="small"
               sx={{
-                height: 22,
-                fontSize: "0.68rem",
-                fontWeight: 800,
-                bgcolor: "rgba(59, 130, 246, 0.15)",
+                bgcolor: "rgba(59, 130, 246, 0.12)",
                 color: "#60a5fa",
-                border: "1px solid rgba(59, 130, 246, 0.3)",
+                fontWeight: 700,
+                fontSize: "0.68rem",
+                height: 20,
                 borderRadius: 0.8,
               }}
             />
           </Box>
           <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.75rem", display: "block" }}>
-            Select viral hook formula, target narrative prompt, and synchronize clip duration with master video.
+            Select your preferred AI engine and narrative style to generate viral content.
           </Typography>
         </Box>
         <IconButton
           size="small"
           onClick={() => setIsGenerateAutoClipModalOpen(false)}
           disabled={isDiscovering || isTranscribing}
-          sx={{ color: "#71717a", "&:hover": { color: "#ffffff", bgcolor: "#1f1f26" } }}
+          sx={{ color: "#71717a", "&:hover": { color: "#ffffff", bgcolor: "#1f1f24" } }}
         >
           <CloseIcon fontSize="small" />
         </IconButton>
       </DialogTitle>
 
       <DialogContent sx={{ px: 2.5, pb: 2.5, pt: "24px !important", display: "flex", flexDirection: "column", gap: 2.5 }}>
-        {/* SECTION 1: AI MODEL & HOOK FORMULA */}
+        {/* SECTION 1: AI MODEL, OUTPUT LANGUAGE & HOOK FORMULA */}
         <Grid container spacing={2}>
           {/* AI Model Selector */}
-          <Grid size={{ xs: 12, sm: 5 }}>
+          <Grid size={{ xs: 12, sm: 4.5 }}>
             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.6 }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
                 <TuneIcon sx={{ fontSize: "0.9rem", color: "#3b82f6" }} />
                 <Typography variant="caption" sx={{ color: "#d4d4d8", fontWeight: 700, fontSize: "0.75rem" }}>
-                  AI Narrative &amp; Highlight Model
+                  AI Model
                 </Typography>
               </Box>
               <FormControl fullWidth size="small">
@@ -339,22 +299,82 @@ export function GenerateAutoClipModal() {
                     "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: "#3f3f46" },
                   }}
                 >
-                  <MenuItem value="gemini-3-7-flash">Gemini 3.7 Flash (Recommended)</MenuItem>
-                  <MenuItem value="gemini-3-6-flash">Gemini 3.6 Flash</MenuItem>
-                  <MenuItem value="gpt-5.6-luna">GPT 5.6 Luna</MenuItem>
-                  <MenuItem value="gpt-5-6-terra">GPT 5.6 Terra</MenuItem>
-                  <MenuItem value="claude-sonnet-5">Claude Sonnet 5</MenuItem>
-                  <MenuItem value="gpt-4o">GPT-4o</MenuItem>
+                  {selectedProvider === "openai" ? (
+                    [
+                      <MenuItem key="gpt-4o" value="gpt-4o">GPT-4o (Recommended)</MenuItem>,
+                      <MenuItem key="gpt-4o-mini" value="gpt-4o-mini">GPT-4o Mini (Fast &amp; Cheap)</MenuItem>,
+                      <MenuItem key="gpt-4-turbo" value="gpt-4-turbo">GPT-4 Turbo</MenuItem>,
+                      <MenuItem key="o3-mini" value="o3-mini">o3-mini</MenuItem>,
+                      <MenuItem key="o1-mini" value="o1-mini">o1-mini</MenuItem>,
+                    ]
+                  ) : selectedProvider === "gemini" ? (
+                    [
+                      <MenuItem key="gemini-2.0-flash" value="gemini-2.0-flash">Gemini 2.0 Flash (Recommended)</MenuItem>,
+                      <MenuItem key="gemini-2.5-flash" value="gemini-2.5-flash">Gemini 2.5 Flash</MenuItem>,
+                      <MenuItem key="gemini-1.5-flash" value="gemini-1.5-flash">Gemini 1.5 Flash</MenuItem>,
+                      <MenuItem key="gemini-2.5-pro" value="gemini-2.5-pro">Gemini 2.5 Pro</MenuItem>,
+                    ]
+                  ) : selectedProvider === "anthropic" ? (
+                    [
+                      <MenuItem key="claude-3-7-sonnet-20250219" value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Recommended)</MenuItem>,
+                      <MenuItem key="claude-3-5-sonnet-20241022" value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</MenuItem>,
+                      <MenuItem key="claude-3-5-haiku-20241022" value="claude-3-5-haiku-20241022">Claude 3.5 Haiku</MenuItem>,
+                      <MenuItem key="claude-sonnet-5" value="claude-sonnet-5">Claude Sonnet 5</MenuItem>,
+                    ]
+                  ) : (
+                    [
+                      <MenuItem key="gemini-3-7-flash" value="gemini-3-7-flash">Gemini 3.7 Flash (Recommended)</MenuItem>,
+                      <MenuItem key="gemini-3-6-flash" value="gemini-3-6-flash">Gemini 3.6 Flash</MenuItem>,
+                      <MenuItem key="gpt-4o" value="gpt-4o">GPT-4o</MenuItem>,
+                      <MenuItem key="gpt-4o-mini" value="gpt-4o-mini">GPT-4o Mini</MenuItem>,
+                    ]
+                  )}
                 </Select>
               </FormControl>
               <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.68rem" }}>
-                Processed via {PROVIDER_NAMES[selectedProvider]} provider.
+                Via {PROVIDER_NAMES[selectedProvider]}
+              </Typography>
+            </Box>
+          </Grid>
+
+          {/* Output Language Selector */}
+          <Grid size={{ xs: 12, sm: 3.5 }}>
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.6 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
+                <LanguageIcon sx={{ fontSize: "0.9rem", color: "#10b981" }} />
+                <Typography variant="caption" sx={{ color: "#d4d4d8", fontWeight: 700, fontSize: "0.75rem" }}>
+                  Output Language
+                </Typography>
+              </Box>
+              <FormControl fullWidth size="small">
+                <Select
+                  value={selectedLanguage}
+                  onChange={(e) => setSelectedLanguage(e.target.value)}
+                  disabled={isDiscovering || isTranscribing}
+                  sx={{
+                    bgcolor: "#14141a",
+                    color: "#ffffff",
+                    borderRadius: 1,
+                    fontSize: "0.8rem",
+                    "& .MuiOutlinedInput-notchedOutline": { borderColor: "#27272a" },
+                    "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: "#3f3f46" },
+                  }}
+                >
+                  {SUPPORTED_OUTPUT_LANGUAGES.map((lang) => (
+                    <MenuItem key={lang.code} value={lang.code}>
+                      {lang.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.68rem" }}>
+                Title, Hook &amp; Summary
               </Typography>
             </Box>
           </Grid>
 
           {/* Hook Matrix Formula Dropdown */}
-          <Grid size={{ xs: 12, sm: 7 }}>
+          <Grid size={{ xs: 12, sm: 4 }}>
             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.6 }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
                 <PsychologyIcon sx={{ fontSize: "0.9rem", color: "#e0392b" }} />
@@ -378,17 +398,14 @@ export function GenerateAutoClipModal() {
                 >
                   {HOOK_FORMULAS.map((formula) => (
                     <MenuItem key={formula.id} value={formula.id}>
-                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", gap: 1 }}>
-                        <span style={{ fontWeight: 700 }}>{formula.name}</span>
-                        <span style={{ fontSize: "0.7rem", color: "#71717a" }}>{formula.sub}</span>
-                      </Box>
+                      <span style={{ fontWeight: 700 }}>{formula.name}</span>
                     </MenuItem>
                   ))}
                 </Select>
               </FormControl>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.2 }}>
                 <Chip
-                  label={`Target Emotion: ${activeFormulaDetails.emotion}`}
+                  label={activeFormulaDetails.emotion}
                   size="small"
                   sx={{
                     bgcolor: "rgba(224, 57, 43, 0.12)",
@@ -492,7 +509,7 @@ export function GenerateAutoClipModal() {
               <Button
                 size="small"
                 variant="outlined"
-                onClick={handleAutoDetectTopic}
+                onClick={handleDetectTopic}
                 disabled={isDiscovering || isTranscribing || isDetectingTopic}
                 startIcon={
                   isDetectingTopic ? (

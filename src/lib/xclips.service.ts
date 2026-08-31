@@ -88,6 +88,21 @@ export class XclipsService {
         }
         validated.apiKeys = mergedApiKeys;
         validated.apiKey = mergedApiKeys[validated.provider] || validated.apiKey || "";
+
+        // Automatic sanitization for non-existent / legacy model names
+        if (validated.provider === "openai") {
+          if (!validated.highlightModel || validated.highlightModel === "gpt-5-6-terra" || validated.highlightModel === "gpt-5.6-luna" || validated.highlightModel === "gpt-5-6-sol") {
+            validated.highlightModel = "gpt-4o";
+          }
+          if (!validated.transcribeModel || validated.transcribeModel === "gpt-transcribe" || validated.transcribeModel === "gpt-4o-transcribe" || validated.transcribeModel === "gpt-4o-mini-transcribe") {
+            validated.transcribeModel = "whisper-1";
+          }
+        } else if (validated.provider === "kieai") {
+          if (validated.highlightModel === "gpt-5-6-terra") {
+            validated.highlightModel = "gemini-3-7-flash";
+          }
+        }
+
         return validated;
       } catch (err) {
         aiLogger.warn({ err }, "Failed to parse settings.json, returning default AI settings");
@@ -106,6 +121,7 @@ export class XclipsService {
       targetDuration: "standard",
       maxClipsCount: 5,
       strictBoundary: true,
+      outputLanguage: "auto",
     };
   }
 
@@ -800,6 +816,18 @@ export class XclipsService {
         ? baseUrl
         : `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
 
+      let modelToUse = model;
+      if (provider === "openai" || baseUrl.includes("api.openai.com")) {
+        if (
+          modelToUse === "gpt-5-6-terra" ||
+          modelToUse === "gpt-5.6-luna" ||
+          modelToUse === "gpt-5-6-sol" ||
+          modelToUse === "gpt-transcribe"
+        ) {
+          modelToUse = "gpt-4o";
+        }
+      }
+
       const messages: Array<Record<string, unknown>> = [];
       if (systemPrompt) {
         messages.push({ role: "system", content: systemPrompt });
@@ -824,17 +852,17 @@ export class XclipsService {
       }
 
       // OpenAI API requires "max_completion_tokens" for newer reasoning models (GPT-5.x / o-series)
-      const needsCompletionTokens = /^(gpt-5|o[134])/i.test(model);
+      const needsCompletionTokens = /^(gpt-5|o[134])/i.test(modelToUse);
       const tokenParam = needsCompletionTokens ? "max_completion_tokens" : "max_tokens";
 
       const payload: Record<string, unknown> = {
-        model,
+        model: modelToUse,
         messages,
         temperature: 0.1,
         [tokenParam]: 8192,
       };
 
-      const response = await fetch(targetUrl, {
+      let response = await fetch(targetUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -844,7 +872,7 @@ export class XclipsService {
         signal: AbortSignal.timeout(timeoutMs),
       });
 
-      // Adaptive retry: if provider rejects the token parameter name, swap and retry once
+      // Adaptive retry 1: if provider rejects the token parameter name, swap and retry once
       if (!response.ok && response.status === 400) {
         const errText = await response.text().catch(() => "");
         const isTokenParamError = /max_tokens|max_completion_tokens/i.test(errText) &&
@@ -867,6 +895,37 @@ export class XclipsService {
             return { success: true, data: retryJson.choices?.[0]?.message?.content || "" };
           }
         }
+      }
+
+      // Adaptive retry 2: if model is not found (404), automatically fallback to gpt-4o
+      if (!response.ok && response.status === 404) {
+        const errText = await response.text().catch(() => "");
+        if (/does not exist|model_not_found|not have access/i.test(errText) && modelToUse !== "gpt-4o") {
+          aiLogger.warn({ model: modelToUse, fallbackModel: "gpt-4o" }, "Model not found on AI provider, retrying with gpt-4o");
+          const fallbackPayload: Record<string, unknown> = {
+            ...payload,
+            model: "gpt-4o",
+            max_tokens: 8192,
+          };
+          delete fallbackPayload.max_completion_tokens;
+          const fallbackRes = await fetch(targetUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify(fallbackPayload),
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          if (fallbackRes.ok) {
+            const fallbackJson = await fallbackRes.json();
+            return { success: true, data: fallbackJson.choices?.[0]?.message?.content || "" };
+          }
+        }
+        return {
+          success: false,
+          error: `AI API Error (404): ${errText.slice(0, 200)}`,
+        };
       }
 
       if (!response.ok) {
@@ -895,6 +954,7 @@ export class XclipsService {
     title?: string;
     transcriptText?: string;
     lightModel?: string;
+    outputLanguage?: string;
   }): Promise<Result<{ topicPrompt: string; modelUsed: string }>> {
     const REQUESTY_BUILTIN_API_KEY =
       "rqsty-sk-yDRXwua9Q0eFIjeidKgP1tYPL2DhE/0QFk9ThwKT4aosEfROhA+ObqyF40yN0BFxQN1glbx6SfvfS2IusK8PQbbvnxiqMBBnk7L7Jjkp4gM=";
@@ -946,12 +1006,24 @@ export class XclipsService {
 
       const settings = this.getAiSettings();
       const modelToUse = options.lightModel || settings.lightModel || "muse-glimmer-30b";
+      const langCode = options.outputLanguage || settings.outputLanguage || "auto";
+
+      const isIndonesian =
+        langCode === "id" ||
+        (langCode === "auto" && /\b(yang|dan|di|ini|itu|dengan|untuk|dari|tidak|akan|pada|adalah|karena|dalam|bisa|saya|kita|mereka|ekonomi|rakyat|negara|sosialisme|kapitalisme)\b/i.test(`${cleanTitle} ${sample}`));
+
+      let langInstruction = "";
+      if (isIndonesian) {
+        langInstruction = `CRITICAL: The output MUST be 100% in natural BAHASA INDONESIA. Start your instruction with "Fokus pada...".\nExample output: Fokus pada perdebatan antara kapitalisme dan sosialisme, solusi kemiskinan berbasis data, serta peran koperasi.`;
+      } else if (langCode !== "auto" && langCode !== "en") {
+        langInstruction = `CRITICAL: The output MUST be 100% in target language (code: ${langCode}).`;
+      }
 
       const systemPrompt = `You are a viral short-form video strategist and content editor (TikTok, Reels, Shorts).
 Your goal is to extract the single most compelling core topic / narrative direction from the video metadata (title, channel, description) and the transcript excerpt (the original YouTube closed captions when available).
-Output ONLY a concise, high-impact instruction (1-2 sentences) starting with "Focus on...".
-Do not include quotation marks, markdown headings, or conversational filler.
-Example output: Focus on the contrarian investment thesis, common beginner traps, and risk management rules discussed in the video.`;
+Output ONLY a concise, high-impact instruction (1-2 sentences).
+${langInstruction}
+Do not include quotation marks, markdown headings, or conversational filler.`;
 
       const userPrompt = `Video Title: "${cleanTitle || "Untitled Video"}"
 ${metadataContext ? `\nSOURCE VIDEO METADATA (YOUTUBE / PLATFORM):\n${metadataContext}\n` : ""}
@@ -985,12 +1057,18 @@ Synthesize the single best viral narrative focus prompt:`;
       if (!response.ok) {
         const errText = await response.text().catch(() => "");
         aiLogger.warn({ status: response.status, errText }, "Requesty Light Model returned non-OK status, using smart fallback");
+        const fallbackTopic = isIndonesian
+          ? (cleanTitle
+              ? `Fokus pada poin-poin penting, strategi kunci, dan wawasan utama dari "${cleanTitle}".`
+              : "Fokus pada wawasan paling aplikatif, pelajaran penting, dan momen paling berkesan dari video ini.")
+          : (cleanTitle
+              ? `Focus on core takeaways, key strategies, and actionable insights from "${cleanTitle}".`
+              : "Focus on the most actionable insights, key lessons, and memorable moments from this video.");
+
         return {
           success: true,
           data: {
-            topicPrompt: cleanTitle
-              ? `Focus on core takeaways, key strategies, and actionable insights from "${cleanTitle}".`
-              : "Focus on the most actionable insights, key lessons, and memorable moments from this video.",
+            topicPrompt: fallbackTopic,
             modelUsed: `${modelToUse} (fallback)`,
           },
         };
@@ -1001,7 +1079,11 @@ Synthesize the single best viral narrative focus prompt:`;
 
       // Clean prompt
       topicPrompt = topicPrompt.replace(/^["'`]+|["'`]+$/g, "").trim();
-      if (!topicPrompt.toLowerCase().startsWith("focus on")) {
+      if (isIndonesian) {
+        topicPrompt = topicPrompt.replace(/^(focus on|fokus pada|fokus ke)\s*/i, "").trim();
+        topicPrompt = `Fokus pada ${topicPrompt.charAt(0).toLowerCase() + topicPrompt.slice(1)}`;
+      } else {
+        topicPrompt = topicPrompt.replace(/^(fokus pada|focus on|fokus ke)\s*/i, "").trim();
         topicPrompt = `Focus on ${topicPrompt.charAt(0).toLowerCase() + topicPrompt.slice(1)}`;
       }
 
@@ -1769,6 +1851,7 @@ Format output WAJIB HANYA berupa JSON valid:
       targetDuration?: "short" | "standard" | "long" | "extended";
       maxClipsCount?: number;
       transcriptId?: string;
+      outputLanguage?: string;
     } | string
   ): Promise<Result<XclipsClip[]>> {
     const project = xclipsDb.getProject(projectId);
@@ -1796,17 +1879,20 @@ Format output WAJIB HANYA berupa JSON valid:
     const effectiveTopic = options?.topicPrompt !== undefined ? options.topicPrompt : settings.topicPrompt;
     const effectiveFormula = options?.hookFormula !== undefined ? options.hookFormula : settings.hookFormula;
     const effectiveDuration = options?.targetDuration !== undefined ? options.targetDuration : settings.targetDuration;
+    const effectiveLanguage = options?.outputLanguage || settings.outputLanguage || "auto";
     const maxResults = options?.maxClipsCount || settings.maxClipsCount || 5;
 
     const chunks = chunkTranscript(transcript.words);
-    aiLogger.info({ projectId, chunksCount: chunks.length, totalWords: transcript.words.length, topic: effectiveTopic, formula: effectiveFormula }, "Starting Map-Reduce highlight discovery");
+    aiLogger.info({ projectId, chunksCount: chunks.length, totalWords: transcript.words.length, topic: effectiveTopic, formula: effectiveFormula, language: effectiveLanguage }, "Starting Map-Reduce highlight discovery");
     const allRawHighlights: CandidateHighlight[] = [];
+    let lastError: string | null = null;
 
     for (const chunk of chunks) {
       const prompt = buildHighlightPrompt(chunk, {
         topicPrompt: effectiveTopic,
         hookFormula: effectiveFormula,
         targetDuration: effectiveDuration,
+        outputLanguage: effectiveLanguage,
         strictBoundary: settings.strictBoundary,
         videoMetadata: {
           title: project.sourceMeta?.title || project.name,
@@ -1837,12 +1923,21 @@ Format output WAJIB HANYA berupa JSON valid:
             aiLogger.debug({ chunkIndex: chunk.chunkIndex, foundCount: parsed.highlights.length }, "Scored highlight candidates for chunk");
           }
         } else {
+          lastError = dispatchRes.error || "Failed scoring chunk";
           aiLogger.warn({ chunkIndex: chunk.chunkIndex, err: dispatchRes.error }, "Failed scoring chunk");
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
+        lastError = msg;
         aiLogger.error({ chunkIndex: chunk.chunkIndex, err: msg }, `Error scoring chunk ${chunk.chunkIndex}`);
       }
+    }
+
+    if (allRawHighlights.length === 0 && chunks.length > 0) {
+      return {
+        success: false,
+        error: lastError || "Tidak ada kandidat clip yang berhasil dibuat oleh model AI. Periksa konfigurasi model dan API Key pada menu AI Settings.",
+      };
     }
 
     const ranked = reduceAndRankHighlights(allRawHighlights, maxResults);

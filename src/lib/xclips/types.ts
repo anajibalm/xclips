@@ -254,9 +254,28 @@ export const XclipsAiSettingsSchema = z.object({
   targetDuration: z.enum(["short", "standard", "long", "extended"]).default("standard"), // short: 30-45s, standard: 45-75s, long: 75-120s, extended: 120-180s (~3 min)
   maxClipsCount: z.number().min(1).max(20).default(5),
   strictBoundary: z.boolean().default(true),
+  outputLanguage: z.string().default("auto"), // "auto" | "id" | "en" | "es" | "ja" | "ko" | "ar" | "de" | "fr"
 });
 
 export type XclipsAiSettings = z.infer<typeof XclipsAiSettingsSchema>;
+
+export interface SupportedLanguage {
+  code: string;
+  label: string;
+  name: string;
+}
+
+export const SUPPORTED_OUTPUT_LANGUAGES: SupportedLanguage[] = [
+  { code: "auto", label: "Auto-Detect (Ikuti Transkrip)", name: "Auto-Detect (Match Transcript)" },
+  { code: "id", label: "Bahasa Indonesia", name: "Indonesian" },
+  { code: "en", label: "English", name: "English" },
+  { code: "es", label: "Español", name: "Spanish" },
+  { code: "ja", label: "日本語 (Japanese)", name: "Japanese" },
+  { code: "ko", label: "한국어 (Korean)", name: "Korean" },
+  { code: "ar", label: "العربية (Arabic)", name: "Arabic" },
+  { code: "de", label: "Deutsch", name: "German" },
+  { code: "fr", label: "Français", name: "French" },
+];
 
 export type Result<T> =
   | { success: true; data: T }

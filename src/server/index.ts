@@ -1071,11 +1071,12 @@ app.post("/api/xclips/ai/validate", async (c) => {
 app.post("/api/xclips/ai/detect-topic", async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
-    const { projectId, title, transcriptText, lightModel } = body as {
+    const { projectId, title, transcriptText, lightModel, outputLanguage } = body as {
       projectId?: string;
       title?: string;
       transcriptText?: string;
       lightModel?: string;
+      outputLanguage?: string;
     };
 
     const res = await xclipsService.detectNarrativeTopic({
@@ -1083,6 +1084,7 @@ app.post("/api/xclips/ai/detect-topic", async (c) => {
       title,
       transcriptText,
       lightModel,
+      outputLanguage,
     });
 
     if (!res.success) {
@@ -1206,6 +1208,12 @@ app.put("/api/xclips/clips/:id", async (c) => {
 app.delete("/api/xclips/clips/:id", (c) => {
   const id = c.req.param("id");
   const deleted = xclipsDb.deleteClip(id);
+  return c.json({ ok: deleted });
+});
+
+app.delete("/api/xclips/projects/:id/clips", (c) => {
+  const id = c.req.param("id");
+  const deleted = xclipsDb.deleteAllClips(id);
   return c.json({ ok: deleted });
 });
 

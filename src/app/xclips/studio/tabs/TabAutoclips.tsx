@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Box,
   Typography,
@@ -7,10 +7,18 @@ import {
   Grid,
   Card,
   CircularProgress,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from "@mui/material";
 import BoltIcon from "@mui/icons-material/Bolt";
 import TuneIcon from "@mui/icons-material/Tune";
 import PsychologyIcon from "@mui/icons-material/Psychology";
+import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
+import DeleteIcon from "@mui/icons-material/Delete";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { useStudioStore } from "../store/useStudioStore";
 import { formatTime } from "../types/studio.types";
 import { AiProviderType, HOOK_FORMULAS } from "@/lib/xclips/types";
@@ -34,13 +42,81 @@ export function TabAutoclips() {
   const setIsGenerateAutoClipModalOpen = useStudioStore((s) => s.setIsGenerateAutoClipModalOpen);
   const setAiSettingsModalOpen = useStudioStore((s) => s.setAiSettingsModalOpen);
   const handleSeek = useStudioStore((s) => s.handleSeek);
+  const handleDeleteAllClips = useStudioStore((s) => s.handleDeleteAllClips);
+  const handleDeleteClip = useStudioStore((s) => s.handleDeleteClip);
+
+  const [confirmDeleteAllOpen, setConfirmDeleteAllOpen] = useState<boolean>(false);
+  const [isDeletingAll, setIsDeletingAll] = useState<boolean>(false);
 
   const currentProvider = (aiSettings?.provider || "kieai") as AiProviderType;
   const currentFormula = HOOK_FORMULAS.find((f) => f.id === aiSettings?.hookFormula) || HOOK_FORMULAS[0];
 
+  const handleConfirmDeleteAll = async () => {
+    setIsDeletingAll(true);
+    await handleDeleteAllClips();
+    setIsDeletingAll(false);
+    setConfirmDeleteAllOpen(false);
+  };
+
   return (
     <Box>
       <GenerateAutoClipModal />
+
+      {/* Confirmation Dialog for Delete All Clips */}
+      <Dialog
+        open={confirmDeleteAllOpen}
+        onClose={() => !isDeletingAll && setConfirmDeleteAllOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        slotProps={{
+          paper: {
+            sx: {
+              bgcolor: "#18181b",
+              border: "1px solid #27272a",
+              borderRadius: 1.5,
+              color: "#fafafa",
+            },
+          },
+        }}
+      >
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1, fontWeight: 700, fontSize: "1rem", pb: 1 }}>
+          <WarningAmberIcon sx={{ color: "#ef4444" }} />
+          Hapus Semua Clip?
+        </DialogTitle>
+        <DialogContent sx={{ pb: 2 }}>
+          <Typography variant="body2" sx={{ color: "#a1a1aa", lineHeight: 1.5 }}>
+            Tindakan ini akan menghapus semua <strong style={{ color: "#ffffff" }}>{clips.length} clip</strong> yang telah dihasilkan untuk project ini secara permanen dari database.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5, gap: 1 }}>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={() => setConfirmDeleteAllOpen(false)}
+            disabled={isDeletingAll}
+            sx={{ textTransform: "none", color: "#a1a1aa", borderColor: "#3f3f46" }}
+          >
+            Batal
+          </Button>
+          <Button
+            variant="contained"
+            size="small"
+            color="error"
+            onClick={handleConfirmDeleteAll}
+            disabled={isDeletingAll}
+            startIcon={
+              isDeletingAll ? (
+                <CircularProgress size={14} sx={{ color: "#ffffff" }} />
+              ) : (
+                <DeleteSweepIcon fontSize="small" />
+              )
+            }
+            sx={{ textTransform: "none", fontWeight: 700 }}
+          >
+            {isDeletingAll ? "Menghapus..." : "Ya, Hapus Semua"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2.5, flexWrap: "wrap", gap: 1.5 }}>
         <Box>
@@ -98,6 +174,31 @@ export function TabAutoclips() {
         </Box>
 
         <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+          {clips.length > 0 && (
+            <Button
+              variant="outlined"
+              size="small"
+              color="error"
+              startIcon={<DeleteSweepIcon fontSize="small" />}
+              onClick={() => setConfirmDeleteAllOpen(true)}
+              disabled={isDiscovering || isTranscribing || isDeletingAll}
+              sx={{
+                fontWeight: 700,
+                textTransform: "none",
+                borderColor: "rgba(239, 68, 68, 0.35)",
+                color: "#f87171",
+                borderRadius: 1,
+                px: 1.5,
+                "&:hover": {
+                  borderColor: "#ef4444",
+                  bgcolor: "rgba(239, 68, 68, 0.08)",
+                },
+              }}
+            >
+              Delete All Clips
+            </Button>
+          )}
+
           <Button
             variant="contained"
             size="small"
@@ -196,17 +297,34 @@ export function TabAutoclips() {
                   </Typography>
 
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", pt: 0.5, borderTop: "1px solid #1f1f24" }}>
-                    <Chip
-                      label={clip.status.toUpperCase()}
-                      size="small"
-                      sx={{
-                        bgcolor: clip.status === "completed" ? "rgba(16, 185, 129, 0.15)" : "#222228",
-                        color: clip.status === "completed" ? "#10b981" : "#a1a1aa",
-                        fontSize: "0.65rem",
-                        height: 20,
-                        borderRadius: 0.8,
-                      }}
-                    />
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
+                      <Chip
+                        label={clip.status.toUpperCase()}
+                        size="small"
+                        sx={{
+                          bgcolor: clip.status === "completed" ? "rgba(16, 185, 129, 0.15)" : "#222228",
+                          color: clip.status === "completed" ? "#10b981" : "#a1a1aa",
+                          fontSize: "0.65rem",
+                          height: 20,
+                          borderRadius: 0.8,
+                        }}
+                      />
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteClip(clip.id);
+                        }}
+                        sx={{
+                          p: 0.3,
+                          color: "#71717a",
+                          "&:hover": { color: "#ef4444", bgcolor: "rgba(239, 68, 68, 0.1)" },
+                        }}
+                        title="Delete this clip"
+                      >
+                        <DeleteIcon sx={{ fontSize: "0.95rem" }} />
+                      </IconButton>
+                    </Box>
                     {isSelected ? (
                       <Chip label="Selected" size="small" sx={{ bgcolor: "#3b82f6", color: "#fff", fontSize: "0.65rem", height: 20, borderRadius: 0.8, fontWeight: 700 }} />
                     ) : (

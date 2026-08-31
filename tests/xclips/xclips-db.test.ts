@@ -269,6 +269,11 @@ describe("xclips - Persistent SQLite Database Engine (bun:sqlite)", () => {
     const deleted = db.deleteClip("clip_3");
     expect(deleted).toBe(true);
     expect(db.getClips("proj_clips_1").length).toBe(2);
+
+    // Delete all clips for project
+    const allDeleted = db.deleteAllClips("proj_clips_1");
+    expect(allDeleted).toBe(true);
+    expect(db.getClips("proj_clips_1").length).toBe(0);
   });
 
   it("should cascade delete transcripts and clips when a project is deleted", () => {

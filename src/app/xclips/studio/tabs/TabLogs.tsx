@@ -13,6 +13,8 @@ import {
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import CheckIcon from "@mui/icons-material/Check";
+import CloseIcon from "@mui/icons-material/Close";
 import DeleteIcon from "@mui/icons-material/Delete";
 import SearchIcon from "@mui/icons-material/Search";
 import TerminalIcon from "@mui/icons-material/Terminal";
@@ -235,6 +237,25 @@ const getLevelLabel = (lvl?: unknown): string => {
 // Memoized Single Log Row for Visual Stream Mode
 const LogCardRow = memo(({ item, timeStr }: { item: LogItem; timeStr: string }) => {
   const h = humanizeLogItem(item);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyItem = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const parts: string[] = [`[${timeStr}] [${h.category}${h.tag ? ` · ${h.tag}` : ""}]`];
+    if (h.friendlyMsg) parts.push(h.friendlyMsg);
+    if (h.detail) parts.push(`Detail: ${h.detail}`);
+    if (item.err) {
+      const errStr = typeof item.err === "string" ? item.err : JSON.stringify(item.err, null, 2);
+      parts.push(`Error: ${errStr}`);
+    }
+    const textToCopy = parts.join("\n");
+
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(textToCopy);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
 
   return (
     <Box
@@ -244,11 +265,17 @@ const LogCardRow = memo(({ item, timeStr }: { item: LogItem; timeStr: string }) 
         bgcolor: "#121217",
         borderRadius: 1,
         borderLeft: `3px solid ${h.categoryColor}`,
+        borderTop: "1px solid rgba(255, 255, 255, 0.04)",
+        borderRight: "1px solid rgba(255, 255, 255, 0.04)",
+        borderBottom: "1px solid rgba(255, 255, 255, 0.04)",
         display: "flex",
         flexDirection: "column",
         gap: 0.35,
-        transition: "background-color 0.12s ease",
-        "&:hover": { bgcolor: "#181820" },
+        transition: "background-color 0.12s ease, border-color 0.12s ease",
+        "&:hover": {
+          bgcolor: "#181820",
+          "& .card-copy-btn": { opacity: 1 },
+        },
       }}
     >
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 0.5 }}>
@@ -273,9 +300,33 @@ const LogCardRow = memo(({ item, timeStr }: { item: LogItem; timeStr: string }) 
             </span>
           )}
         </Box>
-        <span style={{ color: "#71717a", fontSize: "0.68rem", fontFamily: "monospace" }}>
-          {timeStr}
-        </span>
+
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.6 }}>
+          <span style={{ color: "#71717a", fontSize: "0.68rem", fontFamily: "monospace" }}>
+            {timeStr}
+          </span>
+          <Tooltip title={copied ? "Copied to clipboard!" : "Copy log entry"} placement="top">
+            <IconButton
+              className="card-copy-btn"
+              size="small"
+              onClick={handleCopyItem}
+              sx={{
+                p: 0.35,
+                color: copied ? "#10b981" : "#71717a",
+                bgcolor: copied ? "rgba(16, 185, 129, 0.12)" : "transparent",
+                borderRadius: 0.6,
+                opacity: copied ? 1 : 0.6,
+                transition: "all 0.15s ease",
+                "&:hover": {
+                  color: copied ? "#10b981" : "#ffffff",
+                  bgcolor: copied ? "rgba(16, 185, 129, 0.2)" : "#27272a",
+                },
+              }}
+            >
+              {copied ? <CheckIcon sx={{ fontSize: "0.85rem" }} /> : <ContentCopyIcon sx={{ fontSize: "0.85rem" }} />}
+            </IconButton>
+          </Tooltip>
+        </Box>
       </Box>
 
       <Typography sx={{ color: "#f4f4f5", fontWeight: 600, fontSize: "0.8rem", lineHeight: 1.4 }}>
@@ -294,6 +345,7 @@ LogCardRow.displayName = "LogCardRow";
 
 // Memoized Single Log Row for Terminal Mode
 const LogTerminalRow = memo(({ item, timeStr }: { item: LogItem; timeStr: string }) => {
+  const [copied, setCopied] = useState(false);
   const lvlName = getLevelLabel(item.level);
   const lvlColor =
     lvlName === "ERROR" ? "#ef4444" :
@@ -304,28 +356,70 @@ const LogTerminalRow = memo(({ item, timeStr }: { item: LogItem; timeStr: string
   const msg = ((item.msg || item.message || "") as string).trim();
   const mod = item.module ? `[${item.module}]` : "";
 
+  const handleCopyLine = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const errText = item.err ? ` - ${typeof item.err === "string" ? item.err : JSON.stringify(item.err)}` : "";
+    const rawLine = `[${timeStr}] [${lvlName}] ${mod ? mod + " " : ""}${msg}${errText}`;
+
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(rawLine);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+
   return (
     <Box
       sx={{
         display: "flex",
-        alignItems: "flex-start",
+        alignItems: "center",
+        justifyContent: "space-between",
         gap: 1,
         fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
         fontSize: "0.72rem",
         lineHeight: 1.45,
         py: 0.25,
-        px: 0.5,
+        px: 0.6,
         borderRadius: 0.5,
-        "&:hover": { bgcolor: "rgba(255, 255, 255, 0.04)" },
+        transition: "background-color 0.1s ease",
+        "&:hover": {
+          bgcolor: "rgba(255, 255, 255, 0.05)",
+          "& .terminal-copy-btn": { opacity: 1 },
+        },
       }}
     >
-      <span style={{ color: "#52525b", flexShrink: 0 }}>{timeStr}</span>
-      <span style={{ color: lvlColor, fontWeight: 700, flexShrink: 0, minWidth: 46 }}>[{lvlName}]</span>
-      {mod && <span style={{ color: "#818cf8", flexShrink: 0 }}>{mod}</span>}
-      <span style={{ color: "#e4e4e7", wordBreak: "break-word", flex: 1 }}>
-        {msg}
-        {item.err && typeof item.err === "string" ? ` - ${item.err}` : ""}
-      </span>
+      <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flex: 1, minWidth: 0 }}>
+        <span style={{ color: "#52525b", flexShrink: 0 }}>{timeStr}</span>
+        <span style={{ color: lvlColor, fontWeight: 700, flexShrink: 0, minWidth: 46 }}>[{lvlName}]</span>
+        {mod && <span style={{ color: "#818cf8", flexShrink: 0 }}>{mod}</span>}
+        <span style={{ color: "#e4e4e7", wordBreak: "break-word", flex: 1 }}>
+          {msg}
+          {item.err && typeof item.err === "string" ? ` - ${item.err}` : ""}
+        </span>
+      </Box>
+
+      <Tooltip title={copied ? "Copied!" : "Copy log line"} placement="left">
+        <IconButton
+          className="terminal-copy-btn"
+          size="small"
+          onClick={handleCopyLine}
+          sx={{
+            opacity: copied ? 1 : 0,
+            transition: "opacity 0.15s ease, background-color 0.15s ease",
+            p: 0.3,
+            color: copied ? "#10b981" : "#71717a",
+            bgcolor: copied ? "rgba(16, 185, 129, 0.12)" : "transparent",
+            borderRadius: 0.5,
+            flexShrink: 0,
+            "&:hover": {
+              color: copied ? "#10b981" : "#fafafa",
+              bgcolor: copied ? "rgba(16, 185, 129, 0.2)" : "#27272a",
+            },
+          }}
+        >
+          {copied ? <CheckIcon sx={{ fontSize: "0.8rem" }} /> : <ContentCopyIcon sx={{ fontSize: "0.8rem" }} />}
+        </IconButton>
+      </Tooltip>
     </Box>
   );
 });
@@ -394,13 +488,21 @@ export function TabLogs() {
     }
   };
 
+  const handleToggleAutoScroll = () => {
+    const nextState = !autoScroll;
+    setAutoScroll(nextState);
+    if (nextState && logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  };
+
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       {/* Top Controls Toolbar */}
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.2, flexWrap: "wrap", gap: 1 }}>
         <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
           <Typography variant="subtitle2" sx={{ color: "#fafafa", fontWeight: 800, fontSize: "0.9rem" }}>
-            Process Logs ({filteredLogs.length})
+            Process Logs ({filteredLogs.length}{filteredLogs.length !== logs.length ? ` / ${logs.length}` : ""})
           </Typography>
         </Box>
 
@@ -415,6 +517,22 @@ export function TabLogs() {
             }
             label={<Typography variant="caption" sx={{ color: "#a1a1aa", fontSize: "0.72rem" }}>Live (2s)</Typography>}
           />
+
+          <Tooltip title={`Auto-scroll: ${autoScroll ? "ON (click to pause)" : "OFF (click to enable)"}`}>
+            <IconButton
+              size="small"
+              onClick={handleToggleAutoScroll}
+              sx={{
+                color: autoScroll ? "#00e5ff" : "#71717a",
+                bgcolor: autoScroll ? "rgba(0, 229, 255, 0.1)" : "transparent",
+                borderRadius: 0.8,
+                p: 0.6,
+                "&:hover": { color: "#ffffff", bgcolor: "#18181b" },
+              }}
+            >
+              <VerticalAlignBottomIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
 
           <Tooltip title="Switch View Mode (Stream vs Terminal)">
             <IconButton
@@ -432,17 +550,7 @@ export function TabLogs() {
             </IconButton>
           </Tooltip>
 
-          <Tooltip title="Scroll to Bottom">
-            <IconButton
-              size="small"
-              onClick={scrollToBottom}
-              sx={{ color: "#a1a1aa", "&:hover": { color: "#ffffff", bgcolor: "#18181b" }, p: 0.6 }}
-            >
-              <VerticalAlignBottomIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-
-          <Tooltip title="Refresh Logs">
+          <Tooltip title="Refresh Logs Now">
             <IconButton
               size="small"
               onClick={() => fetchLogs()}
@@ -452,25 +560,28 @@ export function TabLogs() {
             </IconButton>
           </Tooltip>
 
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<ContentCopyIcon fontSize="small" />}
-            onClick={handleCopyLogs}
-            disabled={logs.length === 0}
-            sx={{
-              color: "#a1a1aa",
-              borderColor: "#27272a",
-              textTransform: "none",
-              fontSize: "0.72rem",
-              borderRadius: 0.8,
-              py: 0.3,
-              px: 1,
-              "&:hover": { borderColor: "#3f3f46", color: "#ffffff", bgcolor: "#18181b" },
-            }}
-          >
-            {copiedLogs ? "Copied!" : "Copy"}
-          </Button>
+          <Tooltip title="Copy all logs in JSON format">
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={copiedLogs ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}
+              onClick={handleCopyLogs}
+              disabled={logs.length === 0}
+              sx={{
+                color: copiedLogs ? "#10b981" : "#a1a1aa",
+                borderColor: copiedLogs ? "#10b981" : "#27272a",
+                textTransform: "none",
+                fontSize: "0.72rem",
+                borderRadius: 0.8,
+                py: 0.3,
+                px: 1,
+                bgcolor: copiedLogs ? "rgba(16, 185, 129, 0.08)" : "transparent",
+                "&:hover": { borderColor: "#3f3f46", color: "#ffffff", bgcolor: "#18181b" },
+              }}
+            >
+              {copiedLogs ? "Copied All!" : "Copy All"}
+            </Button>
+          </Tooltip>
 
           <Button
             size="small"
@@ -513,7 +624,7 @@ export function TabLogs() {
                 color: logsFilter === filterName ? "#ffffff" : "#a1a1aa",
                 fontWeight: 700,
                 fontSize: "0.68rem",
-                height: 22,
+                height: 24,
                 borderRadius: 0.6,
                 cursor: "pointer",
                 border: logsFilter === filterName ? "1px solid #3b82f6" : "1px solid #27272a",
@@ -536,9 +647,20 @@ export function TabLogs() {
                   <SearchIcon sx={{ color: "#71717a", fontSize: "0.95rem" }} />
                 </InputAdornment>
               ),
+              endAdornment: searchQuery ? (
+                <InputAdornment position="end">
+                  <IconButton
+                    size="small"
+                    onClick={() => setSearchQuery("")}
+                    sx={{ color: "#71717a", p: 0.2, "&:hover": { color: "#fafafa" } }}
+                  >
+                    <CloseIcon sx={{ fontSize: "0.85rem" }} />
+                  </IconButton>
+                </InputAdornment>
+              ) : null,
               sx: {
-                height: 24,
-                fontSize: "0.72rem",
+                height: 28,
+                fontSize: "0.75rem",
                 color: "#fafafa",
                 bgcolor: "#141418",
                 borderRadius: 0.6,
@@ -568,16 +690,28 @@ export function TabLogs() {
           flexDirection: "column",
           gap: viewMode === "terminal" ? 0.2 : 0.7,
           fontFamily: viewMode === "terminal" ? "'JetBrains Mono', 'Fira Code', 'Consolas', monospace" : "inherit",
-          // Hardware-accelerated smooth scroll
-          scrollBehavior: "smooth",
+          scrollBehavior: autoScroll ? "smooth" : "auto",
           "&::-webkit-scrollbar": { width: 6 },
           "&::-webkit-scrollbar-thumb": { bgcolor: "#27272a", borderRadius: 3 },
         }}
       >
         {filteredLogs.length === 0 ? (
-          <Typography variant="caption" sx={{ color: "#52525b", py: 4, textAlign: "center" }}>
-            {searchQuery ? "No matching logs found for your search query." : "No log activity recorded for this project yet."}
-          </Typography>
+          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", py: 6, gap: 1 }}>
+            <TerminalIcon sx={{ color: "#3f3f46", fontSize: "2rem" }} />
+            <Typography variant="caption" sx={{ color: "#71717a", textAlign: "center" }}>
+              {searchQuery ? "No matching logs found for your search query." : "No log activity recorded for this project yet."}
+            </Typography>
+            {searchQuery && (
+              <Button
+                size="small"
+                variant="text"
+                onClick={() => setSearchQuery("")}
+                sx={{ color: "#3b82f6", fontSize: "0.72rem", textTransform: "none", py: 0 }}
+              >
+                Clear search filter
+              </Button>
+            )}
+          </Box>
         ) : (
           filteredLogs.map((item, idx) => {
             const timeVal = (item as { time?: unknown; timestamp?: unknown }).time || (item as { time?: unknown; timestamp?: unknown }).timestamp;
@@ -598,3 +732,4 @@ export function TabLogs() {
     </Box>
   );
 }
+

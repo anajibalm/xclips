@@ -12,12 +12,15 @@ import {
   Snackbar,
   CircularProgress,
   Typography,
+  Chip,
+  Tooltip,
 } from "@mui/material";
 import PermMediaIcon from "@mui/icons-material/PermMedia";
 import TerminalIcon from "@mui/icons-material/Terminal";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 
 import { useStudioStore } from "./store/useStudioStore";
+import { formatTime } from "./types/studio.types";
 import { useVideoPlaybackSync } from "./hooks/useVideoPlaybackSync";
 import { StudioHeader } from "./components/StudioHeader";
 import { StudioCanvas } from "./components/StudioCanvas";
@@ -41,6 +44,7 @@ function StudioContent() {
   const projectId = useStudioStore((s) => s.projectId);
   const loading = useStudioStore((s) => s.loading);
   const clips = useStudioStore((s) => s.clips);
+  const selectedClip = useStudioStore((s) => s.selectedClip);
   const activeTab = useStudioStore((s) => s.activeTab);
   const setActiveTab = useStudioStore((s) => s.setActiveTab);
   const actionError = useStudioStore((s) => s.actionError);
@@ -51,6 +55,8 @@ function StudioContent() {
   const fetchAiSettings = useStudioStore((s) => s.fetchAiSettings);
 
   const [brollPreviewItem, setBrollPreviewItem] = useState<XclipsProject | null>(null);
+
+  const selectedClipIndex = selectedClip ? clips.findIndex((c) => c.id === selectedClip.id) : -1;
 
   const {
     videoRef,
@@ -198,7 +204,7 @@ function StudioContent() {
               overflow: "hidden",
             }}
           >
-            {/* 1. Header Bar: Player-Timeline 01 */}
+            {/* 1. Header Bar: Selected Clip or Player-Timeline */}
             <Box
               sx={{
                 display: "flex",
@@ -209,18 +215,63 @@ function StudioContent() {
                 borderBottom: "1px solid #27272a",
                 bgcolor: "#18181b",
                 flexShrink: 0,
+                gap: 1,
               }}
             >
-              <Typography
-                variant="body2"
-                sx={{
-                  color: "#e4e4e7",
-                  fontWeight: 600,
-                  fontSize: "0.85rem",
-                }}
+              <Tooltip
+                title={
+                  selectedClip ? (
+                    <Box sx={{ p: 0.5, maxWidth: 320 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#93c5fd", fontSize: "0.82rem", mb: 0.3 }}>
+                        Clip #{selectedClipIndex >= 0 ? selectedClipIndex + 1 : 1}: {selectedClip.title}
+                      </Typography>
+                      {selectedClip.hookText && (
+                        <Typography variant="caption" sx={{ color: "#e4e4e7", fontStyle: "italic", display: "block", mb: 0.6, lineHeight: 1.3 }}>
+                          &quot;{selectedClip.hookText}&quot;
+                        </Typography>
+                      )}
+                      <Typography variant="caption" sx={{ color: "#9ca3af", fontFamily: "monospace", fontSize: "0.7rem", display: "block" }}>
+                        Time: {formatTime(selectedClip.startSec)} - {formatTime(selectedClip.endSec)} ({(selectedClip.endSec - selectedClip.startSec).toFixed(1)}s)
+                      </Typography>
+                    </Box>
+                  ) : (
+                    "Master Video Timeline Player"
+                  )
+                }
+                arrow
+                placement="bottom-start"
+                enterDelay={150}
               >
-                Player-Timeline 01
-              </Typography>
+                <Box sx={{ display: "flex", alignItems: "center", minWidth: 0, overflow: "hidden", cursor: selectedClip ? "pointer" : "default" }}>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      color: "#fafafa",
+                      fontWeight: 700,
+                      fontSize: "0.85rem",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 0.7,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {selectedClip ? (
+                      <>
+                        <span style={{ color: "#60a5fa" }}>Clip #{selectedClipIndex >= 0 ? selectedClipIndex + 1 : 1}</span>
+                        {selectedClip.title && (
+                          <span style={{ color: "#a1a1aa", fontWeight: 500, fontSize: "0.8rem", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            · {selectedClip.title}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span>Player-Timeline 01</span>
+                    )}
+                  </Typography>
+                </Box>
+              </Tooltip>
             </Box>
 
             {/* 2. Studio 9:16 Canvas */}

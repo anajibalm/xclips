@@ -196,6 +196,7 @@ interface StudioState {
   saveMasterTemplateNow: () => Promise<void>;
   saveStudioSession: () => void;
   handleDeleteClip: (clipId: string) => Promise<void>;
+  handleDeleteAllClips: () => Promise<{ ok: boolean; message?: string }>;
   handleTranscribe: (modelOverride?: string, label?: string, providerOverride?: AiProviderType) => Promise<{ ok: boolean; message?: string }>;
   handleFetchYouTubeSubtitles: () => Promise<{ ok: boolean; message?: string }>;
   handleDiscoverHighlights: (optionsOverride?: {
@@ -206,6 +207,7 @@ interface StudioState {
     targetDuration?: "short" | "standard" | "long" | "extended";
     maxClipsCount?: number;
     transcriptId?: string;
+    outputLanguage?: string;
   }) => Promise<{ ok: boolean; message?: string }>;
   handleSaveTranscript: () => Promise<void>;
   handleDownloadSrt: () => void;
@@ -1116,6 +1118,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     targetDuration?: "short" | "standard" | "long" | "extended";
     maxClipsCount?: number;
     transcriptId?: string;
+    outputLanguage?: string;
   }): Promise<{ ok: boolean; message?: string }> => {
     const id = get().projectId;
     if (!id) return { ok: false, message: "Project ID not found" };
@@ -1139,6 +1142,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       hookFormula: get().aiSettings?.hookFormula,
       targetDuration: get().aiSettings?.targetDuration,
       maxClipsCount: get().aiSettings?.maxClipsCount,
+      outputLanguage: get().aiSettings?.outputLanguage,
       transcriptId: get().transcript?.id,
       ...(optionsOverride || {}),
     };
@@ -1224,6 +1228,30 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     URL.revokeObjectURL(url);
 
     get().setActionSuccess(`Subtitle "${cleanProjectName}.srt" downloaded successfully!`);
+  },
+
+  handleDeleteAllClips: async (): Promise<{ ok: boolean; message?: string }> => {
+    const projectId = get().projectId;
+    if (!projectId) return { ok: false, message: "Project not found" };
+
+    const res = await apiFetch<{ ok: boolean }>(`/api/xclips/projects/${projectId}/clips`, {
+      method: "DELETE",
+    });
+    if (res.ok) {
+      set({
+        clips: [],
+        selectedClip: null,
+        actionSuccess: "All clips deleted successfully!",
+      });
+      setTimeout(() => set({ actionSuccess: null }), 3000);
+      get().fetchAssets();
+      get().fetchLogs();
+      return { ok: true };
+    } else {
+      const errMsg = "Failed to delete all clips";
+      get().setActionError(errMsg);
+      return { ok: false, message: errMsg };
+    }
   },
 
   handleShiftSubtitleOffsetMs: (deltaMs) => {
