@@ -41,6 +41,7 @@ import YouTubeIcon from "@mui/icons-material/YouTube";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
+import SettingsIcon from "@mui/icons-material/Settings";
 import { apiFetch } from "@/lib/api-client";
 import { XclipsProject } from "@/lib/xclips/types";
 import { YouTubeVideoInfo } from "@/lib/xclips/ytdlp-downloader";
@@ -310,9 +311,25 @@ export default function XclipsDashboardPage() {
               borderRadius: 0.8,
             }}
           />
-          <IconButton onClick={loadData} sx={{ color: "#a1a1aa", bgcolor: "#18181b", borderRadius: 0.8 }}>
+          <IconButton onClick={loadData} sx={{ color: "#a1a1aa", bgcolor: "#18181b", borderRadius: 0.8 }} title="Refresh Projects">
             <RefreshIcon fontSize="small" />
           </IconButton>
+          <Button
+            variant="outlined"
+            startIcon={<SettingsIcon />}
+            onClick={() => router.push("/xclips/settings")}
+            sx={{
+              borderColor: "#27272a",
+              color: "#e4e4e7",
+              bgcolor: "#18181b",
+              "&:hover": { borderColor: "#3f3f46", color: "#f4f4f5", bgcolor: "#27272a" },
+              fontWeight: 600,
+              textTransform: "none",
+              borderRadius: 1,
+            }}
+          >
+            Storage &amp; System
+          </Button>
           <Button
             variant="contained"
             startIcon={<AddIcon />}

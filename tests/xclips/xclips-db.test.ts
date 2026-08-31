@@ -379,4 +379,45 @@ describe("xclips - Persistent SQLite Database Engine (bun:sqlite)", () => {
     expect(updated?.progress).toBe(100);
     expect(updated?.outputPath).toBe("/vault/renders/clip_101_916.mp4");
   });
+
+  it("should return all project IDs and compact database properly", () => {
+    const projectA: XclipsProject = {
+      id: "proj_ids_a",
+      name: "Project A",
+      sourceType: "local",
+      sourcePath: "/path/to/a.mp4",
+      durationSec: 10,
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      isVfr: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const projectB: XclipsProject = {
+      id: "proj_ids_b",
+      name: "Project B",
+      sourceType: "local",
+      sourcePath: "/path/to/b.mp4",
+      durationSec: 20,
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      isVfr: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    db.saveProject(projectA);
+    db.saveProject(projectB);
+
+    const ids = db.getAllProjectIds();
+    expect(ids).toContain("proj_ids_a");
+    expect(ids).toContain("proj_ids_b");
+
+    const compactResult = db.compactDatabase();
+    expect(compactResult).toBeDefined();
+    expect(typeof compactResult.beforeSize).toBe("number");
+    expect(typeof compactResult.afterSize).toBe("number");
+  });
 });

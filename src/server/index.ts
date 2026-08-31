@@ -541,7 +541,7 @@ app.get("/api/xclips/clips/:id/stream", (c) => {
   }
 });
 
-// Project Process Logs Endpoint
+// Project Process Logs Endpoint (Optimized Fast Tail Reading)
 app.get("/api/xclips/projects/:id/logs", (c) => {
   const id = c.req.param("id");
   const logFile = path.resolve(process.cwd(), "logs", "app.log");
@@ -549,8 +549,22 @@ app.get("/api/xclips/projects/:id/logs", (c) => {
     return c.json({ ok: true, logs: [] });
   }
 
+  let fd: number | null = null;
   try {
-    const raw = fs.readFileSync(logFile, "utf-8");
+    const stats = fs.statSync(logFile);
+    if (stats.size === 0) {
+      return c.json({ ok: true, logs: [] });
+    }
+
+    // Read only the last 256 KB of the log file for instant tail performance
+    const maxReadBytes = Math.min(stats.size, 256 * 1024);
+    const buffer = Buffer.alloc(maxReadBytes);
+    fd = fs.openSync(logFile, "r");
+    fs.readSync(fd, buffer, 0, maxReadBytes, stats.size - maxReadBytes);
+    fs.closeSync(fd);
+    fd = null;
+
+    const raw = buffer.toString("utf-8");
     const lines = raw.trim().split("\n");
     const entries: any[] = [];
 
@@ -576,12 +590,15 @@ app.get("/api/xclips/projects/:id/logs", (c) => {
           entries.push(parsed);
         }
       } catch {
-        // ignore parse error
+        // ignore incomplete/malformed line at tail start
       }
     }
 
     return c.json({ ok: true, logs: entries.reverse() });
-  } catch (err: unknown) {
+  } catch {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch { /* no-op */ }
+    }
     return c.json({ ok: true, logs: [] });
   }
 });
@@ -1232,6 +1249,103 @@ app.get("/api/xclips/jobs/:id", (c) => {
   if (!job) return c.json({ ok: false, message: "Job not found" }, 404);
   return c.json({ ok: true, job });
 });
+
+// ── Storage Management Endpoints ──────────────────────────────
+
+app.get("/api/xclips/storage/stats", (c) => {
+  try {
+    const stats = xclipsService.getStorageStats();
+    const projectStorage = xclipsService.getProjectStorageMap();
+    return c.json({ ok: true, stats, projectStorage });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Failed to fetch storage stats";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
+app.post("/api/xclips/storage/clean-cache", (c) => {
+  try {
+    const result = xclipsService.cleanAllCache();
+    return c.json({ ok: true, result });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Failed to clean cache";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
+app.post("/api/xclips/storage/clean-downloads", (c) => {
+  try {
+    const result = xclipsService.cleanAllDownloads();
+    return c.json({ ok: true, result });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Failed to clean downloads";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
+app.post("/api/xclips/storage/clean-orphans", (c) => {
+  try {
+    const result = xclipsService.cleanOrphanedFiles();
+    return c.json({ ok: true, result });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Failed to clean orphaned files";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
+app.post("/api/xclips/storage/compact-db", (c) => {
+  try {
+    const result = xclipsService.compactDatabase();
+    return c.json({ ok: true, result });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Failed to compact database";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
+app.post("/api/xclips/storage/clean-project/:id", (c) => {
+  const id = c.req.param("id");
+  try {
+    const result = xclipsService.cleanProjectStorage(id);
+    return c.json({ ok: true, result });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Failed to clean project storage";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
+app.get("/api/xclips/projects/:id/export", (c) => {
+  const id = c.req.param("id");
+  try {
+    const result = xclipsService.exportProjectBundle(id);
+    if (!result.success) {
+      return c.json({ ok: false, message: result.error }, 404);
+    }
+    return c.json({ ok: true, bundle: result.data });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Failed to export project";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
+app.post("/api/xclips/projects/import", async (c) => {
+  try {
+    const body = await c.req.json();
+    const bundle = body.bundle || body;
+    if (!bundle.project || !bundle.project.name) {
+      return c.json({ ok: false, message: "Invalid project bundle format" }, 400);
+    }
+    const result = xclipsService.importProjectBundle(bundle);
+    if (!result.success) {
+      return c.json({ ok: false, message: result.error }, 500);
+    }
+    return c.json({ ok: true, projectId: result.data.projectId });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Failed to import project";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
 // Start Server
 const port = env.PORT_API;
 console.log(`[Hono API] Starting on http://0.0.0.0:${port}`);

@@ -11,6 +11,9 @@ import {
   XclipsAiSettings,
   XclipsAiSettingsSchema,
   AiProviderType,
+  StorageStats,
+  ProjectStorage,
+  CleanResult,
 } from "@/lib/xclips/types";
 import {
   probeMedia,
@@ -2028,6 +2031,296 @@ Format output WAJIB HANYA berupa JSON valid:
 
   enqueueRender(clipId: string, projectId: string) {
     return renderQueue.enqueue(clipId, projectId);
+  }
+
+  // ── Storage & Cache Management ──────────────────────────────
+
+  private getVaultDir(): string {
+    return path.resolve(process.cwd(), "vault", "xclips");
+  }
+
+  /**
+   * Recursively calculates directory size in bytes and file count.
+   */
+  private getDirStats(dirPath: string): { size: number; fileCount: number } {
+    let size = 0;
+    let fileCount = 0;
+    if (!fs.existsSync(dirPath)) return { size, fileCount };
+
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        const sub = this.getDirStats(fullPath);
+        size += sub.size;
+        fileCount += sub.fileCount;
+      } else if (entry.isFile()) {
+        try {
+          size += fs.statSync(fullPath).size;
+          fileCount++;
+        } catch { /* skip inaccessible files */ }
+      }
+    }
+    return { size, fileCount };
+  }
+
+  /**
+   * Returns aggregated storage stats for cache, downloads, and database.
+   */
+  getStorageStats(): StorageStats {
+    const vault = this.getVaultDir();
+    const cacheDir = path.join(vault, "cache");
+    const downloadsDir = path.join(vault, "downloads");
+    const dbPath = path.join(vault, "xclips.db");
+    const walPath = dbPath + "-wal";
+    const shmPath = dbPath + "-shm";
+
+    const cache = this.getDirStats(cacheDir);
+    const downloads = this.getDirStats(downloadsDir);
+
+    let databaseSize = 0;
+    try { databaseSize += fs.statSync(dbPath).size; } catch { /* no-op */ }
+    try { databaseSize += fs.statSync(walPath).size; } catch { /* no-op */ }
+    try { databaseSize += fs.statSync(shmPath).size; } catch { /* no-op */ }
+
+    // Orphan detection
+    const knownIds = new Set(xclipsDb.getAllProjectIds());
+    let orphanCount = 0;
+    for (const dir of [cacheDir, downloadsDir]) {
+      if (!fs.existsSync(dir)) continue;
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory() && !knownIds.has(entry.name)) {
+          orphanCount++;
+        }
+      }
+    }
+
+    return {
+      cacheSize: cache.size,
+      cacheFileCount: cache.fileCount,
+      downloadsSize: downloads.size,
+      downloadsFileCount: downloads.fileCount,
+      databaseSize,
+      totalSize: cache.size + downloads.size + databaseSize,
+      orphanCount,
+    };
+  }
+
+  /**
+   * Returns per-project storage breakdown for cache and downloads.
+   */
+  getProjectStorageMap(): ProjectStorage[] {
+    const vault = this.getVaultDir();
+    const cacheDir = path.join(vault, "cache");
+    const downloadsDir = path.join(vault, "downloads");
+    const knownIds = new Set(xclipsDb.getAllProjectIds());
+    const projects = xclipsDb.getAllProjects();
+    const projectNameMap = new Map(projects.map((p) => [p.id, p.name]));
+
+    // Collect all unique project folder IDs from both dirs
+    const folderIds = new Set<string>();
+    for (const dir of [cacheDir, downloadsDir]) {
+      if (!fs.existsSync(dir)) continue;
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory()) folderIds.add(entry.name);
+      }
+    }
+
+    const result: ProjectStorage[] = [];
+    for (const projectId of folderIds) {
+      const cachePath = path.join(cacheDir, projectId);
+      const dlPath = path.join(downloadsDir, projectId);
+      const cacheStats = this.getDirStats(cachePath);
+      const dlStats = this.getDirStats(dlPath);
+
+      result.push({
+        projectId,
+        projectName: projectNameMap.get(projectId) || projectId,
+        cacheSize: cacheStats.size,
+        downloadsSize: dlStats.size,
+        totalSize: cacheStats.size + dlStats.size,
+        isOrphan: !knownIds.has(projectId),
+      });
+    }
+
+    // Sort: orphans first, then by total size descending
+    result.sort((a, b) => {
+      if (a.isOrphan !== b.isOrphan) return a.isOrphan ? -1 : 1;
+      return b.totalSize - a.totalSize;
+    });
+
+    return result;
+  }
+
+  /**
+   * Removes all contents from vault/xclips/cache/
+   */
+  cleanAllCache(): CleanResult {
+    const cacheDir = path.join(this.getVaultDir(), "cache");
+    const stats = this.getDirStats(cacheDir);
+    if (fs.existsSync(cacheDir)) {
+      fs.rmSync(cacheDir, { recursive: true, force: true });
+      fs.mkdirSync(cacheDir, { recursive: true });
+    }
+    mediaLogger.info({ freedBytes: stats.size, deletedCount: stats.fileCount }, "Cleaned all cache");
+    return { freedBytes: stats.size, deletedCount: stats.fileCount };
+  }
+
+  /**
+   * Removes all contents from vault/xclips/downloads/
+   */
+  cleanAllDownloads(): CleanResult {
+    const downloadsDir = path.join(this.getVaultDir(), "downloads");
+    const stats = this.getDirStats(downloadsDir);
+    if (fs.existsSync(downloadsDir)) {
+      fs.rmSync(downloadsDir, { recursive: true, force: true });
+      fs.mkdirSync(downloadsDir, { recursive: true });
+    }
+    mediaLogger.info({ freedBytes: stats.size, deletedCount: stats.fileCount }, "Cleaned all downloads");
+    return { freedBytes: stats.size, deletedCount: stats.fileCount };
+  }
+
+  /**
+   * Removes cache and download folders for projects that no longer exist in the database.
+   */
+  cleanOrphanedFiles(): CleanResult {
+    const vault = this.getVaultDir();
+    const cacheDir = path.join(vault, "cache");
+    const downloadsDir = path.join(vault, "downloads");
+    const knownIds = new Set(xclipsDb.getAllProjectIds());
+    let freedBytes = 0;
+    let deletedCount = 0;
+
+    for (const dir of [cacheDir, downloadsDir]) {
+      if (!fs.existsSync(dir)) continue;
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory() && !knownIds.has(entry.name)) {
+          const fullPath = path.join(dir, entry.name);
+          const stats = this.getDirStats(fullPath);
+          freedBytes += stats.size;
+          deletedCount += stats.fileCount;
+          fs.rmSync(fullPath, { recursive: true, force: true });
+        }
+      }
+    }
+
+    mediaLogger.info({ freedBytes, deletedCount }, "Cleaned orphaned files");
+    return { freedBytes, deletedCount };
+  }
+
+  /**
+   * Removes cache and download folders for a specific project.
+   */
+  cleanProjectStorage(projectId: string): CleanResult {
+    const vault = this.getVaultDir();
+    let freedBytes = 0;
+    let deletedCount = 0;
+
+    for (const sub of ["cache", "downloads"]) {
+      const dirPath = path.join(vault, sub, projectId);
+      if (fs.existsSync(dirPath)) {
+        const stats = this.getDirStats(dirPath);
+        freedBytes += stats.size;
+        deletedCount += stats.fileCount;
+        fs.rmSync(dirPath, { recursive: true, force: true });
+      }
+    }
+
+    mediaLogger.info({ projectId, freedBytes, deletedCount }, "Cleaned project storage");
+    return { freedBytes, deletedCount };
+  }
+
+  /**
+   * Runs VACUUM on SQLite database and returns size delta.
+   */
+  compactDatabase(): { beforeSize: number; afterSize: number } {
+    return xclipsDb.compactDatabase();
+  }
+
+  /**
+   * Exports a project as a JSON bundle (metadata, clips, transcript).
+   * Returns a serializable object that can be sent as JSON or zipped.
+   */
+  exportProjectBundle(projectId: string): Result<{
+    project: XclipsProject;
+    clips: XclipsClip[];
+    transcript: XclipsTranscript | null;
+    exportedAt: string;
+    version: string;
+  }> {
+    const project = xclipsDb.getProject(projectId);
+    if (!project) {
+      return { success: false, error: `Project ${projectId} not found` };
+    }
+    const clips = xclipsDb.getClips(projectId);
+    const transcript = xclipsDb.getTranscript(projectId);
+
+    return {
+      success: true,
+      data: {
+        project,
+        clips,
+        transcript,
+        exportedAt: new Date().toISOString(),
+        version: "1.0.0",
+      },
+    };
+  }
+
+  /**
+   * Imports a project bundle from a JSON object.
+   * Reconstructs project, transcript, and clips in the database.
+   */
+  importProjectBundle(bundle: {
+    project: XclipsProject;
+    clips: XclipsClip[];
+    transcript: XclipsTranscript | null;
+  }): Result<{ projectId: string }> {
+    try {
+      // Generate new ID to avoid collisions
+      const newId = `proj_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const now = new Date().toISOString();
+
+      const project: XclipsProject = {
+        ...bundle.project,
+        id: newId,
+        name: `${bundle.project.name} (Imported)`,
+        createdAt: now,
+        updatedAt: now,
+      };
+      xclipsDb.saveProject(project);
+
+      if (bundle.transcript) {
+        const transcript: XclipsTranscript = {
+          ...bundle.transcript,
+          id: `trx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          projectId: newId,
+          createdAt: now,
+          updatedAt: now,
+        };
+        xclipsDb.saveTranscript(transcript);
+      }
+
+      if (bundle.clips && bundle.clips.length > 0) {
+        const remappedClips = bundle.clips.map((clip, idx) => ({
+          ...clip,
+          id: `clip_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+          projectId: newId,
+          status: "draft" as const,
+          outputPath: undefined,
+          renderError: undefined,
+          createdAt: now,
+          updatedAt: now,
+        }));
+        xclipsDb.saveClipsBatch(remappedClips);
+      }
+
+      aiLogger.info({ originalId: bundle.project.id, newId }, "Imported project bundle");
+      return { success: true, data: { projectId: newId } };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Import failed";
+      return { success: false, error: message };
+    }
   }
 }
 

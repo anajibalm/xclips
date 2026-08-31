@@ -280,3 +280,31 @@ export const SUPPORTED_OUTPUT_LANGUAGES: SupportedLanguage[] = [
 export type Result<T> =
   | { success: true; data: T }
   | { success: false; error: string };
+
+// ============================================================
+// Storage & Cache Management Types
+// ============================================================
+
+export interface StorageStats {
+  cacheSize: number;
+  cacheFileCount: number;
+  downloadsSize: number;
+  downloadsFileCount: number;
+  databaseSize: number;
+  totalSize: number;
+  orphanCount: number;
+}
+
+export interface ProjectStorage {
+  projectId: string;
+  projectName: string;
+  cacheSize: number;
+  downloadsSize: number;
+  totalSize: number;
+  isOrphan: boolean;
+}
+
+export interface CleanResult {
+  freedBytes: number;
+  deletedCount: number;
+}

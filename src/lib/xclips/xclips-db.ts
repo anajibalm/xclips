@@ -648,6 +648,46 @@ export class XclipsDatabase {
     });
   }
 
+  // ── Storage Management ──────────────────────────────────────
+
+  /**
+   * Returns all project IDs currently in the database.
+   * Used for orphan detection — comparing DB IDs against filesystem folders.
+   */
+  getAllProjectIds(): string[] {
+    const rows = this.db.prepare("SELECT id FROM projects").all() as { id: string }[];
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * Runs VACUUM on the SQLite database to reclaim unused space.
+   * Returns the before and after file sizes in bytes.
+   */
+  compactDatabase(): { beforeSize: number; afterSize: number } {
+    const dbPath = (this.db as unknown as { filename: string }).filename;
+    const walPath = dbPath + "-wal";
+    const shmPath = dbPath + "-shm";
+
+    const getSize = () => {
+      let size = 0;
+      try { size += fs.statSync(dbPath).size; } catch { /* no-op */ }
+      try { size += fs.statSync(walPath).size; } catch { /* no-op */ }
+      try { size += fs.statSync(shmPath).size; } catch { /* no-op */ }
+      return size;
+    };
+
+    const beforeSize = getSize();
+    this.db.exec("VACUUM");
+    const afterSize = getSize();
+
+    dbLogger.info(
+      { beforeSize, afterSize, freedBytes: beforeSize - afterSize },
+      "Database compacted via VACUUM"
+    );
+
+    return { beforeSize, afterSize };
+  }
+
   close(): void {
     this.db.close();
   }
