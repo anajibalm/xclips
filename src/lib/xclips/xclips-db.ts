@@ -7,6 +7,7 @@ import {
   XclipsClip,
   RenderJob,
   ClipStatus,
+  DownloadRecord,
 } from "@/lib/xclips/types";
 import { dbLogger } from "@/lib/logger";
 
@@ -111,6 +112,27 @@ export class XclipsDatabase {
       );
 
       CREATE INDEX IF NOT EXISTS idx_render_jobs_clip_id ON render_jobs(clipId);
+
+      CREATE TABLE IF NOT EXISTS downloads (
+        id TEXT PRIMARY KEY,
+        platform TEXT NOT NULL,
+        url TEXT NOT NULL,
+        title TEXT NOT NULL,
+        author TEXT NOT NULL DEFAULT '',
+        durationSec REAL NOT NULL DEFAULT 0,
+        thumbnailUrl TEXT NOT NULL DEFAULT '',
+        formatType TEXT NOT NULL,
+        quality TEXT NOT NULL DEFAULT '1080p',
+        filePath TEXT NOT NULL,
+        fileSizeBytes INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'completed',
+        error TEXT,
+        createdAt TEXT NOT NULL,
+        rawJson TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_downloads_created ON downloads(createdAt DESC);
+      CREATE INDEX IF NOT EXISTS idx_downloads_platform ON downloads(platform);
     `);
 
     // Auto-migrate schema if tables already existed with older schema
@@ -686,6 +708,126 @@ export class XclipsDatabase {
     );
 
     return { beforeSize, afterSize };
+  }
+
+  // ── Multiplatform Downloader ────────────────────────────────
+  addDownloadRecord(record: DownloadRecord): DownloadRecord {
+    const stmt = this.db.prepare(`
+      INSERT INTO downloads (
+        id, platform, url, title, author, durationSec,
+        thumbnailUrl, formatType, quality, filePath, fileSizeBytes,
+        status, error, createdAt, rawJson
+      ) VALUES (
+        $id, $platform, $url, $title, $author, $durationSec,
+        $thumbnailUrl, $formatType, $quality, $filePath, $fileSizeBytes,
+        $status, $error, $createdAt, $rawJson
+      )
+    `);
+
+    stmt.run({
+      $id: record.id,
+      $platform: record.platform,
+      $url: record.url,
+      $title: record.title,
+      $author: record.author || "",
+      $durationSec: record.durationSec || 0,
+      $thumbnailUrl: record.thumbnailUrl || "",
+      $formatType: record.formatType,
+      $quality: record.quality || "1080p",
+      $filePath: record.filePath,
+      $fileSizeBytes: record.fileSizeBytes || 0,
+      $status: record.status || "completed",
+      $error: record.error || null,
+      $createdAt: record.createdAt || new Date().toISOString(),
+      $rawJson: record.rawJson || null,
+    });
+
+    return record;
+  }
+
+  updateDownloadRecord(id: string, updates: Partial<DownloadRecord>): void {
+    const fields: string[] = [];
+    const params: Record<string, unknown> = { $id: id };
+
+    if (updates.status !== undefined) {
+      fields.push("status = $status");
+      params.$status = updates.status;
+    }
+    if (updates.filePath !== undefined) {
+      fields.push("filePath = $filePath");
+      params.$filePath = updates.filePath;
+    }
+    if (updates.fileSizeBytes !== undefined) {
+      fields.push("fileSizeBytes = $fileSizeBytes");
+      params.$fileSizeBytes = updates.fileSizeBytes;
+    }
+    if (updates.error !== undefined) {
+      fields.push("error = $error");
+      params.$error = updates.error;
+    }
+    if (updates.title !== undefined) {
+      fields.push("title = $title");
+      params.$title = updates.title;
+    }
+    if (updates.thumbnailUrl !== undefined) {
+      fields.push("thumbnailUrl = $thumbnailUrl");
+      params.$thumbnailUrl = updates.thumbnailUrl;
+    }
+
+    if (fields.length === 0) return;
+
+    const sql = `UPDATE downloads SET ${fields.join(", ")} WHERE id = $id`;
+    this.db.prepare(sql).run(params as Record<string, string | number | null>);
+  }
+
+  getDownloadRecords(filter?: { platform?: string; formatType?: string; search?: string }): DownloadRecord[] {
+    let sql = "SELECT * FROM downloads WHERE 1=1";
+    const params: Record<string, unknown> = {};
+
+    if (filter?.platform && filter.platform !== "all") {
+      sql += " AND platform = $platform";
+      params.$platform = filter.platform;
+    }
+
+    if (filter?.formatType && filter.formatType !== "all") {
+      sql += " AND formatType = $formatType";
+      params.$formatType = filter.formatType;
+    }
+
+    if (filter?.search && filter.search.trim()) {
+      sql += " AND (title LIKE $search OR author LIKE $search)";
+      params.$search = `%${filter.search.trim()}%`;
+    }
+
+    sql += " ORDER BY createdAt DESC";
+
+    try {
+      const rows = this.db.prepare(sql).all(params as Record<string, string | number | null>) as DownloadRecord[];
+      return rows;
+    } catch (err: unknown) {
+      dbLogger.error({ err, filter }, "Failed to query download records");
+      return [];
+    }
+  }
+
+  getDownloadRecordById(id: string): DownloadRecord | null {
+    try {
+      const row = this.db.prepare("SELECT * FROM downloads WHERE id = $id").get({ $id: id }) as DownloadRecord | null;
+      return row || null;
+    } catch (err: unknown) {
+      dbLogger.error({ err, id }, "Failed to get download record by ID");
+      return null;
+    }
+  }
+
+  deleteDownloadRecord(id: string): boolean {
+    try {
+      const info = this.db.prepare("DELETE FROM downloads WHERE id = $id").run({ $id: id });
+      return info.changes > 0;
+    } catch (err: unknown) {
+      dbLogger.error({ err, id }, "Failed to delete download record");
+      return false;
+    }
   }
 
   close(): void {

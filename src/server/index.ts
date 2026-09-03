@@ -150,13 +150,30 @@ app.post("/api/xclips/youtube/info", async (c) => {
   }
 });
 
-import { DownloadProgress } from "../lib/xclips/ytdlp-downloader";
-import { XclipsProject } from "../lib/xclips/types";
-
+import {
+  DownloadProgress,
+  fetchYouTubeInfo,
+  downloadYouTubeVideo,
+  downloadAudioOnly,
+  downloadSubtitleOnly,
+  downloadThumbnailOnly,
+  registerActiveProcess,
+  unregisterActiveProcess,
+  cancelActiveProcess,
+  isValidMediaUrl,
+} from "../lib/xclips/ytdlp-downloader";
+import {
+  XclipsProject,
+  DownloadRecord,
+  DownloaderPlatform,
+  DownloaderFormatType,
+  DownloaderQuality,
+} from "../lib/xclips/types";
 
 // Active download tasks progress store
 interface DownloadTaskState extends DownloadProgress {
   project?: XclipsProject;
+  downloadRecord?: DownloadRecord;
   error?: string;
 }
 const activeDownloads = new Map<string, DownloadTaskState>();
@@ -358,6 +375,494 @@ app.get("/api/xclips/footage/progress/:taskId", (c) => {
   }
   return c.json({ ok: true, progress: task });
 });
+
+// =============================================================================
+// DEDICATED MULTIPLATFORM DOWNLOADER API ROUTES (/api/xclips/downloader/*)
+// =============================================================================
+
+function detectPlatformHelper(url: string): DownloaderPlatform {
+  if (/youtube\.com|youtu\.be/i.test(url)) return "youtube";
+  if (/tiktok\.com/i.test(url)) return "tiktok";
+  if (/instagram\.com/i.test(url)) return "instagram";
+  return "generic";
+}
+
+/** POST /api/xclips/downloader/info — Instant metadata preview */
+app.post("/api/xclips/downloader/info", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { url } = body as { url?: string };
+    if (!url || typeof url !== "string" || !url.trim()) {
+      return c.json({ ok: false, message: "URL wajib diisi" }, 400);
+    }
+
+    const platform = detectPlatformHelper(url.trim());
+    const res = await fetchYouTubeInfo(url.trim());
+    if (!res.success) {
+      return c.json({ ok: false, message: res.error }, 400);
+    }
+
+    return c.json({ ok: true, platform, info: res.data });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Gagal mengambil metadata video";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
+/** POST /api/xclips/downloader/start — Async multi-format download trigger */
+app.post("/api/xclips/downloader/start", async (c) => {
+  try {
+    const body = await c.req.json();
+    const {
+      url,
+      formatType = "video",
+      quality = "1080p",
+      downloadSubtitles = false,
+      customName,
+      sendToStudio = false,
+    } = body as {
+      url?: string;
+      formatType?: DownloaderFormatType;
+      quality?: DownloaderQuality;
+      downloadSubtitles?: boolean;
+      customName?: string;
+      sendToStudio?: boolean;
+    };
+
+    if (!url || typeof url !== "string" || !url.trim()) {
+      return c.json({ ok: false, message: "URL wajib diisi" }, 400);
+    }
+
+    const platform = detectPlatformHelper(url.trim());
+    const taskId = `dl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const outputDir = path.resolve(process.cwd(), "vault", "xclips", "downloads");
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    // Initial in-memory state
+    activeDownloads.set(taskId, {
+      percent: 0,
+      downloadedBytes: 0,
+      totalBytes: 0,
+      speedStr: "Memulai...",
+      etaStr: "--:--",
+      status: "downloading",
+    });
+
+    // Initial database record
+    const initialRecord: DownloadRecord = {
+      id: taskId,
+      platform,
+      url: url.trim(),
+      title: customName || "Mengunduh media...",
+      author: "",
+      durationSec: 0,
+      thumbnailUrl: "",
+      formatType,
+      quality,
+      filePath: "",
+      fileSizeBytes: 0,
+      status: "downloading",
+      createdAt: new Date().toISOString(),
+    };
+    xclipsDb.addDownloadRecord(initialRecord);
+
+    // Run async in background
+    (async () => {
+      try {
+        let downloadResult:
+          | { success: true; data: { filePath: string; info: any } }
+          | { success: false; error: string };
+
+        if (formatType === "audio") {
+          downloadResult = await downloadAudioOnly(
+            {
+              url: url.trim(),
+              outputDir,
+              format: (quality as "mp3" | "m4a" | "wav") || "mp3",
+              customName,
+            },
+            (prog) => {
+              activeDownloads.set(taskId, { ...prog });
+            },
+            (proc) => registerActiveProcess(taskId, proc)
+          );
+        } else if (formatType === "subtitle") {
+          downloadResult = await downloadSubtitleOnly(
+            {
+              url: url.trim(),
+              outputDir,
+              subFormat: (quality as "srt" | "vtt" | "txt") || "srt",
+              customName,
+            },
+            (prog) => {
+              activeDownloads.set(taskId, { ...prog });
+            },
+            (proc) => registerActiveProcess(taskId, proc)
+          );
+        } else if (formatType === "thumbnail") {
+          downloadResult = await downloadThumbnailOnly(
+            {
+              url: url.trim(),
+              outputDir,
+              customName,
+            },
+            (prog) => {
+              activeDownloads.set(taskId, { ...prog });
+            }
+          );
+        } else {
+          // Video download
+          const vidRes = await downloadYouTubeVideo(
+            {
+              url: url.trim(),
+              outputDir,
+              quality: quality as any,
+              downloadSubtitles,
+            },
+            (prog) => {
+              activeDownloads.set(taskId, { ...prog });
+            },
+            (proc) => registerActiveProcess(taskId, proc)
+          );
+          if (vidRes.success) {
+            downloadResult = {
+              success: true,
+              data: { filePath: vidRes.data.videoPath, info: vidRes.data.info },
+            };
+          } else {
+            downloadResult = { success: false, error: vidRes.error };
+          }
+        }
+
+        unregisterActiveProcess(taskId);
+
+        if (!downloadResult.success) {
+          activeDownloads.set(taskId, {
+            percent: 0,
+            downloadedBytes: 0,
+            totalBytes: 0,
+            speedStr: "",
+            etaStr: "",
+            status: "error",
+            error: downloadResult.error,
+          });
+          xclipsDb.updateDownloadRecord(taskId, {
+            status: "error",
+            error: downloadResult.error,
+          });
+        } else {
+          const finalFile = downloadResult.data.filePath;
+          let fileSizeBytes = 0;
+          try {
+            fileSizeBytes = fs.statSync(finalFile).size;
+          } catch {
+            // non-fatal
+          }
+
+          const info = downloadResult.data.info;
+          xclipsDb.updateDownloadRecord(taskId, {
+            status: "completed",
+            filePath: finalFile,
+            fileSizeBytes,
+            title: info?.title || customName || path.basename(finalFile),
+            author: info?.uploader || info?.channel || "",
+            durationSec: info?.duration || 0,
+            thumbnailUrl: info?.thumbnail || "",
+          });
+
+          let studioProject: XclipsProject | undefined = undefined;
+          if (sendToStudio && formatType === "video") {
+            try {
+              const projRes = await xclipsService.ingestLocalFile(
+                finalFile,
+                info?.title || customName || path.basename(finalFile)
+              );
+              if (projRes.success) {
+                studioProject = projRes.data;
+              }
+            } catch {
+              // non-fatal
+            }
+          }
+
+          const completedRecord = xclipsDb.getDownloadRecordById(taskId);
+          activeDownloads.set(taskId, {
+            percent: 100,
+            downloadedBytes: fileSizeBytes,
+            totalBytes: fileSizeBytes,
+            speedStr: "",
+            etaStr: "",
+            status: "completed",
+            downloadRecord: completedRecord || undefined,
+            project: studioProject,
+          });
+        }
+      } catch (err: unknown) {
+        unregisterActiveProcess(taskId);
+        const msg = err instanceof Error ? err.message : "Terjadi kesalahan saat mengunduh";
+        activeDownloads.set(taskId, {
+          percent: 0,
+          downloadedBytes: 0,
+          totalBytes: 0,
+          speedStr: "",
+          etaStr: "",
+          status: "error",
+          error: msg,
+        });
+        xclipsDb.updateDownloadRecord(taskId, {
+          status: "error",
+          error: msg,
+        });
+      }
+    })();
+
+    return c.json({ ok: true, taskId, recordId: taskId });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Gagal memulai proses download";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
+/** GET /api/xclips/downloader/tasks/active — Get all active background download tasks */
+app.get("/api/xclips/downloader/tasks/active", (c) => {
+  const activeTasks: { taskId: string; progress: DownloadTaskState }[] = [];
+  for (const [taskId, state] of activeDownloads.entries()) {
+    if (state.status === "downloading" || state.status === "merging") {
+      activeTasks.push({ taskId, progress: state });
+    }
+  }
+  return c.json({ ok: true, tasks: activeTasks });
+});
+
+/** GET /api/xclips/downloader/progress/:taskId — Polling download status */
+app.get("/api/xclips/downloader/progress/:taskId", (c) => {
+  const taskId = c.req.param("taskId");
+  const inMem = activeDownloads.get(taskId);
+  if (inMem) {
+    return c.json({ ok: true, progress: inMem });
+  }
+
+  // Fallback to database record
+  const record = xclipsDb.getDownloadRecordById(taskId);
+  if (record) {
+    return c.json({
+      ok: true,
+      progress: {
+        percent: record.status === "completed" ? 100 : 0,
+        downloadedBytes: record.fileSizeBytes,
+        totalBytes: record.fileSizeBytes,
+        speedStr: "",
+        etaStr: "",
+        status: record.status,
+        error: record.error,
+        downloadRecord: record,
+      },
+    });
+  }
+
+  return c.json({ ok: false, message: "Task tidak ditemukan" }, 404);
+});
+
+/** POST /api/xclips/downloader/cancel/:taskId — Cancel active download task */
+app.post("/api/xclips/downloader/cancel/:taskId", (c) => {
+  const taskId = c.req.param("taskId");
+  cancelActiveProcess(taskId);
+  activeDownloads.set(taskId, {
+    percent: 0,
+    downloadedBytes: 0,
+    totalBytes: 0,
+    speedStr: "",
+    etaStr: "",
+    status: "error",
+    error: "Download dibatalkan oleh pengguna",
+  });
+  xclipsDb.updateDownloadRecord(taskId, {
+    status: "error",
+    error: "Download dibatalkan oleh pengguna",
+  });
+  return c.json({ ok: true, message: "Download berhasil dibatalkan" });
+});
+
+/** GET /api/xclips/downloader/history — Get download records */
+app.get("/api/xclips/downloader/history", (c) => {
+  try {
+    const platform = c.req.query("platform");
+    const formatType = c.req.query("formatType");
+    const search = c.req.query("search");
+
+    const records = xclipsDb.getDownloadRecords({ platform, formatType, search });
+    const recordsWithExistence = records.map((r) => ({
+      ...r,
+      exists: r.filePath ? fs.existsSync(r.filePath) : false,
+    }));
+
+    return c.json({ ok: true, records: recordsWithExistence });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Gagal memuat riwayat unduhan";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
+/** DELETE /api/xclips/downloader/history/:id — Delete download record and file */
+app.delete("/api/xclips/downloader/history/:id", (c) => {
+  try {
+    const id = c.req.param("id");
+    const record = xclipsDb.getDownloadRecordById(id);
+    if (!record) {
+      return c.json({ ok: false, message: "Riwayat download tidak ditemukan" }, 404);
+    }
+
+    if (record.filePath && fs.existsSync(record.filePath)) {
+      try {
+        fs.unlinkSync(record.filePath);
+      } catch {
+        // non-fatal
+      }
+    }
+
+    xclipsDb.deleteDownloadRecord(id);
+    return c.json({ ok: true, message: "File dan riwayat berhasil dihapus" });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Gagal menghapus riwayat";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
+/** GET /api/xclips/downloader/file/:id — Stream or download media file */
+app.get("/api/xclips/downloader/file/:id", (c) => {
+  const id = c.req.param("id");
+  const record = xclipsDb.getDownloadRecordById(id);
+  if (!record || !record.filePath || !fs.existsSync(record.filePath)) {
+    return c.text("File media tidak ditemukan", 404);
+  }
+
+  const stat = fs.statSync(record.filePath);
+  const ext = path.extname(record.filePath).toLowerCase();
+  const mimeTypes: Record<string, string> = {
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mkv": "video/x-matroska",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".wav": "audio/wav",
+    ".srt": "text/plain; charset=utf-8",
+    ".vtt": "text/vtt; charset=utf-8",
+    ".txt": "text/plain; charset=utf-8",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+  };
+  const contentType = mimeTypes[ext] || "application/octet-stream";
+  const isDownload = c.req.query("download") === "1";
+
+  const range = c.req.header("range");
+  if (range) {
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+    const chunksize = end - start + 1;
+    const stream = fs.createReadStream(record.filePath, { start, end });
+
+    return new Response(stream as unknown as ReadableStream, {
+      status: 206,
+      headers: {
+        "Content-Range": `bytes ${start}-${end}/${stat.size}`,
+        "Accept-Ranges": "bytes",
+        "Content-Length": String(chunksize),
+        "Content-Type": contentType,
+      },
+    });
+  }
+
+  const stream = fs.createReadStream(record.filePath);
+  const headers: Record<string, string> = {
+    "Content-Length": String(stat.size),
+    "Content-Type": contentType,
+    "Accept-Ranges": "bytes",
+  };
+  if (isDownload) {
+    const filename = path.basename(record.filePath);
+    headers["Content-Disposition"] = `attachment; filename="${encodeURIComponent(filename)}"`;
+  }
+
+  return new Response(stream as unknown as ReadableStream, {
+    status: 200,
+    headers,
+  });
+});
+
+/** POST /api/xclips/downloader/open-folder — Open file location in Windows Explorer */
+app.post("/api/xclips/downloader/open-folder", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { id, filePath } = body as { id?: string; filePath?: string };
+
+    let targetPath = filePath;
+    if (!targetPath && id) {
+      const record = xclipsDb.getDownloadRecordById(id);
+      if (record?.filePath) {
+        targetPath = record.filePath;
+      }
+    }
+
+    if (!targetPath) {
+      targetPath = path.resolve(process.cwd(), "vault", "xclips", "downloads");
+    }
+
+    const absolutePath = path.resolve(targetPath);
+    if (!fs.existsSync(absolutePath)) {
+      return c.json({ ok: false, message: "File atau folder tidak ditemukan" }, 404);
+    }
+
+    const isFile = fs.statSync(absolutePath).isFile();
+    const cmd =
+      process.platform === "win32"
+        ? (isFile ? `explorer.exe /select,"${absolutePath}"` : `explorer.exe "${absolutePath}"`)
+        : (process.platform === "darwin" ? `open -R "${absolutePath}"` : `xdg-open "${path.dirname(absolutePath)}"`);
+
+    exec(cmd, (err) => {
+      if (err) {
+        httpLogger.warn({ err: err.message, path: absolutePath }, "Failed to launch file explorer");
+      }
+    });
+
+    return c.json({ ok: true, message: "File explorer berhasil dibuka" });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Gagal membuka file explorer";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
+/** POST /api/xclips/downloader/create-project/:id — Convert downloaded video into xClips project */
+app.post("/api/xclips/downloader/create-project/:id", async (c) => {
+  try {
+    const id = c.req.param("id");
+    const record = xclipsDb.getDownloadRecordById(id);
+    if (!record) {
+      return c.json({ ok: false, message: "Riwayat download tidak ditemukan" }, 404);
+    }
+
+    if (!record.filePath || !fs.existsSync(record.filePath)) {
+      return c.json({ ok: false, message: "File fisik video tidak ditemukan pada storage lokal" }, 404);
+    }
+
+    if (record.formatType !== "video") {
+      return c.json({ ok: false, message: "Hanya format video yang dapat dibuka di xClips Studio" }, 400);
+    }
+
+    const res = await xclipsService.ingestLocalFile(record.filePath, record.title);
+    if (!res.success) {
+      return c.json({ ok: false, message: res.error }, 400);
+    }
+
+    return c.json({ ok: true, project: res.data });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Gagal membuat project dari file video";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
 
 /** POST /api/xclips/open-in-explorer — Open folder or select file in OS File Explorer */
 app.post("/api/xclips/open-in-explorer", async (c) => {

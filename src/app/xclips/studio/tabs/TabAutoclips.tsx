@@ -29,7 +29,6 @@ const PROVIDER_LABELS: Record<AiProviderType, string> = {
   gemini: "Gemini",
   openai: "OpenAI",
   anthropic: "Claude",
-  openai_compatible: "Custom",
 };
 
 export function TabAutoclips() {

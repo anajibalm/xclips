@@ -14,6 +14,8 @@ import {
   FormControl,
   Select,
   MenuItem,
+  ListSubheader,
+  Alert,
   CircularProgress,
   Tooltip,
 } from "@mui/material";
@@ -29,10 +31,12 @@ import ClearIcon from "@mui/icons-material/Clear";
 import SubtitlesIcon from "@mui/icons-material/Subtitles";
 import YouTubeIcon from "@mui/icons-material/YouTube";
 import LanguageIcon from "@mui/icons-material/Language";
+import SettingsIcon from "@mui/icons-material/Settings";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { useStudioStore } from "../store/useStudioStore";
 import { apiFetch } from "@/lib/api-client";
 import { formatTime } from "../types/studio.types";
-import { AiProviderType, HOOK_FORMULAS, HookFormulaId, SUPPORTED_OUTPUT_LANGUAGES } from "@/lib/xclips/types";
+import { AiProviderType, HOOK_FORMULAS, HookFormulaId, SUPPORTED_OUTPUT_LANGUAGES, AI_PROVIDER_MODELS } from "@/lib/xclips/types";
 
 const LOCAL_STORAGE_TOPIC_KEY = "xclips_last_topic_prompt";
 
@@ -41,7 +45,6 @@ const PROVIDER_NAMES: Record<AiProviderType, string> = {
   gemini: "Gemini",
   openai: "OpenAI",
   anthropic: "Claude",
-  openai_compatible: "Custom Provider",
 };
 
 const POPULAR_TOPIC_PRESETS = [
@@ -79,10 +82,11 @@ export function GenerateAutoClipModal() {
   const aiSettings = useStudioStore((s) => s.aiSettings);
   const saveAiSettings = useStudioStore((s) => s.saveAiSettings);
   const handleDiscoverHighlights = useStudioStore((s) => s.handleDiscoverHighlights);
+  const setAiSettingsModalOpen = useStudioStore((s) => s.setAiSettingsModalOpen);
 
   // Local Form States
   const [selectedProvider, setSelectedProvider] = useState<AiProviderType>("kieai");
-  const [selectedModel, setSelectedModel] = useState<string>("gemini-3-7-flash");
+  const [selectedModel, setSelectedModel] = useState<string>("gemini-3-7-flash-openai");
   const [selectedLanguage, setSelectedLanguage] = useState<string>("auto");
   const [selectedFormula, setSelectedFormula] = useState<HookFormulaId>("auto");
   const [topicPrompt, setTopicPrompt] = useState<string>("");
@@ -93,16 +97,21 @@ export function GenerateAutoClipModal() {
 
   const videoDurationSec = project?.durationSec || 0;
 
+  const isProviderConfigured = (prov: AiProviderType): boolean => {
+    if (!aiSettings) return false;
+    const keyInMap = aiSettings.apiKeys?.[prov];
+    if (keyInMap && keyInMap.trim().length > 0) return true;
+    if (aiSettings.provider === prov && aiSettings.apiKey && aiSettings.apiKey.trim().length > 0) return true;
+    return false;
+  };
+
   // Initialize or restore state when modal opens
   useEffect(() => {
     if (isGenerateAutoClipModalOpen) {
       if (aiSettings) {
         const prov = (aiSettings.provider || "kieai") as AiProviderType;
         setSelectedProvider(prov);
-        let defaultModel = aiSettings.highlightModel || (prov === "openai" ? "gpt-4o" : "gemini-3-7-flash");
-        if (prov === "openai" && (defaultModel === "gpt-5-6-terra" || defaultModel === "gpt-5.6-luna" || defaultModel === "gpt-5-6-sol")) {
-          defaultModel = "gpt-4o";
-        }
+        const defaultModel = aiSettings.highlightModel || "gemini-3-7-flash-openai";
         setSelectedModel(defaultModel);
         setSelectedLanguage(aiSettings.outputLanguage || "auto");
         setSelectedFormula((aiSettings.hookFormula as HookFormulaId) || "auto");
@@ -225,7 +234,7 @@ export function GenerateAutoClipModal() {
     <Dialog
       open={isGenerateAutoClipModalOpen}
       onClose={() => !isDiscovering && !isTranscribing && setIsGenerateAutoClipModalOpen(false)}
-      maxWidth="md"
+      maxWidth="sm"
       fullWidth
       slotProps={{
         paper: {
@@ -277,18 +286,38 @@ export function GenerateAutoClipModal() {
         {/* SECTION 1: AI MODEL, OUTPUT LANGUAGE & HOOK FORMULA */}
         <Grid container spacing={2}>
           {/* AI Model Selector */}
-          <Grid size={{ xs: 12, sm: 4.5 }}>
+          <Grid size={{ xs: 12, sm: 6 }}>
             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.6 }}>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
-                <TuneIcon sx={{ fontSize: "0.9rem", color: "#3b82f6" }} />
-                <Typography variant="caption" sx={{ color: "#d4d4d8", fontWeight: 700, fontSize: "0.75rem" }}>
-                  AI Model
-                </Typography>
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
+                  <TuneIcon sx={{ fontSize: "0.9rem", color: "#3b82f6" }} />
+                  <Typography variant="caption" sx={{ color: "#d4d4d8", fontWeight: 700, fontSize: "0.75rem" }}>
+                    AI Model
+                  </Typography>
+                </Box>
+                <Chip
+                  label={PROVIDER_NAMES[selectedProvider]}
+                  size="small"
+                  sx={{
+                    height: 18,
+                    fontSize: "0.62rem",
+                    fontWeight: 700,
+                    bgcolor: isProviderConfigured(selectedProvider) ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)",
+                    color: isProviderConfigured(selectedProvider) ? "#34d399" : "#f87171",
+                    border: `1px solid ${isProviderConfigured(selectedProvider) ? "rgba(16, 185, 129, 0.3)" : "rgba(239, 68, 68, 0.3)"}`,
+                  }}
+                />
               </Box>
               <FormControl fullWidth size="small">
                 <Select
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
+                  value={`${selectedProvider}::${selectedModel}`}
+                  onChange={(e) => {
+                    const parts = (e.target.value as string).split("::");
+                    if (parts.length === 2) {
+                      setSelectedProvider(parts[0] as AiProviderType);
+                      setSelectedModel(parts[1]);
+                    }
+                  }}
                   disabled={isDiscovering || isTranscribing}
                   sx={{
                     bgcolor: "#14141a",
@@ -298,47 +327,142 @@ export function GenerateAutoClipModal() {
                     "& .MuiOutlinedInput-notchedOutline": { borderColor: "#27272a" },
                     "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: "#3f3f46" },
                   }}
+                  MenuProps={{
+                    slotProps: {
+                      paper: {
+                        sx: {
+                          bgcolor: "#14141a",
+                          border: "1px solid #27272a",
+                          color: "#ffffff",
+                          maxHeight: 380,
+                          "& .MuiList-root": {
+                            py: 0,
+                          },
+                        },
+                      },
+                    },
+                  }}
                 >
-                  {selectedProvider === "openai" ? (
-                    [
-                      <MenuItem key="gpt-4o" value="gpt-4o">GPT-4o (Recommended)</MenuItem>,
-                      <MenuItem key="gpt-4o-mini" value="gpt-4o-mini">GPT-4o Mini (Fast &amp; Cheap)</MenuItem>,
-                      <MenuItem key="gpt-4-turbo" value="gpt-4-turbo">GPT-4 Turbo</MenuItem>,
-                      <MenuItem key="o3-mini" value="o3-mini">o3-mini</MenuItem>,
-                      <MenuItem key="o1-mini" value="o1-mini">o1-mini</MenuItem>,
-                    ]
-                  ) : selectedProvider === "gemini" ? (
-                    [
-                      <MenuItem key="gemini-2.0-flash" value="gemini-2.0-flash">Gemini 2.0 Flash (Recommended)</MenuItem>,
-                      <MenuItem key="gemini-2.5-flash" value="gemini-2.5-flash">Gemini 2.5 Flash</MenuItem>,
-                      <MenuItem key="gemini-1.5-flash" value="gemini-1.5-flash">Gemini 1.5 Flash</MenuItem>,
-                      <MenuItem key="gemini-2.5-pro" value="gemini-2.5-pro">Gemini 2.5 Pro</MenuItem>,
-                    ]
-                  ) : selectedProvider === "anthropic" ? (
-                    [
-                      <MenuItem key="claude-3-7-sonnet-20250219" value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet (Recommended)</MenuItem>,
-                      <MenuItem key="claude-3-5-sonnet-20241022" value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</MenuItem>,
-                      <MenuItem key="claude-3-5-haiku-20241022" value="claude-3-5-haiku-20241022">Claude 3.5 Haiku</MenuItem>,
-                      <MenuItem key="claude-sonnet-5" value="claude-sonnet-5">Claude Sonnet 5</MenuItem>,
-                    ]
-                  ) : (
-                    [
-                      <MenuItem key="gemini-3-7-flash" value="gemini-3-7-flash">Gemini 3.7 Flash (Recommended)</MenuItem>,
-                      <MenuItem key="gemini-3-6-flash" value="gemini-3-6-flash">Gemini 3.6 Flash</MenuItem>,
-                      <MenuItem key="gpt-4o" value="gpt-4o">GPT-4o</MenuItem>,
-                      <MenuItem key="gpt-4o-mini" value="gpt-4o-mini">GPT-4o Mini</MenuItem>,
-                    ]
-                  )}
+                  {(["kieai", "openai", "anthropic", "gemini"] as AiProviderType[]).map((prov) => {
+                    const configured = isProviderConfigured(prov);
+                    const models = AI_PROVIDER_MODELS[prov]?.filter((m) => !m.isTranscribe) || [];
+                    if (models.length === 0) return null;
+
+                    return [
+                      <ListSubheader
+                        key={`header-${prov}`}
+                        sx={{
+                          bgcolor: "#1e1e28",
+                          color: configured ? "#93c5fd" : "#a1a1aa",
+                          fontSize: "0.72rem",
+                          fontWeight: 800,
+                          letterSpacing: "0.03em",
+                          lineHeight: "30px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          px: 1.5,
+                          borderTop: "1px solid #27272a",
+                          borderBottom: "1px solid #27272a",
+                          "&:first-of-type": {
+                            borderTop: "none",
+                          },
+                        }}
+                      >
+                        <span>{PROVIDER_NAMES[prov]}</span>
+                        <Chip
+                          label={configured ? "Key Configured" : "Key Not Set"}
+                          size="small"
+                          sx={{
+                            height: 16,
+                            fontSize: "0.58rem",
+                            fontWeight: 700,
+                            bgcolor: configured ? "rgba(16, 185, 129, 0.18)" : "rgba(239, 68, 68, 0.18)",
+                            color: configured ? "#34d399" : "#f87171",
+                          }}
+                        />
+                      </ListSubheader>,
+                      ...models.map((m) => (
+                        <MenuItem
+                          key={`${prov}::${m.id}`}
+                          value={`${prov}::${m.id}`}
+                          sx={{
+                            fontSize: "0.78rem",
+                            py: 0.8,
+                            px: 1.8,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 1,
+                            "&.Mui-selected": {
+                              bgcolor: "rgba(59, 130, 246, 0.18)",
+                              color: "#60a5fa",
+                              fontWeight: 700,
+                            },
+                            "&:hover": {
+                              bgcolor: "#242432",
+                            },
+                          }}
+                        >
+                          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.15, minWidth: 0 }}>
+                            <Typography sx={{ fontSize: "0.79rem", fontWeight: m.recommended ? 700 : 500 }}>
+                              {m.name}
+                            </Typography>
+                            {m.desc && (
+                              <Typography variant="caption" sx={{ fontSize: "0.66rem", color: "#71717a", whiteSpace: "normal" }}>
+                                {m.desc}
+                              </Typography>
+                            )}
+                          </Box>
+                          {m.recommended && (
+                            <Chip
+                              label="Best"
+                              size="small"
+                              sx={{
+                                height: 16,
+                                fontSize: "0.6rem",
+                                fontWeight: 700,
+                                bgcolor: "rgba(59, 130, 246, 0.15)",
+                                color: "#60a5fa",
+                                border: "1px solid rgba(59, 130, 246, 0.3)",
+                                flexShrink: 0,
+                              }}
+                            />
+                          )}
+                        </MenuItem>
+                      )),
+                    ];
+                  })}
                 </Select>
               </FormControl>
-              <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.68rem" }}>
-                Via {PROVIDER_NAMES[selectedProvider]}
-              </Typography>
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.68rem" }}>
+                  Provider: <strong style={{ color: "#93c5fd" }}>{PROVIDER_NAMES[selectedProvider]}</strong>
+                </Typography>
+                {!isProviderConfigured(selectedProvider) && (
+                  <Button
+                    size="small"
+                    startIcon={<SettingsIcon sx={{ fontSize: "0.75rem !important" }} />}
+                    onClick={() => setAiSettingsModalOpen(true)}
+                    sx={{
+                      p: 0,
+                      minWidth: "auto",
+                      textTransform: "none",
+                      fontSize: "0.68rem",
+                      color: "#f87171",
+                      fontWeight: 700,
+                      "&:hover": { textDecoration: "underline", bgcolor: "transparent" },
+                    }}
+                  >
+                    Set Key
+                  </Button>
+                )}
+              </Box>
             </Box>
           </Grid>
 
           {/* Output Language Selector */}
-          <Grid size={{ xs: 12, sm: 3.5 }}>
+          <Grid size={{ xs: 12, sm: 6 }}>
             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.6 }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
                 <LanguageIcon sx={{ fontSize: "0.9rem", color: "#10b981" }} />
@@ -374,7 +498,7 @@ export function GenerateAutoClipModal() {
           </Grid>
 
           {/* Hook Matrix Formula Dropdown */}
-          <Grid size={{ xs: 12, sm: 4 }}>
+          <Grid size={{ xs: 12 }}>
             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.6 }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
                 <PsychologyIcon sx={{ fontSize: "0.9rem", color: "#e0392b" }} />

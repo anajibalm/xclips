@@ -1,10 +1,33 @@
-import { spawn } from "child_process";
+import { spawn, ChildProcess } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import { Result, WordTimestamp } from "@/lib/xclips/types";
 import { ytdlpLogger } from "@/lib/logger";
 
+// Active ChildProcess registry for cancellation
+const activeProcessMap = new Map<string, ChildProcess>();
 
+export function registerActiveProcess(taskId: string, proc: ChildProcess) {
+  activeProcessMap.set(taskId, proc);
+}
+
+export function unregisterActiveProcess(taskId: string) {
+  activeProcessMap.delete(taskId);
+}
+
+export function cancelActiveProcess(taskId: string): boolean {
+  const proc = activeProcessMap.get(taskId);
+  if (proc) {
+    try {
+      proc.kill();
+    } catch {
+      // ignore
+    }
+    activeProcessMap.delete(taskId);
+    return true;
+  }
+  return false;
+}
 
 export interface YouTubeVideoInfo {
   id: string;
@@ -30,7 +53,7 @@ export interface DownloadProgress {
 export interface YouTubeDownloadOptions {
   url: string;
   outputDir: string;
-  quality?: "best" | "1080p" | "720p" | "480p";
+  quality?: "best" | "4k" | "2160p" | "1440p" | "2k" | "1080p" | "720p" | "480p";
   downloadSubtitles?: boolean;
 }
 
@@ -88,20 +111,37 @@ export function findFfmpegBinary(): string | undefined {
  * Resolves format selector and format sort arguments for target download quality.
  * Accurately supports both landscape (16:9) and portrait/vertical (9:16 Shorts) videos.
  */
-export function getQualitySelectorArgs(quality?: "best" | "1080p" | "720p" | "480p"): { formatSelector: string; formatSort: string } {
-  if (quality === "1080p") {
+export function getQualitySelectorArgs(
+  quality?: "best" | "4k" | "2160p" | "1440p" | "2k" | "1080p" | "720p" | "480p"
+): { formatSelector: string; formatSort: string } {
+  if (quality === "4k" || quality === "2160p") {
     return {
-      formatSelector: "bv*[height<=1080][width<=1920]+ba/bv*[width<=1080][height<=1920]+ba/bv*[height<=1080]+ba/bv*[width<=1080]+ba/bv*+ba/b",
+      formatSelector:
+        "bv*[height<=2160][width<=3840]+ba/bv*[width<=2160][height<=3840]+ba/bv*[height<=2160]+ba/bv*[width<=2160]+ba/bv*+ba/b",
+      formatSort: "res:2160,fps,vcodec:h264,acodec:m4a",
+    };
+  } else if (quality === "1440p" || quality === "2k") {
+    return {
+      formatSelector:
+        "bv*[height<=1440][width<=2560]+ba/bv*[width<=1440][height<=2560]+ba/bv*[height<=1440]+ba/bv*[width<=1440]+ba/bv*+ba/b",
+      formatSort: "res:1440,fps,vcodec:h264,acodec:m4a",
+    };
+  } else if (quality === "1080p") {
+    return {
+      formatSelector:
+        "bv*[height<=1080][width<=1920]+ba/bv*[width<=1080][height<=1920]+ba/bv*[height<=1080]+ba/bv*[width<=1080]+ba/bv*+ba/b",
       formatSort: "res:1080,fps,vcodec:h264,acodec:m4a",
     };
   } else if (quality === "720p") {
     return {
-      formatSelector: "bv*[height<=720][width<=1280]+ba/bv*[width<=720][height<=1280]+ba/bv*[height<=720]+ba/bv*[width<=720]+ba/bv*+ba/b",
+      formatSelector:
+        "bv*[height<=720][width<=1280]+ba/bv*[width<=720][height<=1280]+ba/bv*[height<=720]+ba/bv*[width<=720]+ba/bv*+ba/b",
       formatSort: "res:720,fps,vcodec:h264,acodec:m4a",
     };
   } else if (quality === "480p") {
     return {
-      formatSelector: "bv*[height<=480][width<=854]+ba/bv*[width<=480][height<=854]+ba/bv*[height<=480]+ba/bv*[width<=480]+ba/bv*+ba/b",
+      formatSelector:
+        "bv*[height<=480][width<=854]+ba/bv*[width<=480][height<=854]+ba/bv*[height<=480]+ba/bv*[width<=480]+ba/bv*+ba/b",
       formatSort: "res:480,fps,vcodec:h264,acodec:m4a",
     };
   } else {
@@ -555,7 +595,8 @@ export async function downloadTikTokVideo(
  */
 export async function downloadGenericYtDlpVideo(
   options: YouTubeDownloadOptions,
-  onProgress?: (progress: DownloadProgress) => void
+  onProgress?: (progress: DownloadProgress) => void,
+  onProcSpawn?: (proc: ChildProcess) => void
 ): Promise<Result<YouTubeDownloadResult>> {
   const { url, outputDir, quality = "1080p" } = options;
   fs.mkdirSync(outputDir, { recursive: true });
@@ -599,6 +640,7 @@ export async function downloadGenericYtDlpVideo(
 
   return new Promise((resolve) => {
     const proc = spawn(ytdlp, args, { windowsHide: true });
+    if (onProcSpawn) onProcSpawn(proc);
     let stderrData = "";
 
     proc.stdout.on("data", (chunk) => {
@@ -671,7 +713,8 @@ export async function downloadGenericYtDlpVideo(
  */
 export async function downloadYouTubeVideo(
   options: YouTubeDownloadOptions,
-  onProgress?: (progress: DownloadProgress) => void
+  onProgress?: (progress: DownloadProgress) => void,
+  onProcSpawn?: (proc: ChildProcess) => void
 ): Promise<Result<YouTubeDownloadResult>> {
   const { url, outputDir, quality = "1080p", downloadSubtitles = true } = options;
 
@@ -686,7 +729,7 @@ export async function downloadYouTubeVideo(
 
   // If Instagram or generic, use generic downloader
   if (!isValidYouTubeUrl(url)) {
-    return downloadGenericYtDlpVideo(options, onProgress);
+    return downloadGenericYtDlpVideo(options, onProgress, onProcSpawn);
   }
 
   fs.mkdirSync(outputDir, { recursive: true });
@@ -747,6 +790,7 @@ export async function downloadYouTubeVideo(
     const proc = spawn(ytdlp, args, {
       windowsHide: true,
     });
+    if (onProcSpawn) onProcSpawn(proc);
 
     let stderrData = "";
 
@@ -924,4 +968,339 @@ function srtTimestampToSec(ts: string): number {
   }
   return parseFloat(clean) || 0;
 }
+
+/**
+ * Downloads audio-only stream and transcodes to target audio format (mp3, m4a, wav)
+ */
+export async function downloadAudioOnly(
+  options: {
+    url: string;
+    outputDir: string;
+    format?: "mp3" | "m4a" | "wav";
+    customName?: string;
+  },
+  onProgress?: (progress: DownloadProgress) => void,
+  onProcSpawn?: (proc: ChildProcess) => void
+): Promise<Result<{ filePath: string; info: YouTubeVideoInfo }>> {
+  const { url, outputDir, format = "mp3", customName } = options;
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  const infoRes = await fetchYouTubeInfo(url);
+  if (!infoRes.success) {
+    return { success: false, error: infoRes.error };
+  }
+  const info = infoRes.data;
+  const ytdlp = findYtDlpBinary();
+  const ffmpeg = findFfmpegBinary();
+
+  const titleSafe = (customName || info.title).replace(/[<>:"/\\|?*]+/g, "_").slice(0, 100);
+  const outputTemplate = path.join(outputDir, `[AUDIO] ${titleSafe} [${info.id}].%(ext)s`);
+
+  const args = [
+    "-i",
+    "--no-warnings",
+    "--ignore-errors",
+    "-x",
+    "--audio-format",
+    format,
+    "--audio-quality",
+    "0",
+    "--js-runtimes",
+    "node",
+    "--remote-components",
+    "ejs:github",
+    "-o",
+    outputTemplate,
+  ];
+
+  if (ffmpeg) {
+    args.push("--ffmpeg-location", ffmpeg);
+  }
+
+  args.push(url.trim());
+  ytdlpLogger.info({ url, outputDir, format }, "Starting audio-only download with yt-dlp");
+
+  return new Promise((resolve) => {
+    const proc = spawn(ytdlp, args, { windowsHide: true });
+    if (onProcSpawn) onProcSpawn(proc);
+
+    let stderrData = "";
+
+    proc.stdout.on("data", (chunk) => {
+      const lines = chunk.toString().split(/[\r\n]+/);
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const parsed = parseYtDlpProgressLine(line);
+        if (parsed && onProgress) {
+          onProgress({
+            percent: parsed.percent ?? 0,
+            downloadedBytes: 0,
+            totalBytes: 0,
+            totalSizeStr: parsed.totalSizeStr ?? "",
+            speedStr: parsed.speedStr ?? "",
+            etaStr: parsed.etaStr ?? "",
+            status: parsed.status || "downloading",
+          });
+        }
+      }
+    });
+
+    proc.stderr.on("data", (chunk) => {
+      stderrData += chunk.toString();
+    });
+
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        ytdlpLogger.error({ url, code, stderr: stderrData.slice(0, 1000) }, "Audio download failed");
+        return resolve({
+          success: false,
+          error: `Download audio gagal (code ${code}): ${stderrData.slice(0, 300) || "Unknown error"}`,
+        });
+      }
+
+      const files = fs.readdirSync(outputDir);
+      const audioFile = files.find(
+        (f) => f.endsWith(`.${format}`) && (f.includes(info.id) || f.startsWith("[AUDIO]"))
+      );
+      const anyAudio = audioFile || files.find((f) => f.endsWith(`.${format}`));
+
+      if (!anyAudio) {
+        return resolve({
+          success: false,
+          error: `File audio (.${format}) tidak ditemukan setelah download selesai.`,
+        });
+      }
+
+      if (onProgress) {
+        onProgress({
+          percent: 100,
+          downloadedBytes: 0,
+          totalBytes: 0,
+          speedStr: "",
+          etaStr: "",
+          status: "completed",
+        });
+      }
+
+      const filePath = path.join(outputDir, anyAudio);
+      ytdlpLogger.info({ url, filePath }, "Audio download completed successfully");
+      resolve({
+        success: true,
+        data: { filePath, info },
+      });
+    });
+
+    proc.on("error", (err) => {
+      resolve({ success: false, error: `Gagal menjalankan proses download audio: ${err.message}` });
+    });
+  });
+}
+
+/**
+ * Downloads subtitles only (SRT, VTT, or plain text TXT)
+ */
+export async function downloadSubtitleOnly(
+  options: {
+    url: string;
+    outputDir: string;
+    subFormat?: "srt" | "vtt" | "txt";
+    customName?: string;
+  },
+  onProgress?: (progress: DownloadProgress) => void,
+  onProcSpawn?: (proc: ChildProcess) => void
+): Promise<Result<{ filePath: string; info: YouTubeVideoInfo }>> {
+  const { url, outputDir, subFormat = "srt", customName } = options;
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  const infoRes = await fetchYouTubeInfo(url);
+  if (!infoRes.success) {
+    return { success: false, error: infoRes.error };
+  }
+  const info = infoRes.data;
+  const ytdlp = findYtDlpBinary();
+
+  const titleSafe = (customName || info.title).replace(/[<>:"/\\|?*]+/g, "_").slice(0, 100);
+  const outputTemplate = path.join(outputDir, `[SUB] ${titleSafe} [${info.id}].%(ext)s`);
+
+  const downloadExt = subFormat === "txt" ? "srt" : subFormat;
+  const args = [
+    "--skip-download",
+    "--no-warnings",
+    "--ignore-errors",
+    "--write-subs",
+    "--write-auto-subs",
+    "--sub-lang",
+    "id,id-orig,en,en-orig,all",
+    "--sub-format",
+    downloadExt,
+    "--js-runtimes",
+    "node",
+    "--remote-components",
+    "ejs:github",
+    "-o",
+    outputTemplate,
+    url.trim(),
+  ];
+
+  ytdlpLogger.info({ url, outputDir, subFormat }, "Starting subtitle download with yt-dlp");
+
+  return new Promise((resolve) => {
+    const proc = spawn(ytdlp, args, { windowsHide: true });
+    if (onProcSpawn) onProcSpawn(proc);
+
+    let stderrData = "";
+
+    proc.stdout.on("data", (chunk) => {
+      if (onProgress) {
+        onProgress({
+          percent: 50,
+          downloadedBytes: 0,
+          totalBytes: 0,
+          speedStr: "",
+          etaStr: "",
+          status: "downloading",
+        });
+      }
+    });
+
+    proc.stderr.on("data", (chunk) => {
+      stderrData += chunk.toString();
+    });
+
+    proc.on("close", (code) => {
+      const files = fs.readdirSync(outputDir);
+      let subFile = files.find(
+        (f) =>
+          (f.endsWith(".srt") || f.endsWith(".vtt")) &&
+          (f.includes(info.id) || f.startsWith("[SUB]"))
+      );
+
+      if (!subFile) {
+        // Fallback check any subtitle in outputDir
+        subFile = files.find((f) => f.endsWith(".srt") || f.endsWith(".vtt"));
+      }
+
+      if (!subFile) {
+        return resolve({
+          success: false,
+          error: "Subtitle tidak ditemukan atau video ini tidak memiliki subtitle/closed-captions.",
+        });
+      }
+
+      let finalFilePath = path.join(outputDir, subFile);
+
+      // If user wants .txt format, convert subtitle text
+      if (subFormat === "txt") {
+        try {
+          const rawContent = fs.readFileSync(finalFilePath, "utf-8");
+          const words = parseSrtToWords(rawContent);
+          const plainText = words.map((w) => w.word).join(" ");
+          const txtFilename = `[SUB] ${titleSafe} [${info.id}].txt`;
+          const txtPath = path.join(outputDir, txtFilename);
+          fs.writeFileSync(txtPath, plainText, "utf-8");
+          finalFilePath = txtPath;
+        } catch (err: unknown) {
+          ytdlpLogger.warn({ err }, "Failed to convert SRT to TXT, returning raw subtitle");
+        }
+      }
+
+      if (onProgress) {
+        onProgress({
+          percent: 100,
+          downloadedBytes: 0,
+          totalBytes: 0,
+          speedStr: "",
+          etaStr: "",
+          status: "completed",
+        });
+      }
+
+      resolve({
+        success: true,
+        data: { filePath: finalFilePath, info },
+      });
+    });
+
+    proc.on("error", (err) => {
+      resolve({ success: false, error: `Gagal menjalankan download subtitle: ${err.message}` });
+    });
+  });
+}
+
+/**
+ * Downloads HD cover / thumbnail image directly
+ */
+export async function downloadThumbnailOnly(
+  options: {
+    url: string;
+    outputDir: string;
+    customName?: string;
+  },
+  onProgress?: (progress: DownloadProgress) => void
+): Promise<Result<{ filePath: string; info: YouTubeVideoInfo }>> {
+  const { url, outputDir, customName } = options;
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  const infoRes = await fetchYouTubeInfo(url);
+  if (!infoRes.success) {
+    return { success: false, error: infoRes.error };
+  }
+  const info = infoRes.data;
+
+  if (!info.thumbnail) {
+    return { success: false, error: "Thumbnail tidak tersedia untuk video ini." };
+  }
+
+  if (onProgress) {
+    onProgress({
+      percent: 30,
+      downloadedBytes: 0,
+      totalBytes: 0,
+      speedStr: "",
+      etaStr: "",
+      status: "downloading",
+    });
+  }
+
+  try {
+    const res = await fetch(info.thumbnail, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Failed to fetch thumbnail HTTP ${res.status}`);
+    }
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const titleSafe = (customName || info.title).replace(/[<>:"/\\|?*]+/g, "_").slice(0, 100);
+    const filename = `[THUMB] ${titleSafe} [${info.id}].jpg`;
+    const filePath = path.join(outputDir, filename);
+
+    fs.writeFileSync(filePath, buffer);
+
+    if (onProgress) {
+      onProgress({
+        percent: 100,
+        downloadedBytes: buffer.length,
+        totalBytes: buffer.length,
+        speedStr: "",
+        etaStr: "",
+        status: "completed",
+      });
+    }
+
+    return {
+      success: true,
+      data: { filePath, info },
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { success: false, error: `Gagal mengunduh thumbnail: ${msg}` };
+  }
+}
+
 

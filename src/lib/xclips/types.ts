@@ -6,8 +6,8 @@ import { z } from "zod";
 
 export const WordTimestampSchema = z.object({
   word: z.string(),
-  start: z.number(), // in seconds
-  end: z.number(), // in seconds
+  start: z.number(),
+  end: z.number(),
   confidence: z.number().optional().default(1.0),
   isFiller: z.boolean().optional().default(false),
   excluded: z.boolean().optional().default(false),
@@ -141,13 +141,13 @@ export interface XclipsClip {
   viralScore: number;
   startSec: number;
   endSec: number;
-  aspectRatio?: AspectRatio; // default 9:16
+  aspectRatio?: AspectRatio;
   layoutMode: LayoutMode;
-  panOffsetX: number; // -1.0 to 1.0
-  videoScale?: number; // 0.5 to 3.0 (default 1.0)
-  videoPanX?: number; // -1.0 to 1.0 (default 0)
-  videoPanY?: number; // -1.0 to 1.0 (default 0)
-  videoRotation?: number; // -180 to 180 (default 0)
+  panOffsetX: number;
+  videoScale?: number;
+  videoPanX?: number;
+  videoPanY?: number;
+  videoRotation?: number;
   subtitleStyle: SubtitleStyle;
   removeFillers: boolean;
   removeSilence: boolean;
@@ -193,7 +193,7 @@ export interface RenderJob {
 // AI Multi-Provider & Autoclip Narrative Settings
 // ============================================================
 
-export const AiProviderTypeSchema = z.enum(["kieai", "gemini", "openai", "anthropic", "openai_compatible"]);
+export const AiProviderTypeSchema = z.enum(["kieai", "gemini", "openai", "anthropic"]);
 export type AiProviderType = z.infer<typeof AiProviderTypeSchema>;
 
 export const HOOK_FORMULAS = [
@@ -226,6 +226,53 @@ export const REQUESTY_LIGHT_MODELS = [
 
 export type RequestyLightModelId = typeof REQUESTY_LIGHT_MODELS[number]["id"];
 
+// ============================================================
+// AI Provider Model Catalog
+// ============================================================
+
+export interface AiModelDefinition {
+  id: string;
+  name: string;
+  provider: AiProviderType;
+  desc?: string;
+  recommended?: boolean;
+  isTranscribe?: boolean;
+}
+
+export const AI_PROVIDER_MODELS: Record<AiProviderType, AiModelDefinition[]> = {
+  kieai: [
+    { id: "gemini-3-7-flash-openai", name: "Gemini 3.7 Flash OpenAI (Priority)", provider: "kieai", desc: "Fast & high precision via OpenAI format", recommended: true },
+    { id: "gemini-3-7-flash", name: "Gemini 3.7 Flash", provider: "kieai", desc: "Native Google Gemini 3.7 Flash engine" },
+    { id: "gemini-3-6-flash-openai", name: "Gemini 3.6 Flash OpenAI (Priority)", provider: "kieai", desc: "Ultra-fast & cost-efficient" },
+    { id: "gemini-3-6-flash", name: "Gemini 3.6 Flash", provider: "kieai", desc: "Native Google Gemini 3.6 Flash engine" },
+    { id: "gpt-5-6-luna", name: "GPT 5.6 Luna", provider: "kieai", desc: "Advanced reasoning & viral hook synthesis" },
+    { id: "gpt-5-6-terra", name: "GPT 5.6 Terra", provider: "kieai", desc: "Deep context comprehension" },
+    { id: "gpt-5-6-sol", name: "GPT 5.6 Sol", provider: "kieai", desc: "Speed & creative narrative structuring" },
+    { id: "claude-sonnet-5", name: "Claude Sonnet 5", provider: "kieai", desc: "Top-tier storytelling & nuance analysis" },
+    { id: "claude-opus-4-8", name: "Claude Opus 4.8", provider: "kieai", desc: "Extended reasoning depth" },
+  ],
+  openai: [
+    { id: "gpt-5.6-luna", name: "GPT 5.6 Luna", provider: "openai", desc: "Advanced reasoning & viral hook synthesis", recommended: true },
+    { id: "gpt-5.6-terra", name: "GPT 5.6 Terra", provider: "openai", desc: "Deep context comprehension" },
+    { id: "gpt-5.6-sol", name: "GPT 5.6 Sol", provider: "openai", desc: "Fast & creative narrative structuring" },
+    { id: "gpt-transcribe", name: "GPT Transcribe", provider: "openai", desc: "Speech recognition & transcript mapping", isTranscribe: true },
+    { id: "gpt-image-2-2026-04-21", name: "GPT Image 2", provider: "openai", desc: "Image analysis & generation" },
+    { id: "whisper-1", name: "Whisper 1", provider: "openai", desc: "Official audio transcription standard", isTranscribe: true },
+  ],
+  anthropic: [
+    { id: "claude-fable-5", name: "Claude Fable 5", provider: "anthropic", desc: "Creative storytelling & engagement hooks", recommended: true },
+    { id: "claude-sonnet-5", name: "Claude Sonnet 5", provider: "anthropic", desc: "State-of-the-art narrative intelligence" },
+    { id: "claude-opus-5", name: "Claude Opus 5", provider: "anthropic", desc: "Max reasoning & complex transcript synthesis" },
+    { id: "claude-haiku-4.5", name: "Claude Haiku 4.5", provider: "anthropic", desc: "Instant & efficient processing" },
+  ],
+  gemini: [
+    { id: "gemini-3.7-flash", name: "Gemini 3.7 Flash", provider: "gemini", desc: "Google DeepMind official high-speed model", recommended: true },
+    { id: "gemini-3.6-flash", name: "Gemini 3.6 Flash", provider: "gemini", desc: "Fast & reliable transcript analysis" },
+    { id: "gemini-3.1-pro-preview", name: "Gemini 3.1 Pro Preview", provider: "gemini", desc: "Long context reasoning" },
+    { id: "gemini-3.5-transcribe", name: "Gemini 3.5 Transcribe", provider: "gemini", desc: "Audio transcription engine", isTranscribe: true },
+  ],
+};
+
 export const XclipsAiSettingsSchema = z.object({
   provider: AiProviderTypeSchema.default("kieai"),
   baseUrl: z.string().default("https://api.kie.ai"),
@@ -236,14 +283,12 @@ export const XclipsAiSettingsSchema = z.object({
       gemini: z.string().default(""),
       openai: z.string().default(""),
       anthropic: z.string().default(""),
-      openai_compatible: z.string().default(""),
     })
     .default({
       kieai: "",
       gemini: "",
       openai: "",
       anthropic: "",
-      openai_compatible: "",
     }),
   transcribeModel: z.string().default("gemini-3-7-flash"),
   highlightModel: z.string().default("gemini-3-7-flash"),
@@ -308,3 +353,52 @@ export interface CleanResult {
   freedBytes: number;
   deletedCount: number;
 }
+
+// ============================================================
+// Multiplatform Downloader Types
+// ============================================================
+
+export type DownloaderPlatform = "youtube" | "tiktok" | "instagram" | "generic";
+export type DownloaderFormatType = "video" | "audio" | "subtitle" | "thumbnail";
+export type DownloaderQuality =
+  | "4k"
+  | "1440p"
+  | "1080p"
+  | "720p"
+  | "480p"
+  | "best"
+  | "mp3"
+  | "m4a"
+  | "wav"
+  | "srt"
+  | "vtt"
+  | "txt"
+  | "thumb";
+
+export interface DownloadRecord {
+  id: string;
+  platform: DownloaderPlatform;
+  url: string;
+  title: string;
+  author: string;
+  durationSec: number;
+  thumbnailUrl: string;
+  formatType: DownloaderFormatType;
+  quality: DownloaderQuality;
+  filePath: string;
+  fileSizeBytes: number;
+  status: "downloading" | "completed" | "error";
+  error?: string;
+  createdAt: string;
+  rawJson?: string;
+}
+
+export interface DownloaderOptions {
+  url: string;
+  formatType: DownloaderFormatType;
+  quality: DownloaderQuality;
+  downloadSubtitles?: boolean;
+  customName?: string;
+  outputDir?: string;
+}
+

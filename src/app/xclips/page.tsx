@@ -42,6 +42,7 @@ import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import SettingsIcon from "@mui/icons-material/Settings";
+import DownloadIcon from "@mui/icons-material/Download";
 import { apiFetch } from "@/lib/api-client";
 import { XclipsProject } from "@/lib/xclips/types";
 import { YouTubeVideoInfo } from "@/lib/xclips/ytdlp-downloader";
@@ -314,6 +315,22 @@ export default function XclipsDashboardPage() {
           <IconButton onClick={loadData} sx={{ color: "#a1a1aa", bgcolor: "#18181b", borderRadius: 0.8 }} title="Refresh Projects">
             <RefreshIcon fontSize="small" />
           </IconButton>
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={() => router.push("/xclips/downloader")}
+            sx={{
+              borderColor: "#27272a",
+              color: "#e4e4e7",
+              bgcolor: "#18181b",
+              "&:hover": { borderColor: "#3b82f6", color: "#60a5fa", bgcolor: "rgba(59, 130, 246, 0.1)" },
+              fontWeight: 600,
+              textTransform: "none",
+              borderRadius: 1,
+            }}
+          >
+            Universal Downloader
+          </Button>
           <Button
             variant="outlined"
             startIcon={<SettingsIcon />}

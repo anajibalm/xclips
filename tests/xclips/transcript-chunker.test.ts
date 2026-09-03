@@ -104,23 +104,29 @@ describe("xclips - Transcript Chunker & Highlight Reducer", () => {
     expect(promptEs).toContain("Spanish");
   });
 
-  it("should return static models (gemini-3-6-flash, gemini-3-7-flash, gpt-5-6-terra) for kieai provider", async () => {
+  it("should return static models for kieai provider", async () => {
     const { xclipsService } = await import("@/lib/xclips.service");
     const res = await xclipsService.fetchAvailableModels(
       "kieai",
-      "https://api.kie.ai/gemini-3-6-flash-openai/v1",
+      "https://api.kie.ai",
       "test-api-key"
     );
 
     expect(res.success).toBe(true);
     if (res.success) {
-      expect(res.data).toContain("gemini-3-6-flash");
+      expect(res.data).toContain("gemini-3-7-flash-openai");
       expect(res.data).toContain("gemini-3-7-flash");
+      expect(res.data).toContain("gemini-3-6-flash-openai");
+      expect(res.data).toContain("gemini-3-6-flash");
+      expect(res.data).toContain("gpt-5-6-luna");
       expect(res.data).toContain("gpt-5-6-terra");
+      expect(res.data).toContain("gpt-5-6-sol");
+      expect(res.data).toContain("claude-sonnet-5");
+      expect(res.data).toContain("claude-opus-4-8");
     }
   });
 
-  it("should return static models including gpt-transcribe, gpt-5.6-luna, gpt-image-2 for openai provider", async () => {
+  it("should return static models including gpt-5.6-luna, gpt-5.6-terra, gpt-transcribe for openai provider", async () => {
     const { xclipsService } = await import("@/lib/xclips.service");
     const res = await xclipsService.fetchAvailableModels(
       "openai",
@@ -130,16 +136,16 @@ describe("xclips - Transcript Chunker & Highlight Reducer", () => {
 
     expect(res.success).toBe(true);
     if (res.success) {
-      expect(res.data).toContain("gpt-transcribe");
       expect(res.data).toContain("gpt-5.6-luna");
-      expect(res.data).toContain("gpt-image-2");
-      expect(res.data).toContain("gpt-4o-transcribe");
-      expect(res.data).toContain("gpt-4o-mini-transcribe");
+      expect(res.data).toContain("gpt-5.6-terra");
+      expect(res.data).toContain("gpt-5.6-sol");
+      expect(res.data).toContain("gpt-transcribe");
+      expect(res.data).toContain("gpt-image-2-2026-04-21");
       expect(res.data).toContain("whisper-1");
     }
   });
 
-  it("should return static 4 models (claude-sonnet-5, claude-opus-5, claude-sonnet-4-6, claude-opus-4-8) for anthropic provider", async () => {
+  it("should return static models (claude-fable-5, claude-sonnet-5, claude-opus-5, claude-haiku-4.5) for anthropic provider", async () => {
     const { xclipsService } = await import("@/lib/xclips.service");
     const res = await xclipsService.fetchAvailableModels(
       "anthropic",
@@ -150,24 +156,24 @@ describe("xclips - Transcript Chunker & Highlight Reducer", () => {
     expect(res.success).toBe(true);
     if (res.success) {
       expect(res.data).toEqual([
+        "claude-fable-5",
         "claude-sonnet-5",
         "claude-opus-5",
-        "claude-sonnet-4-6",
-        "claude-opus-4-8",
+        "claude-haiku-4.5",
       ]);
     }
   });
 
-  it("should return static models (gemini-3.5-transcribe, gemini-3.7-flash, gemini-3.1-pro-preview, gemini-3.6-flash) for gemini provider", async () => {
+  it("should return static models (gemini-3.7-flash, gemini-3.6-flash, gemini-3.1-pro-preview, gemini-3.5-transcribe) for gemini provider", async () => {
     const { xclipsService } = await import("@/lib/xclips.service");
     const res = await xclipsService.fetchAvailableModels("gemini", "https://generativelanguage.googleapis.com", "");
     expect(res.success).toBe(true);
     if (res.success) {
       expect(res.data).toEqual([
-        "gemini-3.5-transcribe",
         "gemini-3.7-flash",
-        "gemini-3.1-pro-preview",
         "gemini-3.6-flash",
+        "gemini-3.1-pro-preview",
+        "gemini-3.5-transcribe",
       ]);
     }
   });
@@ -183,7 +189,6 @@ describe("xclips - Transcript Chunker & Highlight Reducer", () => {
         gemini: "",
         openai: "",
         anthropic: "",
-        openai_compatible: "",
       },
     });
     expect(saveKie.success).toBe(true);

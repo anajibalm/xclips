@@ -144,40 +144,6 @@ const PROVIDER_TRANSCRIBE_GROUPS: ProviderGroup[] = [
       },
     ],
   },
-  {
-    provider: "openai_compatible",
-    label: "Custom (OpenAI Compatible)",
-    models: [
-      {
-        id: "gpt-transcribe",
-        name: "gpt-transcribe",
-        provider: "openai_compatible",
-        category: "transcribe",
-        description: "Custom endpoint dedicated audio transcriber",
-      },
-      {
-        id: "whisper-1",
-        name: "whisper-1",
-        provider: "openai_compatible",
-        category: "transcribe",
-        description: "Custom endpoint Whisper Speech-to-Text",
-      },
-      {
-        id: "gpt-4o-transcribe",
-        name: "gpt-4o-transcribe",
-        provider: "openai_compatible",
-        category: "multimodal",
-        description: "Custom endpoint multimodal audio reasoning",
-      },
-      {
-        id: "gpt-4o-mini-transcribe",
-        name: "gpt-4o-mini-transcribe",
-        provider: "openai_compatible",
-        category: "multimodal",
-        description: "Custom endpoint lightweight audio transcribe",
-      },
-    ],
-  },
 ];
 
 export function GenerateSubtitleModal() {
@@ -244,47 +210,27 @@ export function GenerateSubtitleModal() {
   const computedGroups = useMemo(() => {
     const groups: ProviderGroup[] = JSON.parse(JSON.stringify(PROVIDER_TRANSCRIBE_GROUPS));
 
-    // Incorporate configured transcribeModel from AI Settings if custom
+    // Incorporate configured transcribeModel from AI Settings
     if (aiSettings?.transcribeModel && aiSettings.transcribeModel.trim()) {
-      const customModelId = aiSettings.transcribeModel.trim();
-      const currentProv = aiSettings.provider || "openai_compatible";
-      const targetGroup = groups.find((g) => g.provider === currentProv) || groups[groups.length - 1];
+      const modelId = aiSettings.transcribeModel.trim();
+      const currentProv = aiSettings.provider || "kieai";
+      const targetGroup = groups.find((g) => g.provider === currentProv) || groups[0];
 
-      const alreadyExists = groups.some((g) => g.models.some((m) => m.id === customModelId));
+      const alreadyExists = groups.some((g) => g.models.some((m) => m.id === modelId));
       if (!alreadyExists && targetGroup) {
-        const isMulti = customModelId.includes("gemini") || customModelId.includes("4o");
+        const isMulti = modelId.includes("gemini") || modelId.includes("4o");
         targetGroup.models.push({
-          id: customModelId,
-          name: customModelId,
+          id: modelId,
+          name: modelId,
           provider: currentProv,
           category: isMulti ? "multimodal" : "transcribe",
-          description: isMulti ? "Custom multimodal audio model" : "Custom dedicated transcribe model",
+          description: isMulti ? "Multimodal audio model" : "Dedicated transcribe model",
         });
       }
     }
 
-    // Incorporate any dynamic models fetched from API
-    if (availableTranscribeModels && availableTranscribeModels.length > 0) {
-      const currentProv = aiSettings?.provider || "openai_compatible";
-      const targetGroup = groups.find((g) => g.provider === currentProv) || groups[groups.length - 1];
-
-      for (const fetchedModel of availableTranscribeModels) {
-        const alreadyExists = groups.some((g) => g.models.some((m) => m.id === fetchedModel));
-        if (!alreadyExists && targetGroup) {
-          const isMulti = fetchedModel.includes("gemini") || fetchedModel.includes("4o");
-          targetGroup.models.push({
-            id: fetchedModel,
-            name: fetchedModel,
-            provider: currentProv,
-            category: isMulti ? "multimodal" : "transcribe",
-            description: isMulti ? "Fetched multimodal audio model" : "Fetched dedicated transcribe model",
-          });
-        }
-      }
-    }
-
     return groups;
-  }, [aiSettings, availableTranscribeModels]);
+  }, [aiSettings]);
 
   // Extract currently selected provider and model ID
   const { selectedProvider, selectedModelId } = useMemo(() => {

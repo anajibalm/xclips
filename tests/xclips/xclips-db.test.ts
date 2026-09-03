@@ -420,4 +420,82 @@ describe("xclips - Persistent SQLite Database Engine (bun:sqlite)", () => {
     expect(typeof compactResult.beforeSize).toBe("number");
     expect(typeof compactResult.afterSize).toBe("number");
   });
+
+  it("should perform CRUD on downloads table with filtering and search", () => {
+    const record1 = {
+      id: "dl_test_1",
+      platform: "youtube" as const,
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      title: "Rick Astley - Never Gonna Give You Up",
+      author: "RickAstleyVEVO",
+      durationSec: 213,
+      thumbnailUrl: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+      formatType: "video" as const,
+      quality: "1080p" as const,
+      filePath: "/vault/xclips/downloads/rick_astley.mp4",
+      fileSizeBytes: 25000000,
+      status: "completed" as const,
+      createdAt: "2026-09-02T10:00:00.000Z",
+    };
+
+    const record2 = {
+      id: "dl_test_2",
+      platform: "tiktok" as const,
+      url: "https://www.tiktok.com/@user/video/1234567890",
+      title: "Viral Cooking Recipe",
+      author: "ChefMaster",
+      durationSec: 60,
+      thumbnailUrl: "https://p16-va.tiktokcdn.com/cover.jpg",
+      formatType: "audio" as const,
+      quality: "mp3" as const,
+      filePath: "/vault/xclips/downloads/viral_recipe.mp3",
+      fileSizeBytes: 2000000,
+      status: "completed" as const,
+      createdAt: "2026-09-02T11:00:00.000Z",
+    };
+
+    db.addDownloadRecord(record1);
+    db.addDownloadRecord(record2);
+
+    const fetched1 = db.getDownloadRecordById("dl_test_1");
+    expect(fetched1).not.toBeNull();
+    expect(fetched1?.title).toBe("Rick Astley - Never Gonna Give You Up");
+    expect(fetched1?.platform).toBe("youtube");
+
+    // All records
+    const all = db.getDownloadRecords();
+    expect(all.length).toBe(2);
+    expect(all[0].id).toBe("dl_test_2"); // Sorted DESC
+
+    // Filter by platform
+    const ytOnly = db.getDownloadRecords({ platform: "youtube" });
+    expect(ytOnly.length).toBe(1);
+    expect(ytOnly[0].id).toBe("dl_test_1");
+
+    // Filter by formatType
+    const audioOnly = db.getDownloadRecords({ formatType: "audio" });
+    expect(audioOnly.length).toBe(1);
+    expect(audioOnly[0].id).toBe("dl_test_2");
+
+    // Search
+    const searched = db.getDownloadRecords({ search: "Rick" });
+    expect(searched.length).toBe(1);
+    expect(searched[0].id).toBe("dl_test_1");
+
+    // Update
+    db.updateDownloadRecord("dl_test_1", {
+      status: "completed",
+      fileSizeBytes: 26000000,
+      title: "Rick Astley - HD Remastered",
+    });
+    const updated = db.getDownloadRecordById("dl_test_1");
+    expect(updated?.fileSizeBytes).toBe(26000000);
+    expect(updated?.title).toBe("Rick Astley - HD Remastered");
+
+    // Delete
+    const deleted = db.deleteDownloadRecord("dl_test_2");
+    expect(deleted).toBe(true);
+    expect(db.getDownloadRecordById("dl_test_2")).toBeNull();
+  });
 });
+

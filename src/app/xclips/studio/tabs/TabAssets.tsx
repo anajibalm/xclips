@@ -81,10 +81,22 @@ export function TabAssets({ onPreviewBroll }: TabAssetsProps) {
     <Box>
       {/* ===== PERMANENT MEDIA DOWNLOADER (ABOVE SUB-TABS) ===== */}
       <Box sx={{ p: 2, bgcolor: "#141418", borderRadius: 1, border: "1px solid #27272a", mb: 2.5 }}>
-        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
-          <Typography variant="subtitle2" sx={{ color: "#fafafa", fontWeight: 800, fontSize: "0.9rem" }}>
-            Media Downloader
-          </Typography>
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1, flexWrap: "wrap", gap: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Typography variant="subtitle2" sx={{ color: "#fafafa", fontWeight: 800, fontSize: "0.9rem" }}>
+              Media Downloader
+            </Typography>
+            <Button
+              size="small"
+              variant="text"
+              href="/xclips/downloader"
+              target="_blank"
+              endIcon={<OpenInNewIcon sx={{ fontSize: "0.75rem !important" }} />}
+              sx={{ color: "#60a5fa", textTransform: "none", fontSize: "0.72rem", py: 0, px: 0.8 }}
+            >
+              Open Dedicated Page
+            </Button>
+          </Box>
           <Box sx={{ display: "flex", gap: 0.6 }}>
             {[
               { id: "youtube", label: "YouTube", color: "#ef4444" },

@@ -717,7 +717,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           gemini: s.apiKeys?.gemini || "",
           openai: s.apiKeys?.openai || "",
           anthropic: s.apiKeys?.anthropic || "",
-          openai_compatible: s.apiKeys?.openai_compatible || "",
         };
         if (!completeApiKeys[currentProvider] && resolvedKey) {
           completeApiKeys[currentProvider] = resolvedKey;

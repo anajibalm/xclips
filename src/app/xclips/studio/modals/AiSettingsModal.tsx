@@ -30,9 +30,10 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import BoltIcon from "@mui/icons-material/Bolt";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { useStudioStore } from "../store/useStudioStore";
 import { apiFetch } from "@/lib/api-client";
-import { AiProviderType, XclipsAiSettings, REQUESTY_LIGHT_MODELS } from "@/lib/xclips/types";
+import { AiProviderType, XclipsAiSettings, REQUESTY_LIGHT_MODELS, AI_PROVIDER_MODELS } from "@/lib/xclips/types";
 
 // Brand Icons
 function KieAiIcon(props: React.SVGProps<SVGSVGElement>) {
@@ -68,15 +69,6 @@ function AnthropicIcon(props: React.SVGProps<SVGSVGElement>) {
   );
 }
 
-function CustomAiIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-    </svg>
-  );
-}
-
 const PROVIDER_METADATA: Record<
   AiProviderType,
   { label: string; keyTitle: string; getUrl?: string; placeholder: string }
@@ -104,11 +96,6 @@ const PROVIDER_METADATA: Record<
     keyTitle: "Anthropic Claude API Key",
     getUrl: "https://platform.claude.com/settings/workspaces/default/keys",
     placeholder: "Enter Claude API key...",
-  },
-  openai_compatible: {
-    label: "Custom",
-    keyTitle: "Custom Provider API Key",
-    placeholder: "Enter Custom API key...",
   },
 };
 
@@ -184,8 +171,6 @@ export function AiSettingsModal() {
   const [testingApiKey, setTestingApiKey] = useState(false);
   const [testKeyStatus, setTestKeyStatus] = useState<"idle" | "success" | "error">("idle");
   const [testKeyMessage, setTestKeyMessage] = useState<string | null>(null);
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const [searchingModels, setSearchingModels] = useState(false);
 
   if (!aiSettings) return null;
 
@@ -216,37 +201,11 @@ export function AiSettingsModal() {
     }
   };
 
-  const handleAutoSearchModels = async () => {
-    setSearchingModels(true);
-    try {
-      const activeKey = aiSettings.apiKeys?.[aiSettings.provider] || aiSettings.apiKey;
-      const res = await apiFetch<{ ok: boolean; models?: string[]; highlightModels?: string[] }>(
-        "/api/xclips/ai/models",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            provider: aiSettings.provider,
-            apiKey: activeKey,
-            baseUrl: aiSettings.baseUrl,
-          }),
-        }
-      );
-      if (res.ok && res.data) {
-        const list = res.data.models || res.data.highlightModels || [];
-        if (list.length > 0) {
-          setAvailableModels(list);
-        }
-      }
-    } finally {
-      setSearchingModels(false);
-    }
-  };
-
   return (
     <Dialog
       open={aiSettingsModalOpen}
       onClose={() => setAiSettingsModalOpen(false)}
-      maxWidth="md"
+      maxWidth="sm"
       fullWidth
       slotProps={{
         paper: {
@@ -292,8 +251,8 @@ export function AiSettingsModal() {
                     label: "KIE AI",
                     icon: <KieAiIcon style={{ color: "#3b82f6", width: 22, height: 22 }} />,
                     defaultUrl: "https://api.kie.ai",
-                    defaultTranscribe: "gemini-3-7-flash",
-                    defaultHighlight: "gemini-3-7-flash",
+                    defaultTranscribe: "gemini-3-7-flash-openai",
+                    defaultHighlight: "gemini-3-7-flash-openai",
                   },
                   {
                     id: "gemini",
@@ -316,16 +275,8 @@ export function AiSettingsModal() {
                     label: "Claude",
                     icon: <AnthropicIcon style={{ color: "#D97757", width: 22, height: 22 }} />,
                     defaultUrl: "https://api.anthropic.com/v1",
-                    defaultTranscribe: "gemini-3-7-flash",
-                    defaultHighlight: "claude-sonnet-5",
-                  },
-                  {
-                    id: "openai_compatible",
-                    label: "Custom",
-                    icon: <CustomAiIcon style={{ color: "#a1a1aa", width: 22, height: 22 }} />,
-                    defaultUrl: "https://api.openai.com/v1",
-                    defaultTranscribe: "whisper-1",
-                    defaultHighlight: "gpt-4o",
+                    defaultTranscribe: "claude-fable-5",
+                    defaultHighlight: "claude-fable-5",
                   },
                 ].map((p) => {
                   const isSelected = aiSettings.provider === p.id;
@@ -335,7 +286,7 @@ export function AiSettingsModal() {
                   );
 
                   return (
-                    <Grid size={{ xs: 6, sm: 2.4 }} key={p.id}>
+                    <Grid size={{ xs: 6, sm: 3 }} key={p.id}>
                       <Box
                         onClick={() => {
                           const nextProvider = p.id as AiProviderType;
@@ -350,7 +301,6 @@ export function AiSettingsModal() {
                           });
                           setTestKeyStatus("idle");
                           setTestKeyMessage(null);
-                          setAvailableModels([]);
                         }}
                         sx={{
                           p: 1.4,
@@ -417,16 +367,6 @@ export function AiSettingsModal() {
 
             {/* ENDPOINT & CREDENTIALS */}
             <Box sx={{ display: "flex", flexDirection: "column", gap: 1.8 }}>
-              {aiSettings.provider === "openai_compatible" && (
-                <FormField
-                  label="Base URL / API Endpoint"
-                  subLabel="Custom Endpoint (Editable)"
-                  value={aiSettings.baseUrl}
-                  onChange={(e) => setAiSettings({ ...aiSettings, baseUrl: e.target.value })}
-                  placeholder="https://api.openai.com/v1"
-                />
-              )}
-
               <Box sx={{ display: "flex", gap: 1, alignItems: "flex-end" }}>
                 <FormField
                   label={PROVIDER_METADATA[aiSettings.provider]?.keyTitle || "API Key"}
@@ -467,7 +407,6 @@ export function AiSettingsModal() {
                           gemini: "",
                           openai: "",
                           anthropic: "",
-                          openai_compatible: "",
                         }),
                         [aiSettings.provider]: newKey,
                       },
@@ -515,28 +454,6 @@ export function AiSettingsModal() {
                     },
                   }}
                 />
-                {aiSettings.provider === "openai_compatible" && (
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={handleAutoSearchModels}
-                    disabled={searchingModels || !aiSettings.apiKey}
-                    startIcon={searchingModels ? <CircularProgress size={13} sx={{ color: "#3b82f6" }} /> : <RefreshIcon fontSize="small" />}
-                    sx={{
-                      color: "#60a5fa",
-                      borderColor: "#3b82f6",
-                      textTransform: "none",
-                      fontWeight: 700,
-                      fontSize: "0.76rem",
-                      whiteSpace: "nowrap",
-                      px: 2,
-                      height: 38,
-                      borderRadius: 1,
-                    }}
-                  >
-                    {searchingModels ? "Searching..." : "Fetch Models"}
-                  </Button>
-                )}
               </Box>
 
               {/* KIE AI Model Selector */}
@@ -547,7 +464,7 @@ export function AiSettingsModal() {
                   </Typography>
                   <FormControl fullWidth size="small">
                     <Select
-                      value={aiSettings.highlightModel || "gemini-3-7-flash"}
+                      value={aiSettings.highlightModel || "gemini-3-7-flash-openai"}
                       onChange={(e) => {
                         const selectedVal = e.target.value;
                         setAiSettings({
@@ -564,10 +481,11 @@ export function AiSettingsModal() {
                         "& .MuiOutlinedInput-notchedOutline": { borderColor: "#23232b" },
                       }}
                     >
-                      <MenuItem value="gemini-3-7-flash">Gemini 3.7 Flash (Recommended)</MenuItem>
-                      <MenuItem value="gemini-3-6-flash">Gemini 3.6 Flash</MenuItem>
-                      <MenuItem value="gpt-4o">GPT-4o</MenuItem>
-                      <MenuItem value="gpt-4o-mini">GPT-4o Mini</MenuItem>
+                      {AI_PROVIDER_MODELS.kieai.map((m) => (
+                        <MenuItem key={m.id} value={m.id}>
+                          {m.name} {m.recommended ? "(Recommended)" : ""}
+                        </MenuItem>
+                      ))}
                     </Select>
                   </FormControl>
                 </Box>
@@ -583,7 +501,7 @@ export function AiSettingsModal() {
                       </Typography>
                       <FormControl fullWidth size="small">
                         <Select
-                          value={aiSettings.transcribeModel || "whisper-1"}
+                          value={aiSettings.transcribeModel || "gpt-transcribe"}
                           onChange={(e) => {
                             setAiSettings({
                               ...aiSettings,
@@ -598,9 +516,8 @@ export function AiSettingsModal() {
                             "& .MuiOutlinedInput-notchedOutline": { borderColor: "#23232b" },
                           }}
                         >
+                          <MenuItem value="gpt-transcribe">GPT Transcribe (Recommended)</MenuItem>
                           <MenuItem value="whisper-1">Whisper 1 (Official)</MenuItem>
-                          <MenuItem value="gpt-4o-audio-preview">GPT-4o Audio Preview</MenuItem>
-                          <MenuItem value="gpt-transcribe">GPT Transcribe</MenuItem>
                         </Select>
                       </FormControl>
                     </Box>
@@ -613,7 +530,7 @@ export function AiSettingsModal() {
                       </Typography>
                       <FormControl fullWidth size="small">
                         <Select
-                          value={aiSettings.highlightModel || "gpt-4o"}
+                          value={aiSettings.highlightModel || "gpt-5.6-luna"}
                           onChange={(e) => {
                             setAiSettings({
                               ...aiSettings,
@@ -628,11 +545,11 @@ export function AiSettingsModal() {
                             "& .MuiOutlinedInput-notchedOutline": { borderColor: "#23232b" },
                           }}
                         >
-                          <MenuItem value="gpt-4o">GPT-4o (Recommended)</MenuItem>
-                          <MenuItem value="gpt-4o-mini">GPT-4o Mini (Fast &amp; Cheap)</MenuItem>
-                          <MenuItem value="gpt-4-turbo">GPT-4 Turbo</MenuItem>
-                          <MenuItem value="o3-mini">o3-mini Reasoning</MenuItem>
-                          <MenuItem value="o1-mini">o1-mini</MenuItem>
+                          {AI_PROVIDER_MODELS.openai.filter((m) => !m.isTranscribe).map((m) => (
+                            <MenuItem key={m.id} value={m.id}>
+                              {m.name} {m.recommended ? "(Recommended)" : ""}
+                            </MenuItem>
+                          ))}
                         </Select>
                       </FormControl>
                     </Box>
@@ -648,7 +565,7 @@ export function AiSettingsModal() {
                   </Typography>
                   <FormControl fullWidth size="small">
                     <Select
-                      value={aiSettings.highlightModel || "claude-sonnet-5"}
+                      value={aiSettings.highlightModel || "claude-fable-5"}
                       onChange={(e) => {
                         const selectedVal = e.target.value;
                         setAiSettings({
@@ -665,10 +582,11 @@ export function AiSettingsModal() {
                         "& .MuiOutlinedInput-notchedOutline": { borderColor: "#23232b" },
                       }}
                     >
-                      <MenuItem value="claude-sonnet-5">Claude Sonnet 5</MenuItem>
-                      <MenuItem value="claude-opus-5">Claude Opus 5</MenuItem>
-                      <MenuItem value="claude-sonnet-4-6">Claude Sonnet 4.6</MenuItem>
-                      <MenuItem value="claude-opus-4-8">Claude Opus 4.8</MenuItem>
+                      {AI_PROVIDER_MODELS.anthropic.map((m) => (
+                        <MenuItem key={m.id} value={m.id}>
+                          {m.name} {m.recommended ? "(Recommended)" : ""}
+                        </MenuItem>
+                      ))}
                     </Select>
                   </FormControl>
                 </Box>
@@ -699,67 +617,33 @@ export function AiSettingsModal() {
                         "& .MuiOutlinedInput-notchedOutline": { borderColor: "#23232b" },
                       }}
                     >
-                      <MenuItem value="gemini-3.5-transcribe">Gemini 3.5 Transcribe</MenuItem>
-                      <MenuItem value="gemini-3.7-flash">Gemini 3.7 Flash</MenuItem>
-                      <MenuItem value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</MenuItem>
-                      <MenuItem value="gemini-3.6-flash">Gemini 3.6 Flash</MenuItem>
+                      {AI_PROVIDER_MODELS.gemini.map((m) => (
+                        <MenuItem key={m.id} value={m.id}>
+                          {m.name} {m.recommended ? "(Recommended)" : ""}
+                        </MenuItem>
+                      ))}
                     </Select>
                   </FormControl>
                 </Box>
               )}
 
-              {/* CUSTOM Model Inputs */}
-              {aiSettings.provider === "openai_compatible" && (
-                <Grid container spacing={1.5}>
-                  <Grid size={{ xs: 12, sm: 6 }}>
-                    <FormField
-                      label="Speech-to-Text Model (Audio)"
-                      value={aiSettings.transcribeModel}
-                      onChange={(e) => setAiSettings({ ...aiSettings, transcribeModel: e.target.value })}
-                      placeholder="gemini-2.0-flash / whisper-1"
-                      helperText="Used for word-level speech-to-text processing"
-                    />
-                  </Grid>
-
-                  <Grid size={{ xs: 12, sm: 6 }}>
-                    <FormField
-                      label="Narrative & Highlight Model (LLM)"
-                      value={aiSettings.highlightModel}
-                      onChange={(e) => setAiSettings({ ...aiSettings, highlightModel: e.target.value })}
-                      placeholder="gpt-4o / gemini-1.5-pro / claude-3-5-sonnet"
-                      helperText="Used for viral hook and highlight discovery"
-                    />
-                  </Grid>
-                </Grid>
-              )}
             </Box>
 
-            {/* ZERO-CONFIG LIGHT MODEL / HELPER (REQUESTY) */}
-            <Box sx={{ mt: 2.5, p: 2, bgcolor: "#111116", border: "1px solid #23232b", borderRadius: 1.2 }}>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
-                  <BoltIcon sx={{ color: "#facc15", fontSize: "1.1rem" }} />
-                  <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#fafafa", fontSize: "0.85rem" }}>
-                    Light / Helper AI Model (Zero-Config)
-                  </Typography>
-                </Box>
-                <Chip
-                  label="Requesty Built-in"
-                  size="small"
-                  sx={{
-                    height: 20,
-                    fontSize: "0.65rem",
-                    fontWeight: 800,
-                    bgcolor: "rgba(250, 204, 21, 0.12)",
-                    color: "#facc15",
-                    border: "1px solid rgba(250, 204, 21, 0.25)",
-                    borderRadius: 0.6,
-                  }}
-                />
+            {/* LIGHT MODEL */}
+            <Box sx={{ mt: 1.5, p: 1.8, bgcolor: "#111116", border: "1px solid #23232b", borderRadius: 1.2 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.8, mb: 1 }}>
+                <BoltIcon sx={{ color: "#facc15", fontSize: "1.05rem" }} />
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "#fafafa", fontSize: "0.82rem" }}>
+                  Light Model
+                </Typography>
+                <Tooltip
+                  title="Used for lightweight helper utilities such as AI Topic Auto-Detection and keyword extraction. Pre-configured and ready to use without entering an API key."
+                  arrow
+                  placement="top"
+                >
+                  <InfoOutlinedIcon sx={{ color: "#71717a", fontSize: "0.95rem", cursor: "pointer", "&:hover": { color: "#d4d4d8" } }} />
+                </Tooltip>
               </Box>
-              <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.72rem", display: "block", mb: 1.5 }}>
-                Used for lightweight helper utilities such as AI Topic Auto-Detection and keyword extraction. Pre-configured and ready to use without entering an API key.
-              </Typography>
               <FormControl fullWidth size="small">
                 <Select
                   value={aiSettings.lightModel || "muse-glimmer-30b"}

@@ -106,6 +106,33 @@ Hari ini kita bahas AI`;
     const qBest = getQualitySelectorArgs("best");
     expect(qBest.formatSelector).toBe("bv*+ba/b");
     expect(qBest.formatSort).toBe("res,fps,vcodec:h264,acodec:m4a");
+
+    const q4k = getQualitySelectorArgs("4k");
+    expect(q4k.formatSelector).toContain("height<=2160][width<=3840]");
+    expect(q4k.formatSort).toBe("res:2160,fps,vcodec:h264,acodec:m4a");
+
+    const q1440 = getQualitySelectorArgs("1440p");
+    expect(q1440.formatSelector).toContain("height<=1440][width<=2560]");
+    expect(q1440.formatSort).toBe("res:1440,fps,vcodec:h264,acodec:m4a");
+  });
+
+  it("should handle process registration and cancellation cleanly", () => {
+    const { registerActiveProcess, cancelActiveProcess } = require("@/lib/xclips/ytdlp-downloader");
+
+    let killed = false;
+    const fakeProc = {
+      kill: () => {
+        killed = true;
+      },
+    };
+
+    registerActiveProcess("task_test_123", fakeProc as any);
+    const result = cancelActiveProcess("task_test_123");
+    expect(result).toBe(true);
+    expect(killed).toBe(true);
+
+    const nonExistent = cancelActiveProcess("task_non_existent");
+    expect(nonExistent).toBe(false);
   });
 });
 

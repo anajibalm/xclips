@@ -14,6 +14,7 @@ import {
   StorageStats,
   ProjectStorage,
   CleanResult,
+  AI_PROVIDER_MODELS,
 } from "@/lib/xclips/types";
 import {
   probeMedia,
@@ -74,7 +75,6 @@ export class XclipsService {
       gemini: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "",
       openai: process.env.OPENAI_API_KEY || "",
       anthropic: process.env.ANTHROPIC_API_KEY || "",
-      openai_compatible: process.env.OPENAI_COMPATIBLE_API_KEY || "",
     };
 
     if (fs.existsSync(settingsPath)) {
@@ -169,117 +169,36 @@ export class XclipsService {
   }
 
   /**
-   * Auto-searches available models from provider
+   * Resolves default base URL for each AI provider
+   */
+  getDefaultBaseUrlForProvider(provider: AiProviderType): string {
+    switch (provider) {
+      case "kieai":
+        return "https://api.kie.ai";
+      case "gemini":
+        return "https://generativelanguage.googleapis.com/v1beta";
+      case "openai":
+        return "https://api.openai.com/v1";
+      case "anthropic":
+        return "https://api.anthropic.com/v1";
+      default:
+        return "https://api.kie.ai";
+    }
+  }
+
+  /**
+   * Returns available static models for provider
    */
   async fetchAvailableModels(
     provider: AiProviderType,
-    baseUrl: string,
-    apiKey: string
+    _baseUrl?: string,
+    _apiKey?: string
   ): Promise<Result<string[]>> {
-    try {
-      if (provider === "anthropic") {
-        return {
-          success: true,
-          data: [
-            "claude-sonnet-5",
-            "claude-opus-5",
-            "claude-sonnet-4-6",
-            "claude-opus-4-8",
-          ],
-        };
-      }
-
-      if (provider === "kieai") {
-        return {
-          success: true,
-          data: [
-            "gemini-3-6-flash",
-            "gemini-3-7-flash",
-            "gpt-5-6-terra",
-            "gpt-4o",
-          ],
-        };
-      }
-
-      if (provider === "openai") {
-        return {
-          success: true,
-          data: [
-            "gpt-5.6-luna",
-            "gpt-5-6-terra",
-            "gpt-5-6-sol",
-            "gpt-5-6-luna",
-            "gpt-4o",
-            "gpt-4o-mini",
-            "gpt-transcribe",
-            "gpt-4o-transcribe",
-            "gpt-4o-mini-transcribe",
-            "whisper-1",
-            "gpt-image-2",
-          ],
-        };
-      }
-
-      if (provider === "gemini") {
-        return {
-          success: true,
-          data: [
-            "gemini-3.5-transcribe",
-            "gemini-3.7-flash",
-            "gemini-3.1-pro-preview",
-            "gemini-3.6-flash",
-          ],
-        };
-      }
-
-      // OpenAI-compatible / Custom provider
-      const targetUrl = `${baseUrl.replace(/\/+$/, "")}/models`;
-      const res = await fetch(targetUrl, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        signal: AbortSignal.timeout(15000),
-      });
-
-      if (res.ok) {
-        const json = await res.json();
-        if (Array.isArray(json.data)) {
-          const modelNames = json.data.map((m: { id?: string }) => m.id || "").filter(Boolean);
-          if (modelNames.length > 0) return { success: true, data: modelNames };
-        }
-      }
-
-      // Fallback default OpenAI compatible models
-      return {
-        success: true,
-        data: [
-          "gpt-4o",
-          "gpt-4o-mini",
-          "gpt-4-turbo",
-          "whisper-1",
-          "deepseek-chat",
-          "deepseek-reasoner",
-          "gemini-3-6-flash-openai",
-        ],
-      };
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Gagal mengambil daftar model";
-      aiLogger.warn({ provider, baseUrl, err: msg }, "Model search failed, returning popular fallbacks");
-      return {
-        success: true,
-        data: [
-          "gpt-4o",
-          "gpt-4o-mini",
-          "claude-3-5-sonnet-20241022",
-          "gemini-1.5-flash",
-          "gemini-3-7-flash",
-          "gemini-3-6-flash-openai",
-          "whisper-1",
-        ],
-      };
-    }
+    const models = AI_PROVIDER_MODELS[provider]?.map((m) => m.id) || [];
+    return {
+      success: true,
+      data: models,
+    };
   }
 
   /**
@@ -815,19 +734,22 @@ export class XclipsService {
       }
 
       // OpenAI / Anthropic / Custom compatible format
-      const targetUrl = baseUrl.endsWith("/chat/completions")
+      let targetUrl = baseUrl.endsWith("/chat/completions")
         ? baseUrl
         : `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
 
       let modelToUse = model;
-      if (provider === "openai" || baseUrl.includes("api.openai.com")) {
-        if (
-          modelToUse === "gpt-5-6-terra" ||
-          modelToUse === "gpt-5.6-luna" ||
-          modelToUse === "gpt-5-6-sol" ||
-          modelToUse === "gpt-transcribe"
-        ) {
-          modelToUse = "gpt-4o";
+
+      // Handle Kie AI specialized endpoints
+      if (isKieAi) {
+        if (model.includes("gemini-3-7-flash-openai") || model.includes("gemini-3.7-flash-openai")) {
+          targetUrl = "https://api.kie.ai/gemini-3-7-flash-openai/v1/chat/completions";
+          modelToUse = "gemini-3-7-flash";
+        } else if (model.includes("gemini-3-6-flash-openai") || model.includes("gemini-3.6-flash-openai")) {
+          targetUrl = "https://api.kie.ai/gemini-3-6-flash-openai/v1/chat/completions";
+          modelToUse = "gemini-3-6-flash";
+        } else if (model.startsWith("gpt-") || model.startsWith("claude-")) {
+          targetUrl = "https://api.kie.ai/v1/chat/completions";
         }
       }
 
@@ -1397,7 +1319,7 @@ Synthesize the single best viral narrative focus prompt:`;
       } else if (modelOverride === "gemini-3-7-flash") {
         targetProvider = settings.provider === "gemini" && settings.apiKeys?.gemini ? "gemini" : "kieai";
       } else if (modelOverride.startsWith("whisper") || modelOverride.startsWith("gpt-") || modelOverride.includes("transcribe")) {
-        targetProvider = settings.provider === "openai_compatible" ? "openai_compatible" : "openai";
+        targetProvider = "openai";
       } else if (modelOverride.startsWith("claude-")) {
         targetProvider = "anthropic";
       }
@@ -1408,7 +1330,6 @@ Synthesize the single best viral narrative focus prompt:`;
       gemini: "https://generativelanguage.googleapis.com/v1beta",
       openai: "https://api.openai.com/v1",
       anthropic: "https://api.anthropic.com/v1",
-      openai_compatible: settings.baseUrl || "https://api.openai.com/v1",
     };
 
     const targetBaseUrl = (settings.provider === targetProvider && settings.baseUrl) ? settings.baseUrl : providerUrlMap[targetProvider];
@@ -1418,8 +1339,8 @@ Synthesize the single best viral narrative focus prompt:`;
     if (!apiKey && settings.provider === targetProvider && settings.apiKey) {
       apiKey = settings.apiKey;
     }
-    if (!apiKey && (targetProvider === "openai" || targetProvider === "openai_compatible")) {
-      apiKey = settings.apiKeys?.openai || settings.apiKeys?.openai_compatible || settings.apiKey;
+    if (!apiKey && targetProvider === "openai") {
+      apiKey = settings.apiKeys?.openai || settings.apiKey;
     }
     if (!apiKey && (targetProvider === "kieai" || targetProvider === "gemini")) {
       apiKey = settings.apiKeys?.kieai || settings.apiKeys?.gemini || (settings.provider === "kieai" || settings.provider === "gemini" ? settings.apiKey : undefined);
@@ -1870,13 +1791,17 @@ Format output WAJIB HANYA berupa JSON valid:
 
     const settings = this.getAiSettings();
     const providerToUse = options?.provider || settings.provider;
+    const effectiveBaseUrl =
+      providerToUse === settings.provider
+        ? settings.baseUrl
+        : this.getDefaultBaseUrlForProvider(providerToUse);
     const apiKey =
       options?.apiKey ||
       settings.apiKeys?.[providerToUse] ||
-      settings.apiKey ||
-      process.env.KIE_AI_API_KEY;
+      (providerToUse === settings.provider ? settings.apiKey : "") ||
+      (providerToUse === "kieai" ? process.env.KIE_AI_API_KEY : "");
     if (!apiKey) {
-      return { success: false, error: "API Key AI belum dikonfigurasi. Buka Settings pada tab Autoclip." };
+      return { success: false, error: `API Key untuk provider ${providerToUse.toUpperCase()} belum dikonfigurasi. Buka Settings pada tab Autoclip.` };
     }
 
     const effectiveTopic = options?.topicPrompt !== undefined ? options.topicPrompt : settings.topicPrompt;
@@ -1886,7 +1811,7 @@ Format output WAJIB HANYA berupa JSON valid:
     const maxResults = options?.maxClipsCount || settings.maxClipsCount || 5;
 
     const chunks = chunkTranscript(transcript.words);
-    aiLogger.info({ projectId, chunksCount: chunks.length, totalWords: transcript.words.length, topic: effectiveTopic, formula: effectiveFormula, language: effectiveLanguage }, "Starting Map-Reduce highlight discovery");
+    aiLogger.info({ projectId, chunksCount: chunks.length, totalWords: transcript.words.length, topic: effectiveTopic, formula: effectiveFormula, language: effectiveLanguage, provider: providerToUse }, "Starting Map-Reduce highlight discovery");
     const allRawHighlights: CandidateHighlight[] = [];
     let lastError: string | null = null;
 
@@ -1911,7 +1836,7 @@ Format output WAJIB HANYA berupa JSON valid:
 
         const dispatchRes = await this.dispatchAiContent({
           provider: providerToUse,
-          baseUrl: settings.baseUrl,
+          baseUrl: effectiveBaseUrl,
           apiKey,
           model: modelToUse,
           userPrompt: prompt,
