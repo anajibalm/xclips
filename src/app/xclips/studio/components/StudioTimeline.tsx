@@ -18,7 +18,7 @@ import VolumeDownIcon from "@mui/icons-material/VolumeDown";
 import VolumeOffIcon from "@mui/icons-material/VolumeOff";
 import { useStudioStore } from "../store/useStudioStore";
 import { AspectRatio } from "@/lib/xclips/types";
-import { formatTimecodeWithFrames } from "../types/studio.types";
+import { formatTime, formatTimecodeWithFrames } from "../types/studio.types";
 
 interface StudioTimelineProps {
   onSeek: (timeSec: number) => void;
@@ -60,6 +60,23 @@ export function StudioTimeline({ onSeek, onToggleFullscreen, onTogglePlayPause }
     setRatioMenuAnchor(null);
     setStudioAspectRatio(ratio);
   };
+
+  const isClipMode = !isFullSourceView && Boolean(selectedClip);
+  const fps = Math.round(project?.frameRate || 30);
+
+  const clipDuration = isClipMode && selectedClip ? Math.max(0, selectedClip.endSec - selectedClip.startSec) : 0;
+  const relativeCurrentTime = isClipMode && selectedClip
+    ? Math.max(0, Math.min(clipDuration, (currentTime || selectedClip.startSec) - selectedClip.startSec))
+    : currentTime || 0;
+
+  const displayCurrentTimecode = formatTimecodeWithFrames(relativeCurrentTime, fps);
+  const displayTotalDuration = isClipMode
+    ? formatTimecodeWithFrames(clipDuration, fps)
+    : formatTimecodeWithFrames(project?.durationSec || 0, fps);
+
+  const durationTooltipText = isClipMode && selectedClip
+    ? `Master Cut: ${formatTimecodeWithFrames(selectedClip.startSec, fps)} - ${formatTimecodeWithFrames(selectedClip.endSec, fps)} (Durasi Master: ${formatTime(project?.durationSec || 0)})`
+    : `Master Footage (Durasi Master: ${formatTime(project?.durationSec || 0)})`;
 
   return (
     <Box
@@ -129,25 +146,34 @@ export function StudioTimeline({ onSeek, onToggleFullscreen, onTogglePlayPause }
               ml: 0.2,
             }}
           >
-            {formatTimecodeWithFrames(currentTime)}
+            {displayCurrentTimecode}
           </Typography>
 
           <Typography variant="caption" sx={{ color: "#71717a", fontFamily: "sans-serif", fontSize: "0.68rem" }}>
             /
           </Typography>
 
-          <Typography
-            variant="caption"
-            sx={{
-              color: "#a1a1aa",
-              fontFamily: "sans-serif",
-              fontWeight: 500,
-              fontSize: "0.68rem",
-              letterSpacing: "0.01em",
-            }}
-          >
-            {formatTimecodeWithFrames(selectedClip ? selectedClip.endSec : project?.durationSec || 0)}
-          </Typography>
+          <Tooltip title={durationTooltipText} placement="top" arrow>
+            <Typography
+              variant="caption"
+              sx={{
+                color: isClipMode ? "#93c5fd" : "#a1a1aa",
+                fontFamily: "sans-serif",
+                fontWeight: 500,
+                fontSize: "0.68rem",
+                letterSpacing: "0.01em",
+                cursor: "pointer",
+                borderBottom: isClipMode ? "1px dashed rgba(147, 197, 253, 0.4)" : "none",
+                "&:hover": {
+                  color: "#ffffff",
+                  borderBottomColor: "#60a5fa",
+                },
+                transition: "all 0.15s ease",
+              }}
+            >
+              {displayTotalDuration}
+            </Typography>
+          </Tooltip>
         </Box>
 
         {/* Right Side: Volume Control, Aspect Ratio Selector Button, Fullscreen Icon */}

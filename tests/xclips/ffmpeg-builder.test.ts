@@ -280,6 +280,34 @@ describe("xclips - FFmpeg Filter Complex Builder", () => {
     // Verify overlay with pan offset
     expect(transformCmd.filterComplex).toContain("overlay=(W-w)/2 + (0.087*W):(H-h)/2 + (-0.052*H)");
   });
+
+  it("should generate correct hardware encoder args for qsv, nvenc, and amf", () => {
+    const baseOptions = {
+      sourceVideo: "C:/test/sample.mp4",
+      sourceWidth: 1920,
+      sourceHeight: 1080,
+      clipStart: 0,
+      clipEnd: 10,
+      keepIntervals: [{ start: 0, end: 10, duration: 10 }],
+      layoutMode: "blur_bg" as const,
+    };
+
+    const qsvCmd = buildFfmpegCommand(baseOptions, "C:/test/out.mp4", "qsv");
+    expect(qsvCmd.args).toContain("-c:v");
+    expect(qsvCmd.args).toContain("h264_qsv");
+    expect(qsvCmd.args).toContain("-global_quality");
+
+    const nvencCmd = buildFfmpegCommand(baseOptions, "C:/test/out.mp4", "nvenc");
+    expect(nvencCmd.args).toContain("-c:v");
+    expect(nvencCmd.args).toContain("h264_nvenc");
+    expect(nvencCmd.args).toContain("-cq");
+
+    const amfCmd = buildFfmpegCommand(baseOptions, "C:/test/out.mp4", "amf");
+    expect(amfCmd.args).toContain("-c:v");
+    expect(amfCmd.args).toContain("h264_amf");
+    expect(amfCmd.args).toContain("-quality");
+  });
 });
+
 
 

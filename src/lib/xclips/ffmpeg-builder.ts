@@ -51,7 +51,7 @@ export function getDimensionsForAspectRatio(aspectRatio?: AspectRatio): { width:
 export function buildFfmpegCommand(
   options: FilterComplexOptions,
   outputPath: string,
-  hwaccel: "nvenc" | "qsv" | "amf" | "cpu" = "cpu"
+  hwaccel: "nvenc" | "videotoolbox" | "qsv" | "amf" | "cpu" = "cpu"
 ): FfmpegCommandResult {
   const { width: targetW, height: targetH } =
     options.targetWidth && options.targetHeight
@@ -176,11 +176,14 @@ export function buildFfmpegCommand(
 
   // Determine Video Codec based on HW acceleration
   let videoEncoder = "libx264";
-  let encoderArgs: string[] = ["-preset", "veryfast", "-crf", "19"];
+  let encoderArgs: string[] = ["-preset", "veryfast", "-crf", "19", "-threads", "0"];
 
   if (hwaccel === "nvenc") {
     videoEncoder = "h264_nvenc";
     encoderArgs = ["-preset", "p4", "-cq", "20"];
+  } else if (hwaccel === "videotoolbox") {
+    videoEncoder = "h264_videotoolbox";
+    encoderArgs = ["-q:v", "65"];
   } else if (hwaccel === "qsv") {
     videoEncoder = "h264_qsv";
     encoderArgs = ["-global_quality", "20"];

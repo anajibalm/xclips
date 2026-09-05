@@ -188,6 +188,11 @@ export interface RenderJob {
   outputPath?: string;
   startedAt?: string;
   completedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  resolution?: string;
+  bitrate?: string;
+  format?: string;
 }
 
 // ============================================================

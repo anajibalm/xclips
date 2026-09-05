@@ -220,7 +220,7 @@ interface StudioState {
   handleFootageDownload: (targetUrl?: string) => Promise<void>;
   handleCaptureThumbnail: () => Promise<void>;
   handleOpenInExplorer: (sourcePath?: string, targetProjectId?: string) => Promise<void>;
-  handleRender: () => Promise<void>;
+  handleRender: (options?: { resolution?: string; bitrate?: string; format?: string }) => Promise<void>;
   handleCopyLogs: () => void;
   handleClearLogs: () => Promise<void>;
 }
@@ -1413,20 +1413,53 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
   },
 
-  handleRender: async () => {
-    const { selectedClip } = get();
+  handleRender: async (options?: { resolution?: string; bitrate?: string; format?: string }) => {
+    const { selectedClip, renderStatus } = get();
     if (!selectedClip) return;
+    if (renderStatus === "rendering") return;
 
     set({ renderStatus: "rendering", renderProgress: 5 });
 
     const res = await apiFetch<{ ok: boolean; job: { id: string } }>(
       `/api/xclips/clips/${selectedClip.id}/render`,
-      { method: "POST" }
+      {
+        method: "POST",
+        body: options ? JSON.stringify(options) : undefined,
+      }
     );
 
     if (res.ok && res.data?.job) {
-      set({ renderJobId: res.data.job.id });
+      const jobId = res.data.job.id;
+      set({ renderJobId: jobId });
       get().fetchLogs();
+
+      // Poll job progress and status until completed or failed
+      const pollInterval = setInterval(async () => {
+        try {
+          const jobRes = await apiFetch<{ ok: boolean; job: { status: string; progress: number; outputPath?: string; error?: string } }>(
+            `/api/xclips/jobs/${jobId}`
+          );
+          if (jobRes.ok && jobRes.data?.job) {
+            const currentJob = jobRes.data.job;
+            set({ renderProgress: currentJob.progress || 5 });
+
+            if (currentJob.status === "completed") {
+              clearInterval(pollInterval);
+              set({ renderStatus: "ready", renderProgress: 100 });
+              if (selectedClip.projectId) {
+                get().loadProjectData(selectedClip.projectId);
+              }
+              get().fetchLogs();
+            } else if (currentJob.status === "failed") {
+              clearInterval(pollInterval);
+              set({ renderStatus: "failed" });
+              get().fetchLogs();
+            }
+          }
+        } catch {
+          // Continue polling on transient network error
+        }
+      }, 1000);
     } else {
       set({ renderStatus: "failed" });
       get().fetchLogs();

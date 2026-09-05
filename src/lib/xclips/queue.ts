@@ -9,44 +9,115 @@ import { remapWordsToKeepTimeline } from "@/lib/xclips/phrase-segmentation";
 import { queueLogger, ffmpegLogger } from "@/lib/logger";
 
 
-type HardwareEncoder = "nvenc" | "qsv" | "amf" | "cpu";
+import * as os from "os";
 
+export type HardwareEncoder = "nvenc" | "videotoolbox" | "qsv" | "amf" | "cpu";
+
+export interface HardwareProfile {
+  encoder: HardwareEncoder;
+  label: string;
+  deviceType: "nvidia" | "apple_silicon" | "cpu";
+  cpuModel: string;
+  cpuCores: number;
+  description: string;
+}
+
+let cachedHardwareProfile: HardwareProfile | null = null;
 let cachedHwAccel: HardwareEncoder | null = null;
 
 /**
- * Detects supported hardware acceleration on the host system
+ * Detects supported hardware acceleration profile on the host system by actively verifying
+ * 1-frame encoding execution, adapting dynamically to NVIDIA GPU, Apple Silicon, or Multi-Core CPU.
  */
+export async function detectHardwareProfile(): Promise<HardwareProfile> {
+  if (cachedHardwareProfile) return cachedHardwareProfile;
+
+  const testEncoder = (encoder: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const proc = spawn("ffmpeg", [
+        "-f",
+        "lavfi",
+        "-i",
+        "color=s=128x128:d=0.04",
+        "-c:v",
+        encoder,
+        "-f",
+        "null",
+        "-",
+      ]);
+      proc.on("close", (code) => {
+        resolve(code === 0);
+      });
+      proc.on("error", () => {
+        resolve(false);
+      });
+    });
+  };
+
+  const cpuModel = os.cpus()[0]?.model?.trim() || "Multi-core CPU";
+  const cpuCores = os.cpus().length || 4;
+  const platform = os.platform();
+
+  try {
+    // 1. Check NVIDIA NVENC (GPU acceleration for NVIDIA RTX / GTX on Windows / Linux)
+    if (await testEncoder("h264_nvenc")) {
+      cachedHardwareProfile = {
+        encoder: "nvenc",
+        label: "NVIDIA NVENC (GPU Hardware Acceleration)",
+        deviceType: "nvidia",
+        cpuModel,
+        cpuCores,
+        description: "Akselerasi GPU ultra-cepat melalui dedicated NVENC engine",
+      };
+      cachedHwAccel = "nvenc";
+      ffmpegLogger.info(cachedHardwareProfile, "Hardware acceleration profile: NVIDIA NVENC detected");
+      return cachedHardwareProfile;
+    }
+
+    // 2. Check Apple Silicon VideoToolbox (Hardware acceleration for Mac M1/M2/M3/M4)
+    if (platform === "darwin" && (await testEncoder("h264_videotoolbox"))) {
+      cachedHardwareProfile = {
+        encoder: "videotoolbox",
+        label: "Apple VideoToolbox (Hardware Acceleration)",
+        deviceType: "apple_silicon",
+        cpuModel,
+        cpuCores,
+        description: "Akselerasi native Apple Silicon Media Engine pada macOS",
+      };
+      cachedHwAccel = "videotoolbox";
+      ffmpegLogger.info(cachedHardwareProfile, "Hardware acceleration profile: Apple VideoToolbox detected");
+      return cachedHardwareProfile;
+    }
+
+    // 3. Optimized Multi-threaded CPU libx264
+    cachedHardwareProfile = {
+      encoder: "cpu",
+      label: `${cpuModel} (${cpuCores} Threads - libx264 AVX2)`,
+      deviceType: "cpu",
+      cpuModel,
+      cpuCores,
+      description: `Optimasi multi-threading CPU (${cpuCores} threads) dengan akurasi visual 100% tanpa distorsi`,
+    };
+    cachedHwAccel = "cpu";
+  } catch (err: unknown) {
+    cachedHardwareProfile = {
+      encoder: "cpu",
+      label: `${cpuModel} (${cpuCores} Threads - libx264)`,
+      deviceType: "cpu",
+      cpuModel,
+      cpuCores,
+      description: "Fallback CPU multi-threading encoder",
+    };
+    cachedHwAccel = "cpu";
+  }
+
+  ffmpegLogger.info(cachedHardwareProfile, "Hardware acceleration profile verified");
+  return cachedHardwareProfile;
+}
+
 export async function detectHardwareAcceleration(): Promise<HardwareEncoder> {
-  if (cachedHwAccel) return cachedHwAccel;
-
-  return new Promise((resolve) => {
-    const proc = spawn("ffmpeg", ["-encoders"]);
-    let stdout = "";
-
-    proc.stdout.on("data", (data) => {
-      stdout += data.toString();
-    });
-
-    proc.on("close", () => {
-      if (stdout.includes("h264_nvenc")) {
-        cachedHwAccel = "nvenc";
-      } else if (stdout.includes("h264_qsv")) {
-        cachedHwAccel = "qsv";
-      } else if (stdout.includes("h264_amf")) {
-        cachedHwAccel = "amf";
-      } else {
-        cachedHwAccel = "cpu";
-      }
-      ffmpegLogger.info({ encoder: cachedHwAccel }, "Hardware acceleration encoder detected");
-      resolve(cachedHwAccel);
-    });
-
-    proc.on("error", (err) => {
-      ffmpegLogger.warn({ err: err.message }, "Failed to probe ffmpeg encoders, falling back to CPU");
-      cachedHwAccel = "cpu";
-      resolve("cpu");
-    });
-  });
+  const profile = await detectHardwareProfile();
+  return profile.encoder;
 }
 
 
@@ -55,7 +126,17 @@ class JobQueueManager {
   private runningJobs = 0;
   private queue: string[] = [];
 
-  enqueue(clipId: string, projectId: string): RenderJob {
+  enqueue(clipId: string, projectId: string, options?: { resolution?: string; bitrate?: string; format?: string }): RenderJob {
+    const existingJob = xclipsDb.getActiveJobForClip(clipId);
+    if (existingJob) {
+      queueLogger.info(
+        { jobId: existingJob.id, clipId, projectId, status: existingJob.status },
+        "Active render job already exists for clip, reusing existing job"
+      );
+      return existingJob;
+    }
+
+    const now = new Date().toISOString();
     const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const job: RenderJob = {
       id: jobId,
@@ -63,7 +144,12 @@ class JobQueueManager {
       projectId,
       progress: 0,
       status: "queued",
-      startedAt: new Date().toISOString(),
+      startedAt: now,
+      createdAt: now,
+      updatedAt: now,
+      resolution: options?.resolution,
+      bitrate: options?.bitrate,
+      format: options?.format,
     };
 
     queueLogger.info({ jobId, clipId, projectId, queueLength: this.queue.length + 1 }, "New render job enqueued");
@@ -122,8 +208,17 @@ class JobQueueManager {
     const outputDir = path.resolve(process.cwd(), "output", "xclips", project.id);
     fs.mkdirSync(outputDir, { recursive: true });
 
-    const safeTitle = clip.title.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 30);
-    const outputFileName = `${project.name}_${clip.id}_${safeTitle}.mp4`;
+    // Sanitize project name and clip title to be 100% safe on Windows, Linux, and macOS
+    const safeProjectName = (project.name || "video")
+      .replace(/[\/\\?%*:|"<>]/g, "_")
+      .replace(/\s+/g, "_")
+      .slice(0, 40);
+    const safeTitle = (clip.title || clip.hookText || "clip")
+      .replace(/[\/\\?%*:|"<>]/g, "_")
+      .replace(/\s+/g, "_")
+      .slice(0, 30);
+    const fileExt = job.format === "mov" ? "mov" : "mp4";
+    const outputFileName = `${safeProjectName}_${clip.id}_${safeTitle}.${fileExt}`;
     const finalOutputPath = path.join(outputDir, outputFileName);
     const assSubtitlePath = path.join(outputDir, `${clip.id}_subtitles.ass`);
 
@@ -175,78 +270,135 @@ class JobQueueManager {
     // Step 3: Detect HW Acceleration
     const hwaccel = await detectHardwareAcceleration();
 
-    // Step 4: Build ffmpeg command
+    // Parse target resolution override if specified in job options
+    let targetWidth: number | undefined;
+    let targetHeight: number | undefined;
+    if (job.resolution && job.resolution.includes("x")) {
+      const parts = job.resolution.split("x").map(Number);
+      if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1]) && parts[0] > 0 && parts[1] > 0) {
+        targetWidth = parts[0];
+        targetHeight = parts[1];
+      }
+    }
+
+    // Step 4: Build ffmpeg command runner with automatic fallback
     const sourceVideo = project.normalizedPath || project.sourcePath;
-    const { args } = buildFfmpegCommand(
-      {
-        sourceVideo,
-        sourceWidth: project.width,
-        sourceHeight: project.height,
-        clipStart: clip.startSec,
-        clipEnd: clip.endSec,
-        keepIntervals,
-        aspectRatio: clip.aspectRatio || "9:16",
-        layoutMode: clip.layoutMode,
-        panOffsetX: clip.panOffsetX,
-        assSubtitlePath: actualAssPath,
-      },
-      finalOutputPath,
-      hwaccel
-    );
 
-    ffmpegLogger.info({ jobId: job.id, clipId: clip.id, hwaccel, output: finalOutputPath, argsCount: args.length }, "Spawning FFmpeg process");
+    const runFfmpeg = (currentHw: HardwareEncoder): Promise<void> => {
+      return new Promise<void>((resolve, reject) => {
+        const { args } = buildFfmpegCommand(
+          {
+            sourceVideo,
+            sourceWidth: project.width,
+            sourceHeight: project.height,
+            clipStart: clip.startSec,
+            clipEnd: clip.endSec,
+            keepIntervals,
+            aspectRatio: clip.aspectRatio || "9:16",
+            layoutMode: clip.layoutMode,
+            panOffsetX: clip.panOffsetX,
+            assSubtitlePath: actualAssPath,
+            targetWidth,
+            targetHeight,
+          },
+          finalOutputPath,
+          currentHw
+        );
 
-    // Step 5: Execute ffmpeg
-    await new Promise<void>((resolve, reject) => {
-      const proc = spawn("ffmpeg", args);
-      let stderr = "";
+        ffmpegLogger.info(
+          { jobId: job.id, clipId: clip.id, hwaccel: currentHw, output: finalOutputPath, argsCount: args.length },
+          "Spawning FFmpeg process"
+        );
 
-      proc.stderr.on("data", (data) => {
-        const str = data.toString();
-        stderr += str;
-        // Progress parsing
-        const timeMatch = str.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/);
-        if (timeMatch) {
-          const hours = parseInt(timeMatch[1]);
-          const mins = parseInt(timeMatch[2]);
-          const secs = parseFloat(timeMatch[3]);
-          const currentSecs = hours * 3600 + mins * 60 + secs;
-          const targetDuration = clip.endSec - clip.startSec;
-          if (targetDuration > 0) {
-            const pct = Math.min(95, Math.max(10, Math.round((currentSecs / targetDuration) * 90)));
-            if (pct !== job.progress) {
-              job.progress = pct;
-              xclipsDb.saveJob(job);
+        const proc = spawn("ffmpeg", args);
+        let stderr = "";
+
+        proc.stderr.on("data", (data) => {
+          const str = data.toString();
+          stderr += str;
+          // Progress parsing
+          const timeMatch = str.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/);
+          if (timeMatch) {
+            const hours = parseInt(timeMatch[1]);
+            const mins = parseInt(timeMatch[2]);
+            const secs = parseFloat(timeMatch[3]);
+            const currentSecs = hours * 3600 + mins * 60 + secs;
+            const targetDuration = clip.endSec - clip.startSec;
+            if (targetDuration > 0) {
+              const pct = Math.min(95, Math.max(10, Math.round((currentSecs / targetDuration) * 90)));
+              if (pct !== job.progress) {
+                job.progress = pct;
+                xclipsDb.saveJob(job);
+              }
             }
           }
-        }
-      });
+        });
 
-      proc.on("close", (code) => {
-        if (code === 0 && fs.existsSync(finalOutputPath)) {
-          job.progress = 100;
-          job.status = "completed";
-          job.outputPath = finalOutputPath;
-          job.completedAt = new Date().toISOString();
-          xclipsDb.saveJob(job);
+        proc.on("close", (code) => {
+          if (code === 0 && fs.existsSync(finalOutputPath)) {
+            const stat = fs.statSync(finalOutputPath);
+            if (stat.size > 0) {
+              job.progress = 100;
+              job.status = "completed";
+              job.outputPath = finalOutputPath;
+              job.completedAt = new Date().toISOString();
+              xclipsDb.saveJob(job);
 
-          clip.status = "completed";
-          clip.outputPath = finalOutputPath;
-          xclipsDb.saveClip(clip);
+              clip.status = "completed";
+              clip.outputPath = finalOutputPath;
+              xclipsDb.saveClip(clip);
 
-          ffmpegLogger.info({ jobId: job.id, clipId: clip.id, finalOutputPath }, "FFmpeg render process completed successfully");
-          resolve();
-        } else {
+              ffmpegLogger.info(
+                { jobId: job.id, clipId: clip.id, finalOutputPath, sizeBytes: stat.size },
+                "FFmpeg render process completed successfully"
+              );
+              return resolve();
+            }
+          }
+
+          // Clean up 0-byte or corrupted file if render failed
+          if (fs.existsSync(finalOutputPath)) {
+            try {
+              fs.unlinkSync(finalOutputPath);
+            } catch {
+              // ignore
+            }
+          }
+
           ffmpegLogger.error({ jobId: job.id, clipId: clip.id, code, stderr: stderr.slice(-1000) }, "FFmpeg execution failed");
           reject(new Error(`FFmpeg error (code ${code}): ${stderr.slice(-300)}`));
-        }
-      });
+        });
 
-      proc.on("error", (err) => {
-        ffmpegLogger.error({ jobId: job.id, clipId: clip.id, err: err.message }, "FFmpeg process spawn error");
-        reject(err);
+        proc.on("error", (err) => {
+          if (fs.existsSync(finalOutputPath)) {
+            try {
+              fs.unlinkSync(finalOutputPath);
+            } catch {
+              // ignore
+            }
+          }
+          ffmpegLogger.error({ jobId: job.id, clipId: clip.id, err: err.message }, "FFmpeg process spawn error");
+          reject(err);
+        });
       });
-    });
+    };
+
+    // Step 5: Execute ffmpeg with hardware acceleration and automatic CPU fallback
+    try {
+      await runFfmpeg(hwaccel);
+    } catch (hwError) {
+      if (hwaccel !== "cpu") {
+        ffmpegLogger.warn(
+          { jobId: job.id, hwaccel, err: hwError instanceof Error ? hwError.message : String(hwError) },
+          "Hardware accelerated render failed; falling back to CPU encoder (libx264)"
+        );
+        job.progress = 5;
+        xclipsDb.saveJob(job);
+        await runFfmpeg("cpu");
+      } else {
+        throw hwError;
+      }
+    }
   }
 }
 

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -17,9 +17,11 @@ import CloseIcon from "@mui/icons-material/Close";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
+import BoltIcon from "@mui/icons-material/Bolt";
 import CircularProgress from "@mui/material/CircularProgress";
 import { useStudioStore } from "../store/useStudioStore";
 import { formatTime } from "../types/studio.types";
+import { apiFetch } from "@/lib/api-client";
 
 export function ExportModal() {
   const exportModalOpen = useStudioStore((s) => s.exportModalOpen);
@@ -60,6 +62,34 @@ export function ExportModal() {
   const [exportResolution, setExportResolution] = useState<string>(resolutionOptions[0].id);
   const [exportBitrate, setExportBitrate] = useState<"8M" | "5M" | "3M">("8M");
   const [exportFormat, setExportFormat] = useState<"mp4" | "mov">("mp4");
+  const [hardwareProfile, setHardwareProfile] = useState<{
+    encoder: string;
+    label: string;
+    deviceType: string;
+    cpuModel: string;
+    cpuCores: number;
+    description: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (exportModalOpen) {
+      apiFetch<{
+        ok: boolean;
+        profile?: {
+          encoder: string;
+          label: string;
+          deviceType: string;
+          cpuModel: string;
+          cpuCores: number;
+          description: string;
+        };
+      }>("/api/xclips/hwaccel").then((res) => {
+        if (res.ok && res.data?.profile) {
+          setHardwareProfile(res.data.profile);
+        }
+      });
+    }
+  }, [exportModalOpen]);
 
   const isRendering = renderStatus === "rendering";
 
@@ -180,6 +210,58 @@ export function ExportModal() {
                   border: `1px solid ${selectedClip.viralScore >= 80 ? "rgba(16, 185, 129, 0.3)" : "rgba(59, 130, 246, 0.3)"}`,
                 }}
               />
+            </Box>
+
+            {/* Hardware Adaptive Profile Banner */}
+            <Box
+              sx={{
+                p: 1.4,
+                mb: 2.2,
+                bgcolor: "rgba(59, 130, 246, 0.05)",
+                borderRadius: 1,
+                border: "1px solid rgba(59, 130, 246, 0.2)",
+                display: "flex",
+                alignItems: "center",
+                gap: 1.2,
+              }}
+            >
+              <Box
+                sx={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 1,
+                  bgcolor: "rgba(59, 130, 246, 0.15)",
+                  color: "#60a5fa",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <BoltIcon fontSize="small" />
+              </Box>
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.2, flexWrap: "wrap" }}>
+                  <Typography variant="body2" sx={{ fontWeight: 700, fontSize: "0.8rem", color: "#fafafa" }} noWrap>
+                    {hardwareProfile?.label || "Auto: Multi-Core Device Acceleration"}
+                  </Typography>
+                  <Chip
+                    label="Best Performance"
+                    size="small"
+                    sx={{
+                      bgcolor: "rgba(16, 185, 129, 0.15)",
+                      color: "#34d399",
+                      fontWeight: 800,
+                      fontSize: "0.62rem",
+                      height: 18,
+                      border: "1px solid rgba(16, 185, 129, 0.3)",
+                    }}
+                  />
+                </Box>
+                <Typography variant="caption" sx={{ color: "#a1a1aa", fontSize: "0.72rem", display: "block" }}>
+                  {hardwareProfile?.description || "Engine render otomatis menyesuaikan akselerasi komputasi perangkat."}
+                </Typography>
+              </Box>
             </Box>
 
             {/* Option 1: Output Resolution */}
@@ -348,7 +430,13 @@ export function ExportModal() {
             variant="contained"
             size="small"
             startIcon={isRendering ? <CircularProgress size={16} sx={{ color: "#ffffff" }} /> : <FileDownloadIcon />}
-            onClick={handleRender}
+            onClick={() =>
+              handleRender({
+                resolution: exportResolution,
+                bitrate: exportBitrate,
+                format: exportFormat,
+              })
+            }
             disabled={isRendering}
             sx={{
               bgcolor: "#3b82f6",

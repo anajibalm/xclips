@@ -873,7 +873,25 @@ export class XclipsService {
       }
 
       const resJson = await response.json();
-      const textContent = resJson.choices?.[0]?.message?.content || "";
+      let textContent =
+        resJson.choices?.[0]?.message?.content ||
+        resJson.choices?.[0]?.message?.reasoning_content ||
+        resJson.choices?.[0]?.text ||
+        "";
+
+      if (typeof textContent === "string") {
+        textContent = textContent.trim();
+      } else {
+        textContent = "";
+      }
+
+      if (!textContent) {
+        return {
+          success: false,
+          error: `Model ${modelToUse} mengembalikan respons teks kosong.`,
+        };
+      }
+
       return { success: true, data: textContent };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to process AI request";
@@ -1406,14 +1424,18 @@ Synthesize the single best viral narrative focus prompt:`;
       if (isWhisperStt) {
         const whisperModel = modelToUse === "gpt-transcribe" ? "whisper-1" : modelToUse;
         // OpenAI Whisper / Transcribe STT API (/v1/audio/transcriptions)
-        if (totalDuration <= 1800) {
-          aiLogger.info({ projectId, model: whisperModel, provider: targetProvider }, "Dispatching single OpenAI Whisper transcription request");
+        // Cap single request at 300s (5 minutes) to avoid gateway timeouts and large payload bottlenecks
+        const MAX_SINGLE_WHISPER_DURATION = 300;
+
+        if (totalDuration <= MAX_SINGLE_WHISPER_DURATION) {
+          const timeoutMs = Math.max(90000, Math.ceil(totalDuration * 1000 * 0.5));
+          aiLogger.info({ projectId, model: whisperModel, provider: targetProvider, timeoutMs }, "Dispatching single OpenAI Whisper transcription request");
           const whisperRes = await this.transcribeWithOpenAiWhisper({
             audioPath: audioToUse,
             apiKey,
             baseUrl: targetBaseUrl,
             model: whisperModel,
-            timeoutMs: 60000,
+            timeoutMs,
           });
 
           if (!whisperRes.success) {
@@ -1423,27 +1445,33 @@ Synthesize the single best viral narrative focus prompt:`;
           fullTextCombined = whisperRes.data.fullText;
           allWords.push(...whisperRes.data.words);
         } else {
-          const chunkCount = Math.ceil(totalDuration / CHUNK_DURATION);
-          aiLogger.info({ projectId, totalDuration, chunkCount, provider: targetProvider }, "Starting multi-chunk OpenAI Whisper audio transcription");
+          // Multi-chunk for longer files (120 seconds per chunk for high reliability)
+          const WHISPER_CHUNK_DURATION = 120;
+          const chunkCount = Math.ceil(totalDuration / WHISPER_CHUNK_DURATION);
+          aiLogger.info(
+            { projectId, totalDuration, chunkCount, chunkSizeSec: WHISPER_CHUNK_DURATION, provider: targetProvider },
+            "Starting multi-chunk OpenAI Whisper audio transcription"
+          );
 
           for (let cIdx = 0; cIdx < chunkCount; cIdx++) {
-            const chunkStart = cIdx * CHUNK_DURATION;
-            const chunkDuration = Math.min(CHUNK_DURATION, totalDuration - chunkStart);
-            const chunkPath = path.join(cacheDir, `audio_chunk_${cIdx}.mp3`);
+            const chunkStart = cIdx * WHISPER_CHUNK_DURATION;
+            const chunkDuration = Math.min(WHISPER_CHUNK_DURATION, totalDuration - chunkStart);
+            const chunkPath = path.join(cacheDir, `audio_chunk_whisper_${cIdx}.mp3`);
 
-            await extractAudioSegment(videoPath, chunkPath, chunkStart, chunkDuration);
+            // Extract segment from pre-extracted audio file rather than slow video re-encoding
+            await extractAudioSegment(audioToUse, chunkPath, chunkStart, chunkDuration);
             if (!fs.existsSync(chunkPath)) continue;
 
             const whisperRes = await this.transcribeWithOpenAiWhisper({
               audioPath: chunkPath,
               apiKey,
               baseUrl: targetBaseUrl,
-              model: modelToUse || "whisper-1",
-              timeoutMs: 60000,
+              model: whisperModel,
+              timeoutMs: 90000,
             });
 
             if (whisperRes.success) {
-              if (whisperRes.data.fullText) fullTextCombined += " " + whisperRes.data.fullText;
+              if (whisperRes.data.fullText) fullTextCombined += (fullTextCombined ? " " : "") + whisperRes.data.fullText;
               for (const w of whisperRes.data.words) {
                 allWords.push({
                   ...w,
@@ -1451,6 +1479,8 @@ Synthesize the single best viral narrative focus prompt:`;
                   end: parseFloat((w.end + chunkStart).toFixed(2)),
                 });
               }
+            } else {
+              aiLogger.warn({ chunkIndex: cIdx + 1, chunkCount, err: whisperRes.error }, "Whisper chunk failed, continuing with remaining chunks");
             }
           }
         }
@@ -1854,16 +1884,29 @@ Format output WAJIB HANYA berupa JSON valid:
           timeoutMs: 60000,
         });
 
-        if (dispatchRes.success) {
-          const cleanJsonStr = dispatchRes.data.replace(/```json/g, "").replace(/```/g, "").trim();
-          const parsed = JSON.parse(cleanJsonStr);
-          if (Array.isArray(parsed.highlights)) {
-            allRawHighlights.push(...parsed.highlights);
-            aiLogger.debug({ chunkIndex: chunk.chunkIndex, foundCount: parsed.highlights.length }, "Scored highlight candidates for chunk");
+        if (dispatchRes.success && dispatchRes.data?.trim()) {
+          try {
+            const cleanJsonStr = dispatchRes.data.replace(/```json/gi, "").replace(/```/g, "").trim();
+            const jsonMatch = cleanJsonStr.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) {
+              throw new Error("Respons AI tidak mengandung objek JSON yang valid");
+            }
+            const parsed = JSON.parse(jsonMatch[0]);
+            if (Array.isArray(parsed.highlights) && parsed.highlights.length > 0) {
+              allRawHighlights.push(...parsed.highlights);
+              aiLogger.debug({ chunkIndex: chunk.chunkIndex, foundCount: parsed.highlights.length }, "Scored highlight candidates for chunk");
+            } else {
+              aiLogger.warn({ chunkIndex: chunk.chunkIndex }, "AI response contained no highlights array");
+            }
+          } catch (parseErr: unknown) {
+            const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+            lastError = `Gagal parse JSON chunk ${chunk.chunkIndex}: ${parseMsg}`;
+            aiLogger.warn({ chunkIndex: chunk.chunkIndex, err: parseMsg, preview: dispatchRes.data.slice(0, 150) }, "Failed to parse JSON highlights from chunk");
           }
         } else {
-          lastError = dispatchRes.error || "Failed scoring chunk";
-          aiLogger.warn({ chunkIndex: chunk.chunkIndex, err: dispatchRes.error }, "Failed scoring chunk");
+          const errMsg = !dispatchRes.success ? dispatchRes.error : "Empty response from AI";
+          lastError = errMsg;
+          aiLogger.warn({ chunkIndex: chunk.chunkIndex, err: errMsg }, "Failed scoring chunk");
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -1965,8 +2008,8 @@ Format output WAJIB HANYA berupa JSON valid:
     return { success: true, data: updatedTranscript };
   }
 
-  enqueueRender(clipId: string, projectId: string) {
-    return renderQueue.enqueue(clipId, projectId);
+  enqueueRender(clipId: string, projectId: string, options?: { resolution?: string; bitrate?: string; format?: string }) {
+    return renderQueue.enqueue(clipId, projectId, options);
   }
 
   // ── Storage & Cache Management ──────────────────────────────

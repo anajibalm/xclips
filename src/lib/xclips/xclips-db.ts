@@ -108,7 +108,9 @@ export class XclipsDatabase {
         outputPath TEXT,
         error TEXT,
         startedAt TEXT,
-        completedAt TEXT
+        completedAt TEXT,
+        createdAt TEXT NOT NULL DEFAULT '',
+        updatedAt TEXT NOT NULL DEFAULT ''
       );
 
       CREATE INDEX IF NOT EXISTS idx_render_jobs_clip_id ON render_jobs(clipId);
@@ -214,6 +216,8 @@ export class XclipsDatabase {
     this.ensureColumns("render_jobs", {
       startedAt: "TEXT",
       completedAt: "TEXT",
+      createdAt: "TEXT NOT NULL DEFAULT ''",
+      updatedAt: "TEXT NOT NULL DEFAULT ''",
     });
 
     // Auto-migrate legacy transcripts without proper label or sourceType
@@ -624,6 +628,8 @@ export class XclipsDatabase {
         error: string | null;
         startedAt: string | null;
         completedAt: string | null;
+        createdAt?: string | null;
+        updatedAt?: string | null;
       } | null;
 
       if (!row) return null;
@@ -637,6 +643,8 @@ export class XclipsDatabase {
         error: row.error || undefined,
         startedAt: row.startedAt || undefined,
         completedAt: row.completedAt || undefined,
+        createdAt: row.createdAt || undefined,
+        updatedAt: row.updatedAt || undefined,
       };
     } catch (err) {
       dbLogger.error({ jobId, err }, "Failed to get render job");
@@ -644,17 +652,60 @@ export class XclipsDatabase {
     }
   }
 
+  getActiveJobForClip(clipId: string): RenderJob | null {
+    try {
+      const row = this.db.query(
+        "SELECT * FROM render_jobs WHERE clipId = ? AND status IN ('queued', 'rendering') ORDER BY startedAt DESC LIMIT 1"
+      ).get(clipId) as {
+        id: string;
+        clipId: string;
+        projectId: string;
+        status: ClipStatus;
+        progress: number;
+        outputPath: string | null;
+        error: string | null;
+        startedAt: string | null;
+        completedAt: string | null;
+        createdAt?: string | null;
+        updatedAt?: string | null;
+      } | null;
+
+      if (!row) return null;
+      return {
+        id: row.id,
+        clipId: row.clipId,
+        projectId: row.projectId,
+        status: row.status,
+        progress: row.progress,
+        outputPath: row.outputPath || undefined,
+        error: row.error || undefined,
+        startedAt: row.startedAt || undefined,
+        completedAt: row.completedAt || undefined,
+        createdAt: row.createdAt || undefined,
+        updatedAt: row.updatedAt || undefined,
+      };
+    } catch (err) {
+      dbLogger.error({ clipId, err }, "Failed to get active render job for clip");
+      return null;
+    }
+  }
+
   saveJob(job: RenderJob): void {
+    const now = new Date().toISOString();
+    const createdAt = job.createdAt || job.startedAt || now;
+    const updatedAt = job.updatedAt || now;
+
     const stmt = this.db.prepare(`
-      INSERT INTO render_jobs (id, clipId, projectId, status, progress, outputPath, error, startedAt, completedAt)
-      VALUES ($id, $clipId, $projectId, $status, $progress, $outputPath, $error, $startedAt, $completedAt)
+      INSERT INTO render_jobs (id, clipId, projectId, status, progress, outputPath, error, startedAt, completedAt, createdAt, updatedAt)
+      VALUES ($id, $clipId, $projectId, $status, $progress, $outputPath, $error, $startedAt, $completedAt, $createdAt, $updatedAt)
       ON CONFLICT(id) DO UPDATE SET
         status = excluded.status,
         progress = excluded.progress,
         outputPath = excluded.outputPath,
         error = excluded.error,
         startedAt = excluded.startedAt,
-        completedAt = excluded.completedAt
+        completedAt = excluded.completedAt,
+        updatedAt = excluded.updatedAt
     `);
 
     stmt.run({
@@ -665,8 +716,10 @@ export class XclipsDatabase {
       $progress: job.progress || 0,
       $outputPath: job.outputPath || null,
       $error: job.error || null,
-      $startedAt: job.startedAt || new Date().toISOString(),
+      $startedAt: job.startedAt || now,
       $completedAt: job.completedAt || null,
+      $createdAt: createdAt,
+      $updatedAt: updatedAt,
     });
   }
 

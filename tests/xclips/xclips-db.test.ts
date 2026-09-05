@@ -378,6 +378,24 @@ describe("xclips - Persistent SQLite Database Engine (bun:sqlite)", () => {
     expect(updated?.status).toBe("completed");
     expect(updated?.progress).toBe(100);
     expect(updated?.outputPath).toBe("/vault/renders/clip_101_916.mp4");
+
+    // Verify getActiveJobForClip returns null when job is completed
+    expect(db.getActiveJobForClip("clip_101")).toBeNull();
+
+    // Verify getActiveJobForClip returns active job when queued/rendering
+    const activeJob: RenderJob = {
+      id: "job_render_2",
+      clipId: "clip_101",
+      projectId: "proj_101",
+      status: "queued",
+      progress: 0,
+      startedAt: new Date().toISOString(),
+    };
+    db.saveJob(activeJob);
+    const retrievedActive = db.getActiveJobForClip("clip_101");
+    expect(retrievedActive).not.toBeNull();
+    expect(retrievedActive?.id).toBe("job_render_2");
+    expect(retrievedActive?.status).toBe("queued");
   });
 
   it("should return all project IDs and compact database properly", () => {

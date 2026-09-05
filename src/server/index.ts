@@ -110,14 +110,13 @@ app.onError((err, c) => {
 import { xclipsService } from "../lib/xclips.service";
 import { xclipsDb } from "../lib/xclips/xclips-db";
 import { AiProviderType, SubtitlePreset } from "../lib/xclips/types";
-import { detectHardwareAcceleration } from "../lib/xclips/queue";
+import { detectHardwareAcceleration, detectHardwareProfile } from "../lib/xclips/queue";
 import { extractAudioWav, extractFrameImage } from "../lib/xclips/vfr-probe";
 import { getPresetSubtitleStyle } from "../lib/xclips/subtitle-presets";
 
 app.get("/api/xclips/hwaccel", async (c) => {
-
-  const encoder = await detectHardwareAcceleration();
-  return c.json({ ok: true, encoder });
+  const profile = await detectHardwareProfile();
+  return c.json({ ok: true, profile, encoder: profile.encoder });
 });
 
 app.get("/api/xclips/projects", (c) => {
@@ -1875,12 +1874,18 @@ app.delete("/api/xclips/projects/:id/clips", (c) => {
   return c.json({ ok: deleted });
 });
 
-app.post("/api/xclips/clips/:id/render", (c) => {
+app.post("/api/xclips/clips/:id/render", async (c) => {
   const id = c.req.param("id");
   const clip = xclipsDb.getClip(id);
   if (!clip) return c.json({ ok: false, message: "Clip not found" }, 404);
 
-  const job = xclipsService.enqueueRender(clip.id, clip.projectId);
+  const body = (await c.req.json().catch(() => ({}))) as {
+    resolution?: string;
+    bitrate?: string;
+    format?: string;
+  };
+
+  const job = xclipsService.enqueueRender(clip.id, clip.projectId, body);
   return c.json({ ok: true, job });
 });
 
