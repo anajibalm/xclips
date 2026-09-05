@@ -274,7 +274,7 @@ export function StudioCanvas({
     initialPosY: 80,
     initialRot: 0,
     initialFontSize: 44,
-    initialBoxWidth: 85,
+    initialBoxWidth: 76,
     boxCenterX: 0,
     boxCenterY: 0,
     initialDist: 100,
@@ -301,7 +301,7 @@ export function StudioCanvas({
       initialPosY: subtitleStyle.positionY ?? 80,
       initialRot: subtitleStyle.rotation ?? 0,
       initialFontSize: subtitleStyle.fontSize ?? 44,
-      initialBoxWidth: subtitleStyle.boxWidth ?? 85,
+      initialBoxWidth: subtitleStyle.boxWidth ?? 76,
     };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
@@ -462,7 +462,7 @@ export function StudioCanvas({
     setIsWidthResizingGizmo(true);
     widthResizeSideRef.current = side;
     gizmoStateRef.current.startX = e.clientX;
-    gizmoStateRef.current.initialBoxWidth = subtitleStyle.boxWidth ?? 85;
+    gizmoStateRef.current.initialBoxWidth = subtitleStyle.boxWidth ?? 76;
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
@@ -1093,7 +1093,7 @@ export function StudioCanvas({
                 userSelect: "none",
                 cursor: isDraggingGizmo ? "grabbing" : "move",
                 p: "12px 20px",
-                width: subtitleStyle.boxWidthMode === "custom" ? `${subtitleStyle.boxWidth ?? 85}%` : "fit-content",
+                width: subtitleStyle.boxWidthMode === "auto" ? "fit-content" : `${subtitleStyle.boxWidth ?? 76}%`,
                 maxWidth: `${virtualDims.width * 0.96}px`,
                 display: "inline-block",
                 textAlign: "center",
@@ -1292,7 +1292,7 @@ export function StudioCanvas({
                       pointerEvents: "none",
                     }}
                   >
-                    X: {subtitleStyle.positionX ?? 50}%{isSnappedX ? " (Center)" : ""} | Y: {subtitleStyle.positionY ?? 80}%{isSnappedY ? (snappedYTarget === 50 ? " (Center)" : " (Lower-3rd)") : ""} | {subtitleStyle.rotation ?? 0}° | W: {subtitleStyle.boxWidthMode === "custom" ? `${subtitleStyle.boxWidth ?? 85}%` : "Auto"}
+                    X: {subtitleStyle.positionX ?? 50}%{isSnappedX ? " (Center)" : ""} | Y: {subtitleStyle.positionY ?? 80}%{isSnappedY ? (snappedYTarget === 50 ? " (Center)" : " (Lower-3rd)") : ""} | {subtitleStyle.rotation ?? 0}° | W: {subtitleStyle.boxWidthMode === "auto" ? "Auto" : `${subtitleStyle.boxWidth ?? 76}%`}
                   </Box>
                 </>
               )}

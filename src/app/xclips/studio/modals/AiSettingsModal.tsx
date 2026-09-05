@@ -267,8 +267,8 @@ export function AiSettingsModal() {
                     label: "OpenAI",
                     icon: <OpenAiIcon style={{ color: "#10A37F", width: 22, height: 22 }} />,
                     defaultUrl: "https://api.openai.com/v1",
-                    defaultTranscribe: "gpt-transcribe",
-                    defaultHighlight: "gpt-5.6-luna",
+                    defaultTranscribe: "whisper-1",
+                    defaultHighlight: "gpt-4o",
                   },
                   {
                     id: "anthropic",

@@ -134,5 +134,66 @@ Hari ini kita bahas AI`;
     const nonExistent = cancelActiveProcess("task_non_existent");
     expect(nonExistent).toBe(false);
   });
+
+  it("should parse various time string formats to seconds accurately", () => {
+    const { parseTimeToSeconds } = require("@/lib/xclips/ytdlp-downloader");
+
+    expect(parseTimeToSeconds("00:01:30")).toBe(90);
+    expect(parseTimeToSeconds("01:23:45")).toBe(5025);
+    expect(parseTimeToSeconds("05:30")).toBe(330);
+    expect(parseTimeToSeconds("45")).toBe(45);
+    expect(parseTimeToSeconds("120.5")).toBe(120.5);
+
+    // Boundary & error cases
+    expect(parseTimeToSeconds("")).toBe(0);
+    expect(parseTimeToSeconds("invalid:time")).toBe(0);
+    expect(parseTimeToSeconds(null as any)).toBe(0);
+  });
+
+  it("should format seconds to HH:MM:SS string accurately", () => {
+    const { formatSecondsToTime, sanitizeTimeForFilename } = require("@/lib/xclips/ytdlp-downloader");
+
+    expect(formatSecondsToTime(90)).toBe("00:01:30");
+    expect(formatSecondsToTime(5025)).toBe("01:23:45");
+    expect(formatSecondsToTime(0)).toBe("00:00:00");
+    expect(formatSecondsToTime(-15)).toBe("00:00:00");
+
+    expect(sanitizeTimeForFilename("00:01:30")).toBe("00-01-30");
+    expect(sanitizeTimeForFilename("01:23:45")).toBe("01-23-45");
+  });
+
+  it("should accurately slice and re-base word timestamps to 0s for direct splitting", () => {
+    const { sliceWordsByTimeRange } = require("@/lib/xclips/ytdlp-downloader");
+    const sampleWords = [
+      { word: "A", start: 1.0, end: 2.0, confidence: 0.95, isFiller: false, excluded: false },
+      { word: "B", start: 2.5, end: 4.0, confidence: 0.95, isFiller: false, excluded: false },
+      { word: "C", start: 4.5, end: 6.0, confidence: 0.95, isFiller: false, excluded: false },
+      { word: "D", start: 6.5, end: 8.0, confidence: 0.95, isFiller: false, excluded: false },
+      { word: "E", start: 8.5, end: 9.5, confidence: 0.95, isFiller: false, excluded: false },
+    ];
+
+    // Slice range: 2.0s to 7.0s
+    const sliced = sliceWordsByTimeRange(sampleWords, 2.0, 7.0);
+    expect(sliced.length).toBe(3); // B, C, D
+
+    // Verify word B re-based from 2.5s -> 0.5s
+    expect(sliced[0].word).toBe("B");
+    expect(sliced[0].start).toBe(0.5);
+    expect(sliced[0].end).toBe(2.0);
+
+    // Verify word C re-based from 4.5s -> 2.5s
+    expect(sliced[1].word).toBe("C");
+    expect(sliced[1].start).toBe(2.5);
+    expect(sliced[1].end).toBe(4.0);
+
+    // Verify word D re-based from 6.5s -> 4.5s
+    expect(sliced[2].word).toBe("D");
+    expect(sliced[2].start).toBe(4.5);
+    expect(sliced[2].end).toBe(6.0);
+
+    // Boundary cases: invalid ranges return empty array
+    expect(sliceWordsByTimeRange(sampleWords, 10.0, 5.0)).toEqual([]);
+    expect(sliceWordsByTimeRange([], 0, 10)).toEqual([]);
+  });
 });
 

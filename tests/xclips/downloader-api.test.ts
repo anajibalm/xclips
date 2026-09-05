@@ -96,4 +96,36 @@ describe("xclips - Downloader API & Multiplatform Pipeline", () => {
     expect(q1440.formatSelector).toContain("1440");
     expect(q1440.formatSort).toContain("res:1440");
   });
+
+  it("should preserve and retrieve timeRange in download records", () => {
+    const db = new XclipsDatabase(":memory:");
+
+    const splitRecord = {
+      id: "dl_split_1",
+      platform: "youtube" as const,
+      url: "https://www.youtube.com/watch?v=sample",
+      title: "Podcast Segment [00:05:00-00:08:30]",
+      author: "Host",
+      durationSec: 210,
+      thumbnailUrl: "",
+      formatType: "video" as const,
+      quality: "1080p" as const,
+      filePath: "/vault/downloads/[SPLIT_00-05-00_00-08-30] Podcast.mp4",
+      fileSizeBytes: 25000000,
+      status: "completed" as const,
+      createdAt: "2026-09-04T12:00:00.000Z",
+      rawJson: JSON.stringify({ timeRange: { start: "00:05:00", end: "00:08:30" } }),
+    };
+
+    db.addDownloadRecord(splitRecord);
+
+    const fetched = db.getDownloadRecordById("dl_split_1");
+    expect(fetched).not.toBeNull();
+    expect(fetched?.timeRange).toEqual({ start: "00:05:00", end: "00:08:30" });
+
+    const records = db.getDownloadRecords();
+    expect(records[0].timeRange).toEqual({ start: "00:05:00", end: "00:08:30" });
+
+    db.close();
+  });
 });

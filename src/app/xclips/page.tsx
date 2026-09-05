@@ -24,7 +24,7 @@ import {
   Select,
   FormControl,
   InputLabel,
-  Switch,
+  Checkbox,
   FormControlLabel,
   CardMedia,
   CircularProgress,
@@ -44,9 +44,36 @@ import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import SettingsIcon from "@mui/icons-material/Settings";
 import DownloadIcon from "@mui/icons-material/Download";
 import { apiFetch } from "@/lib/api-client";
-import { XclipsProject } from "@/lib/xclips/types";
+import { XclipsProject, SubtitlePreset, XclipsAiSettings } from "@/lib/xclips/types";
 import { YouTubeVideoInfo } from "@/lib/xclips/ytdlp-downloader";
 import { useRouter } from "next/navigation";
+
+const AI_TRANSCRIBE_MODELS = [
+  {
+    id: "gemini-3-7-flash",
+    name: "Gemini 3.7 Flash",
+    tag: "Recommended",
+    desc: "Multimodal audio native reasoning & word timestamps",
+  },
+  {
+    id: "gemini-3-6-flash",
+    name: "Gemini 3.6 Flash",
+    tag: "Fast",
+    desc: "High-speed balanced multimodal audio transcribe",
+  },
+  {
+    id: "whisper-1",
+    name: "OpenAI Whisper-1",
+    tag: "Standard",
+    desc: "Industry-standard OpenAI Whisper Speech-to-Text",
+  },
+  {
+    id: "gpt-4o-transcribe",
+    name: "GPT-4o Transcribe",
+    tag: "Multimodal",
+    desc: "GPT-4o audio reasoning & detailed transcription",
+  },
+];
 
 export default function XclipsDashboardPage() {
   const router = useRouter();
@@ -66,6 +93,9 @@ export default function XclipsDashboardPage() {
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [youtubeQuality, setYoutubeQuality] = useState<"1080p" | "720p" | "480p" | "best">("1080p");
   const [downloadSubtitles, setDownloadSubtitles] = useState(true);
+  const [generateAiSubtitles, setGenerateAiSubtitles] = useState(false);
+  const [aiModel, setAiModel] = useState<string>("gemini-3-7-flash");
+  const [subtitleStylePreset, setSubtitleStylePreset] = useState<SubtitlePreset>("plain");
   const [ytInfo, setYtInfo] = useState<YouTubeVideoInfo | null>(null);
   const [fetchingYtInfo, setFetchingYtInfo] = useState(false);
   const [ytInfoError, setYtInfoError] = useState<string | null>(null);
@@ -73,7 +103,7 @@ export default function XclipsDashboardPage() {
   const [downloadSize, setDownloadSize] = useState<string>("");
   const [downloadSpeed, setDownloadSpeed] = useState<string>("");
   const [downloadEta, setDownloadEta] = useState<string>("");
-  const [downloadPhase, setDownloadPhase] = useState<string>("Memulai download...");
+  const [downloadPhase, setDownloadPhase] = useState<string>("Starting download...");
 
   const loadData = async () => {
     setLoading(true);
@@ -93,6 +123,11 @@ export default function XclipsDashboardPage() {
 
   useEffect(() => {
     loadData();
+    apiFetch<{ ok: boolean; settings?: XclipsAiSettings }>("/api/xclips/settings").then((res) => {
+      if (res.ok && res.data?.settings?.transcribeModel) {
+        setAiModel(res.data.settings.transcribeModel);
+      }
+    });
   }, []);
 
   // Debounced auto-fetch YouTube metadata
@@ -100,13 +135,15 @@ export default function XclipsDashboardPage() {
     if (!youtubeUrl || !youtubeUrl.includes("youtu")) {
       setYtInfo(null);
       setYtInfoError(null);
+      setFetchingYtInfo(false);
       return;
     }
 
+    setFetchingYtInfo(true);
+    setIngestError(null);
+    setYtInfoError(null);
+
     const timeout = setTimeout(async () => {
-      setFetchingYtInfo(true);
-      setIngestError(null);
-      setYtInfoError(null);
       const res = await apiFetch<{ ok: boolean; info: YouTubeVideoInfo }>("/api/xclips/youtube/info", {
         method: "POST",
         body: JSON.stringify({ url: youtubeUrl }),
@@ -140,7 +177,13 @@ export default function XclipsDashboardPage() {
       "/api/xclips/projects/ingest",
       {
         method: "POST",
-        body: JSON.stringify({ sourcePath, name: projectName || undefined }),
+        body: JSON.stringify({
+          sourcePath,
+          name: projectName || undefined,
+          generateAiSubtitles,
+          aiModel,
+          subtitleStylePreset,
+        }),
       }
     );
 
@@ -176,6 +219,9 @@ export default function XclipsDashboardPage() {
             quality: youtubeQuality,
             name: projectName || ytInfo?.title || undefined,
             downloadSubtitles,
+            generateAiSubtitles,
+            aiModel,
+            subtitleStylePreset,
           }),
         }
       );
@@ -214,6 +260,8 @@ export default function XclipsDashboardPage() {
             setDownloadPhase(`Downloading video & audio streams (${prog.percent.toFixed(1)}%)...`);
           } else if (prog.status === "merging") {
             setDownloadPhase("Merging MP4 container & subtitles...");
+          } else if (prog.status === "transcribing") {
+            setDownloadPhase(`Transcribing audio with AI (${aiModel})...`);
           } else if (prog.status === "completed" && prog.project) {
             clearInterval(pollInterval);
             setDownloadPercent(100);
@@ -248,6 +296,9 @@ export default function XclipsDashboardPage() {
     setDownloadSize("");
     setDownloadSpeed("");
     setDownloadEta("");
+    setDownloadSubtitles(true);
+    setGenerateAiSubtitles(false);
+    setSubtitleStylePreset("plain");
   };
 
 
@@ -316,38 +367,6 @@ export default function XclipsDashboardPage() {
             <RefreshIcon fontSize="small" />
           </IconButton>
           <Button
-            variant="outlined"
-            startIcon={<DownloadIcon />}
-            onClick={() => router.push("/xclips/downloader")}
-            sx={{
-              borderColor: "#27272a",
-              color: "#e4e4e7",
-              bgcolor: "#18181b",
-              "&:hover": { borderColor: "#3b82f6", color: "#60a5fa", bgcolor: "rgba(59, 130, 246, 0.1)" },
-              fontWeight: 600,
-              textTransform: "none",
-              borderRadius: 1,
-            }}
-          >
-            Universal Downloader
-          </Button>
-          <Button
-            variant="outlined"
-            startIcon={<SettingsIcon />}
-            onClick={() => router.push("/xclips/settings")}
-            sx={{
-              borderColor: "#27272a",
-              color: "#e4e4e7",
-              bgcolor: "#18181b",
-              "&:hover": { borderColor: "#3f3f46", color: "#f4f4f5", bgcolor: "#27272a" },
-              fontWeight: 600,
-              textTransform: "none",
-              borderRadius: 1,
-            }}
-          >
-            Storage &amp; System
-          </Button>
-          <Button
             variant="contained"
             startIcon={<AddIcon />}
             onClick={() => setOpenIngestModal(true)}
@@ -374,112 +393,192 @@ export default function XclipsDashboardPage() {
           </Typography>
         </Box>
       ) : projects.length === 0 ? (
-        <Card
-          sx={{
-            bgcolor: "#121216",
-            border: "1px dashed #3f3f46",
-            borderRadius: 1,
-            p: 6,
-            textAlign: "center",
-          }}
-        >
-          <VideoLibraryIcon sx={{ fontSize: 56, color: "#52525b", mb: 2 }} />
-          <Typography variant="h6" sx={{ fontWeight: 700, mb: 1, color: "#e4e4e7" }}>
-            No xclips Projects Yet
-          </Typography>
-          <Typography variant="body2" sx={{ color: "#a1a1aa", mb: 3, maxWidth: 440, mx: "auto" }}>
-            Get started by importing long-form video from YouTube or a local file to automatically discover viral clips.
-          </Typography>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => setOpenIngestModal(true)}
-            sx={{ bgcolor: "#3b82f6", textTransform: "none", fontWeight: 700, borderRadius: 1 }}
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
+          <Card
+            sx={{
+              bgcolor: "#121216",
+              border: "1px dashed #3f3f46",
+              borderRadius: 1,
+              p: 6,
+              textAlign: "center",
+            }}
           >
-            Import First Video
-          </Button>
-        </Card>
+            <VideoLibraryIcon sx={{ fontSize: 56, color: "#52525b", mb: 2 }} />
+            <Typography variant="h6" sx={{ fontWeight: 700, mb: 1, color: "#e4e4e7" }}>
+              No xclips Projects Yet
+            </Typography>
+            <Typography variant="body2" sx={{ color: "#a1a1aa", mb: 3, maxWidth: 440, mx: "auto" }}>
+              Get started by importing long-form video from YouTube or a local file to automatically discover viral clips.
+            </Typography>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => setOpenIngestModal(true)}
+              sx={{ bgcolor: "#3b82f6", textTransform: "none", fontWeight: 700, borderRadius: 1 }}
+            >
+              Import First Video
+            </Button>
+          </Card>
+
+          {/* Utility Tools below empty project container */}
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 2, pt: 1 }}>
+            <Button
+              variant="outlined"
+              startIcon={<DownloadIcon />}
+              onClick={() => router.push("/xclips/downloader")}
+              sx={{
+                borderColor: "#27272a",
+                color: "#e4e4e7",
+                bgcolor: "#18181b",
+                "&:hover": { borderColor: "#3b82f6", color: "#60a5fa", bgcolor: "rgba(59, 130, 246, 0.1)" },
+                fontWeight: 600,
+                textTransform: "none",
+                borderRadius: 1,
+                px: 2,
+              }}
+            >
+              Universal Downloader
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<SettingsIcon />}
+              onClick={() => router.push("/xclips/settings")}
+              sx={{
+                borderColor: "#27272a",
+                color: "#e4e4e7",
+                bgcolor: "#18181b",
+                "&:hover": { borderColor: "#3f3f46", color: "#f4f4f5", bgcolor: "#27272a" },
+                fontWeight: 600,
+                textTransform: "none",
+                borderRadius: 1,
+                px: 2,
+              }}
+            >
+              Storage &amp; System
+            </Button>
+          </Box>
+        </Box>
       ) : (
-        <Grid container spacing={2.5}>
-          {projects.map((proj) => (
-            <Grid size={{ xs: 12, sm: 6, md: 4 }} key={proj.id}>
-              <Card
-                onClick={() => router.push(`/xclips/studio?id=${proj.id}`)}
-                sx={{
-                  bgcolor: "#121216",
-                  border: "1px solid #27272a",
-                  borderRadius: 1,
-                  cursor: "pointer",
-                  "&:hover": {
-                    borderColor: "#3b82f6",
-                  },
-                }}
-              >
-                <Box sx={{ p: 2.5 }}>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1.5 }}>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                      {proj.sourceType === "youtube" ? (
-                        <YouTubeIcon sx={{ color: "#ef4444", fontSize: 24 }} />
-                      ) : (
-                        <PlayCircleIcon sx={{ color: "#3b82f6", fontSize: 24 }} />
-                      )}
-                      <Typography
-                        variant="subtitle1"
-                        sx={{
-                          fontWeight: 700,
-                          color: "#f4f4f5",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          maxWidth: 180,
-                        }}
-                      >
-                        {proj.name}
-                      </Typography>
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          <Grid container spacing={2.5}>
+            {projects.map((proj) => (
+              <Grid size={{ xs: 12, sm: 6, md: 4 }} key={proj.id}>
+                <Card
+                  onClick={() => router.push(`/xclips/studio?id=${proj.id}`)}
+                  sx={{
+                    bgcolor: "#121216",
+                    border: "1px solid #27272a",
+                    borderRadius: 1,
+                    cursor: "pointer",
+                    "&:hover": {
+                      borderColor: "#3b82f6",
+                    },
+                  }}
+                >
+                  <Box sx={{ p: 2.5 }}>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1.5 }}>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                        {proj.sourceType === "youtube" ? (
+                          <YouTubeIcon sx={{ color: "#ef4444", fontSize: 24 }} />
+                        ) : (
+                          <PlayCircleIcon sx={{ color: "#3b82f6", fontSize: 24 }} />
+                        )}
+                        <Typography
+                          variant="subtitle1"
+                          sx={{
+                            fontWeight: 700,
+                            color: "#f4f4f5",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            maxWidth: 180,
+                          }}
+                        >
+                          {proj.name}
+                        </Typography>
+                      </Box>
+
+                      <Tooltip title="Delete Project">
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setProjectToDelete(proj);
+                          }}
+                          sx={{ color: "#71717a", "&:hover": { color: "#ef4444" } }}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                     </Box>
 
-                    <Tooltip title="Delete Project">
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setProjectToDelete(proj);
-                        }}
-                        sx={{ color: "#71717a", "&:hover": { color: "#ef4444" } }}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-
-                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 2 }}>
-                    <Chip
-                      size="small"
-                      label={`Duration: ${formatDuration(proj.durationSec)}`}
-                      sx={{ bgcolor: "#18181b", color: "#a1a1aa", fontSize: "0.75rem", borderRadius: 0.8 }}
-                    />
-                    <Chip
-                      size="small"
-                      label={`${proj.width}x${proj.height}`}
-                      sx={{ bgcolor: "#18181b", color: "#a1a1aa", fontSize: "0.75rem", borderRadius: 0.8 }}
-                    />
-                    {proj.isVfr && (
+                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 2 }}>
                       <Chip
                         size="small"
-                        label="VFR -> CFR"
-                        sx={{ bgcolor: "rgba(245, 158, 11, 0.15)", color: "#fbbf24", fontSize: "0.75rem", borderRadius: 0.8 }}
+                        label={`Duration: ${formatDuration(proj.durationSec)}`}
+                        sx={{ bgcolor: "#18181b", color: "#a1a1aa", fontSize: "0.75rem", borderRadius: 0.8 }}
                       />
-                    )}
-                  </Box>
+                      <Chip
+                        size="small"
+                        label={`${proj.width}x${proj.height}`}
+                        sx={{ bgcolor: "#18181b", color: "#a1a1aa", fontSize: "0.75rem", borderRadius: 0.8 }}
+                      />
+                      {proj.isVfr && (
+                        <Chip
+                          size="small"
+                          label="VFR -> CFR"
+                          sx={{ bgcolor: "rgba(245, 158, 11, 0.15)", color: "#fbbf24", fontSize: "0.75rem", borderRadius: 0.8 }}
+                        />
+                      )}
+                    </Box>
 
-                  <Typography variant="caption" sx={{ color: "#71717a" }}>
-                    Created: {new Date(proj.createdAt).toLocaleDateString("en-US")}
-                  </Typography>
-                </Box>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
+                    <Typography variant="caption" sx={{ color: "#71717a" }}>
+                      Created: {new Date(proj.createdAt).toLocaleDateString("en-US")}
+                    </Typography>
+                  </Box>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+
+          {/* Utility Tools below project container */}
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2, pt: 1, borderTop: "1px solid #27272a" }}>
+            <Button
+              variant="outlined"
+              startIcon={<DownloadIcon />}
+              onClick={() => router.push("/xclips/downloader")}
+              sx={{
+                borderColor: "#27272a",
+                color: "#e4e4e7",
+                bgcolor: "#18181b",
+                "&:hover": { borderColor: "#3b82f6", color: "#60a5fa", bgcolor: "rgba(59, 130, 246, 0.1)" },
+                fontWeight: 600,
+                textTransform: "none",
+                borderRadius: 1,
+                px: 2,
+              }}
+            >
+              Universal Downloader
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<SettingsIcon />}
+              onClick={() => router.push("/xclips/settings")}
+              sx={{
+                borderColor: "#27272a",
+                color: "#e4e4e7",
+                bgcolor: "#18181b",
+                "&:hover": { borderColor: "#3f3f46", color: "#f4f4f5", bgcolor: "#27272a" },
+                fontWeight: 600,
+                textTransform: "none",
+                borderRadius: 1,
+                px: 2,
+              }}
+            >
+              Storage &amp; System
+            </Button>
+          </Box>
+        </Box>
       )}
 
       {/* Delete Confirmation Modal (Replaces native window.alert/confirm) */}
@@ -537,7 +636,7 @@ export default function XclipsDashboardPage() {
         }}
       >
         <DialogTitle sx={{ fontWeight: 800, color: "#fafafa", pb: 1 }}>
-          Import Media to xclips
+          Import Media
         </DialogTitle>
 
         <Box sx={{ borderBottom: 1, borderColor: "#27272a", px: 3 }}>
@@ -685,21 +784,66 @@ export default function XclipsDashboardPage() {
                 </Grid>
               </Grid>
 
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={downloadSubtitles}
-                    onChange={(e) => setDownloadSubtitles(e.target.checked)}
-                    disabled={ingesting}
-                    sx={{ "& .Mui-checked": { color: "#3b82f6" } }}
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1.2, mb: 1.5 }}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={downloadSubtitles}
+                      onChange={(e) => setDownloadSubtitles(e.target.checked)}
+                      disabled={ingesting}
+                      size="small"
+                      sx={{ color: "#71717a", "&.Mui-checked": { color: "#3b82f6" } }}
+                    />
+                  }
+                  label={
+                    <Typography variant="body2" sx={{ color: "#e4e4e7", fontSize: "0.82rem" }}>
+                      Download Youtube CC
+                    </Typography>
+                  }
+                />
+
+                {/* AI Subtitles Checkbox with paired Model dropdown */}
+                <Box sx={{ mt: 0.5 }}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={generateAiSubtitles}
+                        onChange={(e) => setGenerateAiSubtitles(e.target.checked)}
+                        disabled={ingesting}
+                        size="small"
+                        sx={{ color: "#71717a", "&.Mui-checked": { color: "#3b82f6" } }}
+                      />
+                    }
+                    label={
+                      <Typography variant="body2" sx={{ color: generateAiSubtitles ? "#f4f4f5" : "#a1a1aa", fontWeight: 600, fontSize: "0.82rem" }}>
+                        Generate Sub-Track
+                      </Typography>
+                    }
                   />
-                }
-                label={
-                  <Typography variant="body2" sx={{ color: "#e4e4e7" }}>
-                    Include YouTube Subtitles
-                  </Typography>
-                }
-              />
+
+                  {/* Dropdown Model AI (disabled when checkbox is unchecked) */}
+                  <Box sx={{ mt: 1, pl: 3.8 }}>
+                    <FormControl fullWidth size="small" disabled={!generateAiSubtitles || ingesting}>
+                      <InputLabel sx={{ color: "#a1a1aa" }}>
+                        AI Transcribe Model
+                      </InputLabel>
+                      <Select
+                        value={aiModel}
+                        label="AI Transcribe Model"
+                        onChange={(e) => setAiModel(e.target.value)}
+                        disabled={!generateAiSubtitles || ingesting}
+                        sx={{ bgcolor: "#18181b", color: "#f4f4f5", borderRadius: 1 }}
+                      >
+                        {AI_TRANSCRIBE_MODELS.map((m) => (
+                          <MenuItem key={m.id} value={m.id}>
+                            {m.name} {m.tag ? `(${m.tag})` : ""}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Box>
+                </Box>
+              </Box>
             </Box>
           )}
 
@@ -728,6 +872,50 @@ export default function XclipsDashboardPage() {
                 onChange={(e) => setProjectName(e.target.value)}
                 disabled={ingesting}
               />
+
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1.2, mt: 2.5, mb: 1 }}>
+                {/* AI Subtitles Checkbox with paired Model dropdown */}
+                <Box sx={{ mt: 0.5 }}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={generateAiSubtitles}
+                        onChange={(e) => setGenerateAiSubtitles(e.target.checked)}
+                        disabled={ingesting}
+                        size="small"
+                        sx={{ color: "#71717a", "&.Mui-checked": { color: "#3b82f6" } }}
+                      />
+                    }
+                    label={
+                      <Typography variant="body2" sx={{ color: generateAiSubtitles ? "#f4f4f5" : "#a1a1aa", fontWeight: 600, fontSize: "0.82rem" }}>
+                        Generate Sub-Track
+                      </Typography>
+                    }
+                  />
+
+                  {/* Dropdown Model AI (disabled when checkbox is unchecked) */}
+                  <Box sx={{ mt: 1, pl: 3.8 }}>
+                    <FormControl fullWidth size="small" disabled={!generateAiSubtitles || ingesting}>
+                      <InputLabel sx={{ color: "#a1a1aa" }}>
+                        AI Transcribe Model
+                      </InputLabel>
+                      <Select
+                        value={aiModel}
+                        label="AI Transcribe Model"
+                        onChange={(e) => setAiModel(e.target.value)}
+                        disabled={!generateAiSubtitles || ingesting}
+                        sx={{ bgcolor: "#18181b", color: "#f4f4f5", borderRadius: 1 }}
+                      >
+                        {AI_TRANSCRIBE_MODELS.map((m) => (
+                          <MenuItem key={m.id} value={m.id}>
+                            {m.name} {m.tag ? `(${m.tag})` : ""}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Box>
+                </Box>
+              </Box>
             </Box>
           )}
 
@@ -736,7 +924,11 @@ export default function XclipsDashboardPage() {
             <Box sx={{ mt: 3, p: 2, bgcolor: "#18181b", borderRadius: 1, border: "1px solid #27272a" }}>
               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
                 <Typography variant="subtitle2" sx={{ color: "#60a5fa", fontWeight: 700 }}>
-                  {ingestTab === 0 ? downloadPhase : "Processing local media (Probe & Audio Extraction)..."}
+                  {ingestTab === 0
+                    ? downloadPhase
+                    : (generateAiSubtitles
+                      ? `Processing media & transcribing with AI (${aiModel})...`
+                      : "Processing local media (Probe & Audio Extraction)...")}
                 </Typography>
                 {ingestTab === 0 && (
                   <Typography variant="body2" sx={{ color: "#fbbf24", fontWeight: 800 }}>
@@ -764,21 +956,24 @@ export default function XclipsDashboardPage() {
                   {downloadSize && (
                     <Chip
                       size="small"
-                      label={`📦 ${downloadSize}`}
+                      icon={<DownloadIcon sx={{ fontSize: "14px !important", color: "inherit !important" }} />}
+                      label={downloadSize}
                       sx={{ bgcolor: "rgba(59, 130, 246, 0.15)", color: "#93c5fd", border: "1px solid rgba(59, 130, 246, 0.3)", fontSize: "0.75rem", fontWeight: 700 }}
                     />
                   )}
                   {downloadSpeed && (
                     <Chip
                       size="small"
-                      label={`⚡ ${downloadSpeed}`}
+                      icon={<SpeedIcon sx={{ fontSize: "14px !important", color: "inherit !important" }} />}
+                      label={downloadSpeed}
                       sx={{ bgcolor: "#27272a", color: "#e4e4e7", fontSize: "0.75rem", fontWeight: 600 }}
                     />
                   )}
                   {downloadEta && (
                     <Chip
                       size="small"
-                      label={`⏱️ ETA ${downloadEta}`}
+                      icon={<AccessTimeIcon sx={{ fontSize: "14px !important", color: "inherit !important" }} />}
+                      label={`ETA ${downloadEta}`}
                       sx={{ bgcolor: "#27272a", color: "#e4e4e7", fontSize: "0.75rem", fontWeight: 600 }}
                     />
                   )}
@@ -802,10 +997,17 @@ export default function XclipsDashboardPage() {
           <Button
             variant="contained"
             onClick={ingestTab === 0 ? handleYouTubeIngest : handleLocalIngest}
-            disabled={ingesting || (ingestTab === 0 ? !youtubeUrl : !sourcePath)}
+            disabled={
+              ingesting ||
+              (ingestTab === 0
+                ? (!youtubeUrl.trim() || fetchingYtInfo)
+                : !sourcePath.trim())
+            }
             sx={{ bgcolor: "#3b82f6", textTransform: "none", fontWeight: 700, px: 3 }}
           >
-            {ingesting ? (ingestTab === 0 ? "Downloading..." : "Processing...") : (ingestTab === 0 ? "Download & Import" : "Start Ingestion")}
+            {ingesting
+              ? (ingestTab === 0 ? "Downloading..." : "Processing...")
+              : (ingestTab === 0 ? "Continue" : "Start Ingestion")}
           </Button>
         </DialogActions>
       </Dialog>

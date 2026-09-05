@@ -1,7 +1,8 @@
 import { spawn, ChildProcess } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
-import { Result, WordTimestamp } from "@/lib/xclips/types";
+import { Result, WordTimestamp, TimeRange } from "@/lib/xclips/types";
+import { generateSrtFromWords } from "@/lib/xclips/phrase-segmentation";
 import { ytdlpLogger } from "@/lib/logger";
 
 // Active ChildProcess registry for cancellation
@@ -47,7 +48,7 @@ export interface DownloadProgress {
   totalSizeStr?: string;
   speedStr: string;
   etaStr: string;
-  status: "downloading" | "merging" | "completed" | "error";
+  status: "downloading" | "merging" | "transcribing" | "completed" | "error";
 }
 
 export interface YouTubeDownloadOptions {
@@ -55,6 +56,7 @@ export interface YouTubeDownloadOptions {
   outputDir: string;
   quality?: "best" | "4k" | "2160p" | "1440p" | "2k" | "1080p" | "720p" | "480p";
   downloadSubtitles?: boolean;
+  timeRange?: TimeRange;
 }
 
 export interface YouTubeDownloadResult {
@@ -62,6 +64,74 @@ export interface YouTubeDownloadResult {
   srtPath?: string;
   info: YouTubeVideoInfo;
 }
+
+/**
+ * Parses time string (HH:MM:SS, MM:SS, or seconds) to seconds number
+ */
+export function parseTimeToSeconds(timeStr: string): number {
+  if (!timeStr || typeof timeStr !== "string") return 0;
+  const clean = timeStr.trim();
+  const parts = clean.split(":").map((p) => parseFloat(p));
+  if (parts.some((n) => isNaN(n))) return 0;
+  if (parts.length === 3) {
+    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  }
+  if (parts.length === 2) {
+    return parts[0] * 60 + parts[1];
+  }
+  if (parts.length === 1) {
+    return parts[0] || 0;
+  }
+  return 0;
+}
+
+/**
+ * Formats seconds to HH:MM:SS string
+ */
+export function formatSecondsToTime(seconds: number): string {
+  if (isNaN(seconds) || seconds < 0) return "00:00:00";
+  const total = Math.floor(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+}
+
+/**
+ * Sanitizes time string for safe inclusion in filenames (e.g. 00:01:30 -> 00-01-30)
+ */
+export function sanitizeTimeForFilename(timeStr: string): string {
+  return (timeStr || "").replace(/[:\s]+/g, "-");
+}
+
+/**
+ * Slices an array of WordTimestamp to fit within [startSec, endSec]
+ * and re-bases timestamps so the new segment starts at 0.00s.
+ */
+export function sliceWordsByTimeRange(
+  words: WordTimestamp[],
+  startSec: number,
+  endSec: number
+): WordTimestamp[] {
+  if (!Array.isArray(words) || words.length === 0) return [];
+  if (endSec <= startSec) return [];
+
+  const sliced: WordTimestamp[] = [];
+  for (const w of words) {
+    // Word overlaps with [startSec, endSec]
+    if (w.end > startSec && w.start < endSec) {
+      const newStart = Math.max(0, parseFloat((w.start - startSec).toFixed(2)));
+      const newEnd = Math.max(newStart + 0.05, parseFloat((w.end - startSec).toFixed(2)));
+      sliced.push({
+        ...w,
+        start: newStart,
+        end: newEnd,
+      });
+    }
+  }
+  return sliced;
+}
+
 
 /**
  * Finds the yt-dlp binary on the system
@@ -747,7 +817,19 @@ export async function downloadYouTubeVideo(
   const { formatSelector, formatSort } = getQualitySelectorArgs(quality);
   const ffmpeg = findFfmpegBinary();
 
-  const outputTemplate = path.join(outputDir, "[FULL] %(title)s [%(id)s].%(ext)s");
+  // Check timeRange option for direct splitting
+  const startSec = options.timeRange?.start ? parseTimeToSeconds(options.timeRange.start) : 0;
+  const endSec = options.timeRange?.end ? parseTimeToSeconds(options.timeRange.end) : 0;
+  const hasTimeRange = Boolean(options.timeRange && endSec > startSec);
+
+  const startFormatted = formatSecondsToTime(startSec);
+  const endFormatted = formatSecondsToTime(endSec);
+  const startSafe = sanitizeTimeForFilename(startFormatted);
+  const endSafe = sanitizeTimeForFilename(endFormatted);
+
+  const outputTemplate = hasTimeRange
+    ? path.join(outputDir, `[SPLIT_${startSafe}_${endSafe}] %(title)s [%(id)s].%(ext)s`)
+    : path.join(outputDir, "[FULL] %(title)s [%(id)s].%(ext)s");
 
   const args = [
     "-i",
@@ -767,6 +849,14 @@ export async function downloadYouTubeVideo(
     outputTemplate,
   ];
 
+  if (hasTimeRange) {
+    args.push(
+      "--download-sections",
+      `*${startFormatted}-${endFormatted}`,
+      "--force-keyframes-at-cuts"
+    );
+  }
+
   if (ffmpeg) {
     args.push("--ffmpeg-location", ffmpeg);
   }
@@ -784,7 +874,10 @@ export async function downloadYouTubeVideo(
 
   args.push(url.trim());
 
-  ytdlpLogger.info({ url, outputDir, quality, downloadSubtitles, formatSelector }, "Starting YouTube video download with yt-dlp");
+  ytdlpLogger.info(
+    { url, outputDir, quality, downloadSubtitles, formatSelector, hasTimeRange, timeRange: options.timeRange },
+    "Starting YouTube video download with yt-dlp"
+  );
 
   return new Promise((resolve) => {
     const proc = spawn(ytdlp, args, {
@@ -828,8 +921,12 @@ export async function downloadYouTubeVideo(
 
       // Find the downloaded MP4 and SRT files
       const files = fs.readdirSync(outputDir);
-      const mp4File = files.find((f) => f.endsWith(".mp4") && f.includes(info.id));
-      const srtFile = files.find((f) => f.endsWith(".srt") && f.includes(info.id));
+      const mp4File = files.find(
+        (f) => f.endsWith(".mp4") && (f.includes(info.id) || f.startsWith("[SPLIT_") || f.startsWith("[FULL]"))
+      );
+      const srtFile = files.find(
+        (f) => f.endsWith(".srt") && (f.includes(info.id) || f.startsWith("[SPLIT_") || f.startsWith("[FULL]"))
+      );
 
       if (!mp4File) {
         // Fallback: search for any mp4 in outputDir
@@ -839,14 +936,39 @@ export async function downloadYouTubeVideo(
           return resolve({ success: false, error: "File video tidak ditemukan setelah download selesai." });
         }
         ytdlpLogger.info({ url, videoPath: anyMp4, srtPath: srtFile }, "YouTube video download finished (fallback file matched)");
+        
+        const finalInfo: YouTubeVideoInfo = hasTimeRange
+          ? { ...info, duration: Math.max(1, Math.round(endSec - startSec)) }
+          : info;
+
         return resolve({
           success: true,
           data: {
             videoPath: path.join(outputDir, anyMp4),
             srtPath: srtFile ? path.join(outputDir, srtFile) : undefined,
-            info,
+            info: finalInfo,
           },
         });
+      }
+
+      // If timeRange was applied and we downloaded subtitles, slice and re-base the SRT file
+      if (srtFile && hasTimeRange) {
+        try {
+          const srtFullPath = path.join(outputDir, srtFile);
+          const rawSrt = fs.readFileSync(srtFullPath, "utf-8");
+          const origWords = parseSrtToWords(rawSrt);
+          if (origWords.length > 0) {
+            const sliced = sliceWordsByTimeRange(origWords, startSec, endSec);
+            const newSrt = generateSrtFromWords(sliced);
+            fs.writeFileSync(srtFullPath, newSrt, "utf-8");
+            ytdlpLogger.info(
+              { origWords: origWords.length, slicedWords: sliced.length, srtFile },
+              "SRT subtitle file sliced and re-based to match timeRange"
+            );
+          }
+        } catch (err: unknown) {
+          ytdlpLogger.warn({ err: err instanceof Error ? err.message : String(err) }, "Failed to slice SRT file for timeRange");
+        }
       }
 
       if (onProgress) {
@@ -860,13 +982,17 @@ export async function downloadYouTubeVideo(
         });
       }
 
+      const finalInfo: YouTubeVideoInfo = hasTimeRange
+        ? { ...info, duration: Math.max(1, Math.round(endSec - startSec)) }
+        : info;
+
       ytdlpLogger.info({ url, videoPath: mp4File, srtPath: srtFile }, "YouTube video download completed successfully");
       resolve({
         success: true,
         data: {
           videoPath: path.join(outputDir, mp4File),
           srtPath: srtFile ? path.join(outputDir, srtFile) : undefined,
-          info,
+          info: finalInfo,
         },
       });
     });
@@ -978,11 +1104,12 @@ export async function downloadAudioOnly(
     outputDir: string;
     format?: "mp3" | "m4a" | "wav";
     customName?: string;
+    timeRange?: TimeRange;
   },
   onProgress?: (progress: DownloadProgress) => void,
   onProcSpawn?: (proc: ChildProcess) => void
 ): Promise<Result<{ filePath: string; info: YouTubeVideoInfo }>> {
-  const { url, outputDir, format = "mp3", customName } = options;
+  const { url, outputDir, format = "mp3", customName, timeRange } = options;
   fs.mkdirSync(outputDir, { recursive: true });
 
   const infoRes = await fetchYouTubeInfo(url);
@@ -993,8 +1120,20 @@ export async function downloadAudioOnly(
   const ytdlp = findYtDlpBinary();
   const ffmpeg = findFfmpegBinary();
 
+  // Check timeRange option for direct splitting
+  const startSec = timeRange?.start ? parseTimeToSeconds(timeRange.start) : 0;
+  const endSec = timeRange?.end ? parseTimeToSeconds(timeRange.end) : 0;
+  const hasTimeRange = Boolean(timeRange && endSec > startSec);
+
+  const startFormatted = formatSecondsToTime(startSec);
+  const endFormatted = formatSecondsToTime(endSec);
+  const startSafe = sanitizeTimeForFilename(startFormatted);
+  const endSafe = sanitizeTimeForFilename(endFormatted);
+
   const titleSafe = (customName || info.title).replace(/[<>:"/\\|?*]+/g, "_").slice(0, 100);
-  const outputTemplate = path.join(outputDir, `[AUDIO] ${titleSafe} [${info.id}].%(ext)s`);
+  const outputTemplate = hasTimeRange
+    ? path.join(outputDir, `[SPLIT_${startSafe}_${endSafe}_AUDIO] ${titleSafe} [${info.id}].%(ext)s`)
+    : path.join(outputDir, `[AUDIO] ${titleSafe} [${info.id}].%(ext)s`);
 
   const args = [
     "-i",
@@ -1013,12 +1152,20 @@ export async function downloadAudioOnly(
     outputTemplate,
   ];
 
+  if (hasTimeRange) {
+    args.push(
+      "--download-sections",
+      `*${startFormatted}-${endFormatted}`,
+      "--force-keyframes-at-cuts"
+    );
+  }
+
   if (ffmpeg) {
     args.push("--ffmpeg-location", ffmpeg);
   }
 
   args.push(url.trim());
-  ytdlpLogger.info({ url, outputDir, format }, "Starting audio-only download with yt-dlp");
+  ytdlpLogger.info({ url, outputDir, format, hasTimeRange, timeRange }, "Starting audio-only download with yt-dlp");
 
   return new Promise((resolve) => {
     const proc = spawn(ytdlp, args, { windowsHide: true });
@@ -1060,7 +1207,9 @@ export async function downloadAudioOnly(
 
       const files = fs.readdirSync(outputDir);
       const audioFile = files.find(
-        (f) => f.endsWith(`.${format}`) && (f.includes(info.id) || f.startsWith("[AUDIO]"))
+        (f) =>
+          f.endsWith(`.${format}`) &&
+          (f.includes(info.id) || f.startsWith("[SPLIT_") || f.startsWith("[AUDIO]"))
       );
       const anyAudio = audioFile || files.find((f) => f.endsWith(`.${format}`));
 
@@ -1083,10 +1232,14 @@ export async function downloadAudioOnly(
       }
 
       const filePath = path.join(outputDir, anyAudio);
+      const finalInfo: YouTubeVideoInfo = hasTimeRange
+        ? { ...info, duration: Math.max(1, Math.round(endSec - startSec)) }
+        : info;
+
       ytdlpLogger.info({ url, filePath }, "Audio download completed successfully");
       resolve({
         success: true,
-        data: { filePath, info },
+        data: { filePath, info: finalInfo },
       });
     });
 

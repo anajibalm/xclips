@@ -1166,7 +1166,7 @@ export function TabFramingStyle() {
                         updateSubtitleStyleCommitted({
                           ...currentStyle,
                           boxWidthMode: "custom",
-                          boxWidth: currentStyle.boxWidth ?? 85,
+                          boxWidth: currentStyle.boxWidth ?? 76,
                         })
                       }
                       sx={{
@@ -1191,14 +1191,14 @@ export function TabFramingStyle() {
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
                       <Typography variant="caption" sx={{ color: "#a1a1aa", fontSize: "0.72rem" }}>Width Limit</Typography>
                       <Typography variant="caption" sx={{ color: "#60a5fa", fontFamily: "monospace", fontWeight: 700 }}>
-                        {currentStyle.boxWidth ?? 85}%
+                        {currentStyle.boxWidth ?? 76}%
                       </Typography>
                     </Box>
                     <Slider
                       min={20}
                       max={100}
                       step={1}
-                      value={currentStyle.boxWidth ?? 85}
+                      value={currentStyle.boxWidth ?? 76}
                       onChange={(_, val) =>
                         updateSubtitleStylePreview({ ...currentStyle, boxWidth: val as number })
                       }

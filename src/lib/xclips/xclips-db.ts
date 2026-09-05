@@ -803,7 +803,17 @@ export class XclipsDatabase {
 
     try {
       const rows = this.db.prepare(sql).all(params as Record<string, string | number | null>) as DownloadRecord[];
-      return rows;
+      return rows.map((r) => {
+        if (r.rawJson && !r.timeRange) {
+          try {
+            const p = JSON.parse(r.rawJson);
+            if (p.timeRange) r.timeRange = p.timeRange;
+          } catch {
+            // ignore
+          }
+        }
+        return r;
+      });
     } catch (err: unknown) {
       dbLogger.error({ err, filter }, "Failed to query download records");
       return [];
@@ -813,6 +823,14 @@ export class XclipsDatabase {
   getDownloadRecordById(id: string): DownloadRecord | null {
     try {
       const row = this.db.prepare("SELECT * FROM downloads WHERE id = $id").get({ $id: id }) as DownloadRecord | null;
+      if (row && row.rawJson && !row.timeRange) {
+        try {
+          const p = JSON.parse(row.rawJson);
+          if (p.timeRange) row.timeRange = p.timeRange;
+        } catch {
+          // ignore
+        }
+      }
       return row || null;
     } catch (err: unknown) {
       dbLogger.error({ err, id }, "Failed to get download record by ID");

@@ -31,6 +31,7 @@ export type ClipStatus = z.infer<typeof ClipStatusSchema>;
 export const SubtitlePresetSchema = z.enum([
   "plain",
   "hormozi",
+  "beast",
   "neon",
   "clean_box",
   "minimal",
@@ -69,8 +70,8 @@ export const SubtitleStyleSchema = z.object({
   positionX: z.number().optional().default(50), // Percentage from left (0-100%, 50% = center)
   positionY: z.number().optional().default(80), // Percentage from top (0-100%, 80% = lower-third)
   rotation: z.number().optional().default(0), // Rotation angle in degrees (-360 to 360)
-  boxWidthMode: z.enum(["auto", "custom"]).optional().default("auto"),
-  boxWidth: z.number().optional().default(85), // Width percentage (20-100%)
+  boxWidthMode: z.enum(["auto", "custom"]).optional().default("custom"),
+  boxWidth: z.number().optional().default(76), // Width percentage (20-100%)
   scaleX: z.number().optional().default(1),
   scaleY: z.number().optional().default(1),
   karaokeEnabled: z.boolean().default(true),
@@ -252,9 +253,13 @@ export const AI_PROVIDER_MODELS: Record<AiProviderType, AiModelDefinition[]> = {
     { id: "claude-opus-4-8", name: "Claude Opus 4.8", provider: "kieai", desc: "Extended reasoning depth" },
   ],
   openai: [
-    { id: "gpt-5.6-luna", name: "GPT 5.6 Luna", provider: "openai", desc: "Advanced reasoning & viral hook synthesis", recommended: true },
-    { id: "gpt-5.6-terra", name: "GPT 5.6 Terra", provider: "openai", desc: "Deep context comprehension" },
+    { id: "gpt-4o", name: "GPT-4o (Omni)", provider: "openai", desc: "Flagship multimodal intelligence, fast & accurate", recommended: true },
+    { id: "gpt-4o-mini", name: "GPT-4o Mini", provider: "openai", desc: "Ultra-fast & cost-efficient omni model" },
+    { id: "gpt-5.6-luna", name: "GPT 5.6 Luna", provider: "openai", desc: "Advanced reasoning & viral hook synthesis" },
+    { id: "gpt-5.6-terra", name: "GPT 5.6 Terra", provider: "openai", desc: "Deep context comprehension & nuanced analysis" },
     { id: "gpt-5.6-sol", name: "GPT 5.6 Sol", provider: "openai", desc: "Fast & creative narrative structuring" },
+    { id: "o3-mini", name: "o3-mini", provider: "openai", desc: "Advanced reasoning STEM & narrative model" },
+    { id: "gpt-4-turbo", name: "GPT-4 Turbo", provider: "openai", desc: "High-capability legacy model" },
     { id: "gpt-transcribe", name: "GPT Transcribe", provider: "openai", desc: "Speech recognition & transcript mapping", isTranscribe: true },
     { id: "gpt-image-2-2026-04-21", name: "GPT Image 2", provider: "openai", desc: "Image analysis & generation" },
     { id: "whisper-1", name: "Whisper 1", provider: "openai", desc: "Official audio transcription standard", isTranscribe: true },
@@ -375,6 +380,11 @@ export type DownloaderQuality =
   | "txt"
   | "thumb";
 
+export interface TimeRange {
+  start: string; // "HH:MM:SS" or "MM:SS" or numeric seconds as string
+  end: string;   // "HH:MM:SS" or "MM:SS" or numeric seconds as string
+}
+
 export interface DownloadRecord {
   id: string;
   platform: DownloaderPlatform;
@@ -391,6 +401,7 @@ export interface DownloadRecord {
   error?: string;
   createdAt: string;
   rawJson?: string;
+  timeRange?: TimeRange;
 }
 
 export interface DownloaderOptions {
@@ -400,5 +411,7 @@ export interface DownloaderOptions {
   downloadSubtitles?: boolean;
   customName?: string;
   outputDir?: string;
+  timeRange?: TimeRange;
 }
+
 

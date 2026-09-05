@@ -109,9 +109,10 @@ app.onError((err, c) => {
 // --- xclips Routes ---
 import { xclipsService } from "../lib/xclips.service";
 import { xclipsDb } from "../lib/xclips/xclips-db";
-import { AiProviderType } from "../lib/xclips/types";
+import { AiProviderType, SubtitlePreset } from "../lib/xclips/types";
 import { detectHardwareAcceleration } from "../lib/xclips/queue";
 import { extractAudioWav, extractFrameImage } from "../lib/xclips/vfr-probe";
+import { getPresetSubtitleStyle } from "../lib/xclips/subtitle-presets";
 
 app.get("/api/xclips/hwaccel", async (c) => {
 
@@ -161,6 +162,8 @@ import {
   unregisterActiveProcess,
   cancelActiveProcess,
   isValidMediaUrl,
+  parseTimeToSeconds,
+  formatSecondsToTime,
 } from "../lib/xclips/ytdlp-downloader";
 import {
   XclipsProject,
@@ -168,6 +171,7 @@ import {
   DownloaderPlatform,
   DownloaderFormatType,
   DownloaderQuality,
+  TimeRange,
 } from "../lib/xclips/types";
 
 // Active download tasks progress store
@@ -182,7 +186,24 @@ const activeDownloads = new Map<string, DownloadTaskState>();
 app.post("/api/xclips/youtube/ingest-async", async (c) => {
   try {
     const body = await c.req.json();
-    const { url, quality, name, downloadSubtitles } = body;
+    const {
+      url,
+      quality,
+      name,
+      downloadSubtitles,
+      generateAiSubtitles,
+      aiModel,
+      subtitleStylePreset,
+    } = body as {
+      url?: string;
+      quality?: any;
+      name?: string;
+      downloadSubtitles?: boolean;
+      generateAiSubtitles?: boolean;
+      aiModel?: string;
+      subtitleStylePreset?: SubtitlePreset;
+    };
+
     if (!url) {
       return c.json({ ok: false, message: "URL YouTube wajib diisi" }, 400);
     }
@@ -225,19 +246,61 @@ app.post("/api/xclips/youtube/ingest-async", async (c) => {
             status: "error",
             error: res.error,
           });
-        } else {
+          return;
+        }
+
+        const project = res.data;
+
+        // Generate AI Subtitles if requested
+        if (generateAiSubtitles) {
           activeDownloads.set(taskId, {
-            percent: 100,
+            percent: 88,
             downloadedBytes: 0,
             totalBytes: 0,
             speedStr: "",
-            etaStr: "",
-            status: "completed",
-            project: res.data,
+            etaStr: "AI Transcribing...",
+            status: "transcribing",
           });
-        }
-      } catch (err: unknown) {
 
+          const transRes = await xclipsService.transcribeProject(project.id, {
+            model: aiModel,
+            label: "AI Master Subtitle",
+          });
+
+          if (transRes.success) {
+            xclipsDb.setActiveTranscript(project.id, transRes.data.id);
+          } else {
+            httpLogger.warn(
+              { projectId: project.id, err: transRes.error },
+              "AI Subtitle transcription returned error during ingest"
+            );
+          }
+        }
+
+        // Apply subtitle style preset to masterStyle
+        if (subtitleStylePreset) {
+          const masterStyleSubtitle = getPresetSubtitleStyle(subtitleStylePreset);
+          const currentProj = xclipsDb.getProject(project.id) || project;
+          currentProj.masterStyle = {
+            ...(currentProj.masterStyle || {}),
+            aspectRatio: currentProj.masterStyle?.aspectRatio || "9:16",
+            layoutMode: currentProj.masterStyle?.layoutMode || "blur_bg",
+            subtitleStyle: masterStyleSubtitle,
+          };
+          currentProj.masterStyleJson = JSON.stringify(currentProj.masterStyle);
+          xclipsDb.saveProject(currentProj);
+        }
+
+        activeDownloads.set(taskId, {
+          percent: 100,
+          downloadedBytes: 0,
+          totalBytes: 0,
+          speedStr: "",
+          etaStr: "",
+          status: "completed",
+          project: xclipsDb.getProject(project.id) || project,
+        });
+      } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Terjadi kesalahan saat download";
         activeDownloads.set(taskId, {
           percent: 0,
@@ -420,6 +483,7 @@ app.post("/api/xclips/downloader/start", async (c) => {
       downloadSubtitles = false,
       customName,
       sendToStudio = false,
+      timeRange,
     } = body as {
       url?: string;
       formatType?: DownloaderFormatType;
@@ -427,6 +491,7 @@ app.post("/api/xclips/downloader/start", async (c) => {
       downloadSubtitles?: boolean;
       customName?: string;
       sendToStudio?: boolean;
+      timeRange?: TimeRange;
     };
 
     if (!url || typeof url !== "string" || !url.trim()) {
@@ -437,6 +502,19 @@ app.post("/api/xclips/downloader/start", async (c) => {
     const taskId = `dl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const outputDir = path.resolve(process.cwd(), "vault", "xclips", "downloads");
     fs.mkdirSync(outputDir, { recursive: true });
+
+    // Validate timeRange option for direct splitting (YouTube only)
+    let validTimeRange: TimeRange | undefined = undefined;
+    if (timeRange && typeof timeRange === "object" && platform === "youtube") {
+      const sSec = parseTimeToSeconds(timeRange.start);
+      const eSec = parseTimeToSeconds(timeRange.end);
+      if (eSec > sSec && sSec >= 0) {
+        validTimeRange = {
+          start: formatSecondsToTime(sSec),
+          end: formatSecondsToTime(eSec),
+        };
+      }
+    }
 
     // Initial in-memory state
     activeDownloads.set(taskId, {
@@ -449,13 +527,16 @@ app.post("/api/xclips/downloader/start", async (c) => {
     });
 
     // Initial database record
+    const rangeTag = validTimeRange ? ` [${validTimeRange.start}-${validTimeRange.end}]` : "";
     const initialRecord: DownloadRecord = {
       id: taskId,
       platform,
       url: url.trim(),
-      title: customName || "Mengunduh media...",
+      title: (customName || "Mengunduh media...") + rangeTag,
       author: "",
-      durationSec: 0,
+      durationSec: validTimeRange
+        ? Math.max(1, Math.round(parseTimeToSeconds(validTimeRange.end) - parseTimeToSeconds(validTimeRange.start)))
+        : 0,
       thumbnailUrl: "",
       formatType,
       quality,
@@ -463,6 +544,8 @@ app.post("/api/xclips/downloader/start", async (c) => {
       fileSizeBytes: 0,
       status: "downloading",
       createdAt: new Date().toISOString(),
+      rawJson: validTimeRange ? JSON.stringify({ timeRange: validTimeRange }) : undefined,
+      timeRange: validTimeRange,
     };
     xclipsDb.addDownloadRecord(initialRecord);
 
@@ -480,6 +563,7 @@ app.post("/api/xclips/downloader/start", async (c) => {
               outputDir,
               format: (quality as "mp3" | "m4a" | "wav") || "mp3",
               customName,
+              timeRange: validTimeRange,
             },
             (prog) => {
               activeDownloads.set(taskId, { ...prog });
@@ -518,6 +602,7 @@ app.post("/api/xclips/downloader/start", async (c) => {
               outputDir,
               quality: quality as any,
               downloadSubtitles,
+              timeRange: validTimeRange,
             },
             (prog) => {
               activeDownloads.set(taskId, { ...prog });
@@ -560,11 +645,16 @@ app.post("/api/xclips/downloader/start", async (c) => {
           }
 
           const info = downloadResult.data.info;
+          const baseTitle = info?.title || customName || path.basename(finalFile);
+          const finalTitle = validTimeRange && !baseTitle.includes(validTimeRange.start)
+            ? `${baseTitle}${rangeTag}`
+            : baseTitle;
+
           xclipsDb.updateDownloadRecord(taskId, {
             status: "completed",
             filePath: finalFile,
             fileSizeBytes,
-            title: info?.title || customName || path.basename(finalFile),
+            title: finalTitle,
             author: info?.uploader || info?.channel || "",
             durationSec: info?.duration || 0,
             thumbnailUrl: info?.thumbnail || "",
@@ -936,7 +1026,20 @@ app.post("/api/xclips/youtube/ingest", async (c) => {
 app.post("/api/xclips/projects/ingest", async (c) => {
   try {
     const body = await c.req.json();
-    const { sourcePath, name } = body;
+    const {
+      sourcePath,
+      name,
+      generateAiSubtitles,
+      aiModel,
+      subtitleStylePreset,
+    } = body as {
+      sourcePath?: string;
+      name?: string;
+      generateAiSubtitles?: boolean;
+      aiModel?: string;
+      subtitleStylePreset?: SubtitlePreset;
+    };
+
     if (!sourcePath) {
       return c.json({ ok: false, message: "sourcePath is required" }, 400);
     }
@@ -946,7 +1049,40 @@ app.post("/api/xclips/projects/ingest", async (c) => {
       return c.json({ ok: false, message: res.error }, 400);
     }
 
-    return c.json({ ok: true, project: res.data });
+    const project = res.data;
+
+    // Generate AI Subtitles if requested
+    if (generateAiSubtitles) {
+      const transRes = await xclipsService.transcribeProject(project.id, {
+        model: aiModel,
+        label: "AI Master Subtitle",
+      });
+      if (transRes.success) {
+        xclipsDb.setActiveTranscript(project.id, transRes.data.id);
+      } else {
+        httpLogger.warn(
+          { projectId: project.id, err: transRes.error },
+          "AI Subtitle transcription failed during local media ingest"
+        );
+      }
+    }
+
+    // Apply subtitle style preset to masterStyle
+    if (subtitleStylePreset) {
+      const masterStyleSubtitle = getPresetSubtitleStyle(subtitleStylePreset);
+      const currentProj = xclipsDb.getProject(project.id) || project;
+      currentProj.masterStyle = {
+        ...(currentProj.masterStyle || {}),
+        aspectRatio: currentProj.masterStyle?.aspectRatio || "9:16",
+        layoutMode: currentProj.masterStyle?.layoutMode || "blur_bg",
+        subtitleStyle: masterStyleSubtitle,
+      };
+      currentProj.masterStyleJson = JSON.stringify(currentProj.masterStyle);
+      xclipsDb.saveProject(currentProj);
+    }
+
+    const finalProject = xclipsDb.getProject(project.id) || project;
+    return c.json({ ok: true, project: finalProject });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to import media file";
     return c.json({ ok: false, message }, 500);

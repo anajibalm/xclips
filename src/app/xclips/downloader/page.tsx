@@ -68,7 +68,7 @@ import {
   DownloaderQuality,
   XclipsProject,
 } from "@/lib/xclips/types";
-import { YouTubeVideoInfo, DownloadProgress } from "@/lib/xclips/ytdlp-downloader";
+import { YouTubeVideoInfo, DownloadProgress, parseTimeToSeconds, formatSecondsToTime } from "@/lib/xclips/ytdlp-downloader";
 import { MediaPreviewModal } from "./components/MediaPreviewModal";
 
 interface ActiveTaskItem {
@@ -94,6 +94,11 @@ export default function MultiplatformDownloaderPage() {
   const [audioQuality, setAudioQuality] = useState<DownloaderQuality>("mp3");
   const [subQuality, setSubQuality] = useState<DownloaderQuality>("srt");
   const [downloadSubtitles, setDownloadSubtitles] = useState(true);
+
+  // Direct Splitter states (YouTube time-range cutting)
+  const [enableSplitter, setEnableSplitter] = useState(false);
+  const [splitStart, setSplitStart] = useState("00:00:00");
+  const [splitEnd, setSplitEnd] = useState("00:01:00");
 
   // Metadata Preview states
   const [fetchingInfo, setFetchingInfo] = useState(false);
@@ -240,6 +245,13 @@ export default function MultiplatformDownloaderPage() {
         setVideoInfo(res.data.info);
         if (res.data.platform) setDetectedPlatform(res.data.platform);
         setCustomName(res.data.info.title);
+        const dur = res.data.info.duration || 0;
+        setSplitStart("00:00:00");
+        if (dur > 0) {
+          setSplitEnd(formatSecondsToTime(Math.min(dur, 60)));
+        } else {
+          setSplitEnd("00:01:00");
+        }
       } else {
         setVideoInfo(null);
         setInfoError(res.message || "Failed to fetch video metadata. Please verify the URL.");
@@ -319,6 +331,16 @@ export default function MultiplatformDownloaderPage() {
     };
   }, [activeTasks.size]);
 
+  // Add quick duration to splitEnd
+  const handleAddSplitDuration = (secondsToAdd: number) => {
+    const s = parseTimeToSeconds(splitStart);
+    let target = s + secondsToAdd;
+    if (videoInfo?.duration && target > videoInfo.duration) {
+      target = videoInfo.duration;
+    }
+    setSplitEnd(formatSecondsToTime(target));
+  };
+
   // Start Download from Selected Dropdown Configuration
   const handleStartDownload = async (sendToStudio: boolean = false) => {
     if (!url.trim()) return;
@@ -332,7 +354,34 @@ export default function MultiplatformDownloaderPage() {
       return;
     }
 
-    const currentTitle = videoInfo?.title || customName.trim() || "Downloading media...";
+    let timeRangePayload: { start: string; end: string } | undefined = undefined;
+    if (enableSplitter && detectedPlatform === "youtube" && (formatType === "video" || formatType === "audio")) {
+      const sSec = parseTimeToSeconds(splitStart);
+      const eSec = parseTimeToSeconds(splitEnd);
+      if (eSec <= sSec) {
+        setSnackbar({
+          open: true,
+          message: "Waktu selesai (End) harus lebih besar dari waktu mulai (Start).",
+          severity: "error",
+        });
+        return;
+      }
+      if (videoInfo?.duration && eSec > videoInfo.duration + 5) {
+        setSnackbar({
+          open: true,
+          message: `Waktu selesai (${splitEnd}) melebihi durasi video (${formatDuration(videoInfo.duration)}).`,
+          severity: "error",
+        });
+        return;
+      }
+      timeRangePayload = {
+        start: formatSecondsToTime(sSec),
+        end: formatSecondsToTime(eSec),
+      };
+    }
+
+    const rangeTag = timeRangePayload ? ` [${timeRangePayload.start}-${timeRangePayload.end}]` : "";
+    const currentTitle = (videoInfo?.title || customName.trim() || "Downloading media...") + rangeTag;
     const activeQuality =
       formatType === "video" ? videoQuality : formatType === "audio" ? audioQuality : subQuality;
 
@@ -347,6 +396,7 @@ export default function MultiplatformDownloaderPage() {
           downloadSubtitles: formatType === "video" ? downloadSubtitles : false,
           customName: customName.trim() || undefined,
           sendToStudio,
+          timeRange: timeRangePayload,
         }),
       }
     );
@@ -931,6 +981,188 @@ export default function MultiplatformDownloaderPage() {
                 )}
               </Grid>
 
+              {/* 4. Direct Splitter Section (YouTube Video & Audio Only) */}
+              {detectedPlatform === "youtube" && (formatType === "video" || formatType === "audio") && (
+                <Box
+                  sx={{
+                    mb: 2.8,
+                    p: 2,
+                    bgcolor: enableSplitter ? "rgba(59, 130, 246, 0.06)" : "#141418",
+                    border: "1px solid",
+                    borderColor: enableSplitter ? "rgba(59, 130, 246, 0.45)" : "#27272a",
+                    borderRadius: 2,
+                    transition: "all 0.25s ease",
+                  }}
+                >
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 1.5 }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={enableSplitter}
+                          onChange={(e) => setEnableSplitter(e.target.checked)}
+                          size="small"
+                          sx={{
+                            "& .MuiSwitch-switchBase.Mui-checked": { color: "#3b82f6" },
+                            "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: "#3b82f6" },
+                          }}
+                        />
+                      }
+                      label={
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "#f4f4f5", fontSize: "0.88rem" }}>
+                            ✂️ Direct Splitter (Potong Rentang Waktu Stream)
+                          </Typography>
+                          <Chip
+                            label="Frame-Accurate"
+                            size="small"
+                            sx={{
+                              bgcolor: "rgba(59, 130, 246, 0.18)",
+                              color: "#60a5fa",
+                              fontWeight: 700,
+                              fontSize: "0.68rem",
+                              height: 19,
+                              borderRadius: 0.6,
+                            }}
+                          />
+                        </Box>
+                      }
+                    />
+                    <Typography variant="caption" sx={{ color: "#a1a1aa", fontSize: "0.75rem" }}>
+                      Hanya mengunduh fragment rentang waktu langsung dari YouTube. Hemat kuota &amp; penyimpanan disk.
+                    </Typography>
+                  </Box>
+
+                  <Collapse in={enableSplitter} timeout={250}>
+                    <Box sx={{ mt: 2, pt: 1.8, borderTop: "1px dashed rgba(59, 130, 246, 0.25)" }}>
+                      <Grid container spacing={2} sx={{ alignItems: "flex-start" }}>
+                        {/* Start Time Input */}
+                        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            label="Mulai (Start)"
+                            value={splitStart}
+                            onChange={(e) => setSplitStart(e.target.value)}
+                            placeholder="00:00:00"
+                            helperText="Format HH:MM:SS atau MM:SS"
+                            slotProps={{
+                              input: {
+                                sx: { bgcolor: "#18181b", color: "#f4f4f5", fontSize: "0.85rem", borderRadius: 1.2 },
+                              },
+                              formHelperText: { sx: { color: "#71717a", fontSize: "0.7rem" } },
+                              inputLabel: { sx: { color: "#a1a1aa" } },
+                            }}
+                          />
+                        </Grid>
+
+                        {/* End Time Input */}
+                        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            label="Selesai (End)"
+                            value={splitEnd}
+                            onChange={(e) => setSplitEnd(e.target.value)}
+                            placeholder="00:01:00"
+                            helperText="Format HH:MM:SS atau MM:SS"
+                            slotProps={{
+                              input: {
+                                sx: { bgcolor: "#18181b", color: "#f4f4f5", fontSize: "0.85rem", borderRadius: 1.2 },
+                              },
+                              formHelperText: { sx: { color: "#71717a", fontSize: "0.7rem" } },
+                              inputLabel: { sx: { color: "#a1a1aa" } },
+                            }}
+                          />
+                        </Grid>
+
+                        {/* Quick Presets & Badges */}
+                        <Grid size={{ xs: 12, sm: 12, md: 6 }}>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.8, flexWrap: "wrap", mb: 1 }}>
+                            <Typography variant="caption" sx={{ color: "#a1a1aa", mr: 0.5, fontWeight: 600 }}>
+                              Tambah Durasi:
+                            </Typography>
+                            {[
+                              { label: "+30s", sec: 30 },
+                              { label: "+1m", sec: 60 },
+                              { label: "+3m", sec: 180 },
+                              { label: "+5m", sec: 300 },
+                              { label: "+10m", sec: 600 },
+                            ].map((btn) => (
+                              <Button
+                                key={btn.label}
+                                size="small"
+                                variant="outlined"
+                                onClick={() => handleAddSplitDuration(btn.sec)}
+                                sx={{
+                                  py: 0.2,
+                                  px: 1,
+                                  minWidth: "auto",
+                                  fontSize: "0.72rem",
+                                  fontWeight: 700,
+                                  borderColor: "#27272a",
+                                  color: "#cbd5e1",
+                                  bgcolor: "#18181b",
+                                  borderRadius: 0.8,
+                                  textTransform: "none",
+                                  "&:hover": { borderColor: "#3b82f6", color: "#60a5fa", bgcolor: "rgba(59, 130, 246, 0.1)" },
+                                }}
+                              >
+                                {btn.label}
+                              </Button>
+                            ))}
+                          </Box>
+
+                          {/* Duration and Bandwidth badges */}
+                          {(() => {
+                            const sSec = parseTimeToSeconds(splitStart);
+                            const eSec = parseTimeToSeconds(splitEnd);
+                            const clipSec = Math.max(0, eSec - sSec);
+                            const isInvalid = eSec <= sSec;
+                            const isOver = Boolean(videoInfo?.duration && eSec > videoInfo.duration + 5);
+
+                            return (
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                                {isInvalid ? (
+                                  <Typography variant="caption" sx={{ color: "#ef4444", fontWeight: 700 }}>
+                                    ⚠️ Waktu selesai harus lebih besar dari waktu mulai
+                                  </Typography>
+                                ) : (
+                                  <>
+                                    <Chip
+                                      label={`⏱️ Durasi Segmen: ${formatDuration(clipSec)}`}
+                                      size="small"
+                                      sx={{ bgcolor: "#27272a", color: "#e2e8f0", fontWeight: 700, fontSize: "0.72rem", height: 22 }}
+                                    />
+                                    {videoInfo?.duration && videoInfo.duration > clipSec && (
+                                      <Chip
+                                        label={`⚡ Hemat Bandwidth ~${Math.round((1 - clipSec / videoInfo.duration) * 100)}%`}
+                                        size="small"
+                                        sx={{
+                                          bgcolor: "rgba(16, 185, 129, 0.15)",
+                                          color: "#34d399",
+                                          fontWeight: 700,
+                                          fontSize: "0.72rem",
+                                          height: 22,
+                                        }}
+                                      />
+                                    )}
+                                    {isOver && (
+                                      <Typography variant="caption" sx={{ color: "#f59e0b", fontWeight: 600 }}>
+                                        (Melebihi durasi video {formatDuration(videoInfo!.duration)})
+                                      </Typography>
+                                    )}
+                                  </>
+                                )}
+                              </Box>
+                            );
+                          })()}
+                        </Grid>
+                      </Grid>
+                    </Box>
+                  </Collapse>
+                </Box>
+              )}
+
               {/* Action Buttons Row */}
               <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>
                 <Button
@@ -1258,7 +1490,7 @@ export default function MultiplatformDownloaderPage() {
                     )}
 
                     {/* Platform Badge Overlay */}
-                    <Box sx={{ position: "absolute", top: 6, left: 6 }}>
+                    <Box sx={{ position: "absolute", top: 6, left: 6, display: "flex", gap: 0.5, alignItems: "center" }}>
                       <Chip
                         label={item.platform.toUpperCase()}
                         size="small"
@@ -1279,6 +1511,25 @@ export default function MultiplatformDownloaderPage() {
                           borderRadius: 0.6,
                         }}
                       />
+                      {(item.timeRange || item.title.includes("[SPLIT_")) && (
+                        <Chip
+                          label={
+                            item.timeRange
+                              ? `✂️ ${item.timeRange.start}-${item.timeRange.end}`
+                              : "✂️ SPLIT"
+                          }
+                          size="small"
+                          sx={{
+                            bgcolor: "rgba(59, 130, 246, 0.85)",
+                            color: "#ffffff",
+                            fontWeight: 700,
+                            fontSize: "0.65rem",
+                            height: 18,
+                            backdropFilter: "blur(4px)",
+                            borderRadius: 0.6,
+                          }}
+                        />
+                      )}
                     </Box>
 
                     {/* Duration / Format Badge Overlay */}
@@ -1506,11 +1757,30 @@ export default function MultiplatformDownloaderPage() {
                     </TableCell>
 
                     <TableCell sx={{ py: 1.2 }}>
-                      <Chip
-                        label={`${item.formatType.toUpperCase()} (${item.quality})`}
-                        size="small"
-                        sx={{ bgcolor: "#27272a", color: "#e4e4e7", fontWeight: 700, fontSize: "0.68rem", height: 20 }}
-                      />
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.6, flexWrap: "wrap" }}>
+                        <Chip
+                          label={`${item.formatType.toUpperCase()} (${item.quality})`}
+                          size="small"
+                          sx={{ bgcolor: "#27272a", color: "#e4e4e7", fontWeight: 700, fontSize: "0.68rem", height: 20 }}
+                        />
+                        {(item.timeRange || item.title.includes("[SPLIT_")) && (
+                          <Chip
+                            label={
+                              item.timeRange
+                                ? `✂️ ${item.timeRange.start}-${item.timeRange.end}`
+                                : "✂️ SPLIT"
+                            }
+                            size="small"
+                            sx={{
+                              bgcolor: "rgba(59, 130, 246, 0.15)",
+                              color: "#60a5fa",
+                              fontWeight: 700,
+                              fontSize: "0.65rem",
+                              height: 20,
+                            }}
+                          />
+                        )}
+                      </Box>
                     </TableCell>
 
                     <TableCell sx={{ color: "#a1a1aa", fontSize: "0.8rem", py: 1.2 }}>

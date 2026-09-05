@@ -15,6 +15,7 @@ import {
   ProjectStorage,
   CleanResult,
   AI_PROVIDER_MODELS,
+  TimeRange,
 } from "@/lib/xclips/types";
 import {
   probeMedia,
@@ -402,6 +403,7 @@ export class XclipsService {
       quality?: "best" | "1080p" | "720p" | "480p";
       customName?: string;
       downloadSubtitles?: boolean;
+      timeRange?: TimeRange;
     },
     onProgress?: (progress: DownloadProgress) => void
   ): Promise<Result<XclipsProject>> {
@@ -415,6 +417,7 @@ export class XclipsService {
         outputDir: downloadDir,
         quality: options?.quality || "1080p",
         downloadSubtitles: options?.downloadSubtitles ?? true,
+        timeRange: options?.timeRange,
       },
       onProgress
     );
@@ -598,25 +601,16 @@ export class XclipsService {
       timeoutMs = 120000,
     } = params;
 
-    const isKieAi = provider === "kieai";
-    const isGeminiDirect = provider === "gemini" || baseUrl.includes("generativelanguage.googleapis.com");
+    const isKieAi = provider === "kieai" || baseUrl.includes("kie.ai");
+    const isGeminiDirect = (provider === "gemini" || baseUrl.includes("generativelanguage.googleapis.com")) && !isKieAi;
     const isGeminiModel = model.toLowerCase().startsWith("gemini") || model.toLowerCase().includes("flash") || model.toLowerCase().includes("pro");
 
     try {
-      if (isKieAi || (isGeminiDirect && isGeminiModel)) {
-        // Native Gemini REST format
-        let targetUrl = "";
+      if (isGeminiDirect && isGeminiModel) {
+        // Native Google AI Studio Gemini REST format
+        const cleanBase = baseUrl.replace(/\/models.*$/, "").replace(/\/+$/, "");
+        const targetUrl = `${cleanBase}/models/${model}:generateContent?key=${apiKey}`;
         const headers: Record<string, string> = { "Content-Type": "application/json" };
-
-        if (isKieAi) {
-          const cleanBase = baseUrl.replace(/\/gemini\/v1.*$/, "").replace(/\/+$/, "");
-          targetUrl = `${cleanBase}/gemini/v1/models/${model}:generateContent`;
-          headers["Authorization"] = `Bearer ${apiKey}`;
-        } else {
-          // Google AI Studio
-          const cleanBase = baseUrl.replace(/\/models.*$/, "").replace(/\/+$/, "");
-          targetUrl = `${cleanBase}/models/${model}:generateContent?key=${apiKey}`;
-        }
 
         const promptCombined = systemPrompt ? `${systemPrompt}\n\n${userPrompt}` : userPrompt;
         const parts: Array<Record<string, unknown>> = [{ text: promptCombined }];
@@ -649,70 +643,23 @@ export class XclipsService {
           generationConfig,
         };
 
-        let response = await fetch(targetUrl, {
+        const response = await fetch(targetUrl, {
           method: "POST",
           headers,
           body: JSON.stringify(payload),
           signal: AbortSignal.timeout(timeoutMs),
         });
 
-        // If thinkingConfig causes an issue with older proxies, retry without thinkingConfig
-        if (!response.ok && isKieAi && response.status === 400) {
-          const errCheck = await response.clone().text().catch(() => "");
-          if (errCheck.includes("thinkingConfig")) {
-            delete generationConfig.thinkingConfig;
-            response = await fetch(targetUrl, {
-              method: "POST",
-              headers,
-              body: JSON.stringify(payload),
-              signal: AbortSignal.timeout(timeoutMs),
-            });
-          }
-        }
-
-        // Fallback to OpenAI-compatible endpoint if Kie AI returns 404 on /gemini/v1
-        if (!response.ok && isKieAi && response.status === 404) {
-          const fallbackUrl = `${baseUrl.replace(/\/+$/, "")}/v1/chat/completions`;
-          const fallbackPayload = {
-            model,
-            messages: [
-              ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
-              {
-                role: "user",
-                content: base64Audio
-                  ? [
-                      { type: "text", text: userPrompt },
-                      {
-                        type: "input_audio",
-                        input_audio: {
-                          data: base64Audio,
-                          format: audioFormat,
-                        },
-                      },
-                    ]
-                  : userPrompt,
-              },
-            ],
-            temperature: 0.1,
-            max_tokens: 8192,
-          };
-
-          response = await fetch(fallbackUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify(fallbackPayload),
-            signal: AbortSignal.timeout(timeoutMs),
-          });
-        }
-
         if (!response.ok) {
           const errText = await response.text().catch(() => "");
+          let detailedError = errText;
+          try {
+            const parsedErr = JSON.parse(errText);
+            if (parsedErr.error?.message) detailedError = parsedErr.error.message;
+          } catch {}
           return {
             success: false,
-            error: `Gemini API Error (${response.status}): ${errText.slice(0, 200)}`,
+            error: `Gemini API Error (${response.status}): ${detailedError.slice(0, 300)}`,
           };
         }
 
@@ -733,10 +680,16 @@ export class XclipsService {
         return { success: true, data: textContent };
       }
 
-      // OpenAI / Anthropic / Custom compatible format
+      // OpenAI / Anthropic / Kie AI / Custom compatible format
       let targetUrl = baseUrl.endsWith("/chat/completions")
         ? baseUrl
         : `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
+
+      if (!targetUrl.includes("/v1/") && !targetUrl.endsWith("/v1/chat/completions")) {
+        if (targetUrl.endsWith("/chat/completions")) {
+          targetUrl = targetUrl.replace(/\/chat\/completions$/, "/v1/chat/completions");
+        }
+      }
 
       let modelToUse = model;
 
@@ -748,8 +701,9 @@ export class XclipsService {
         } else if (model.includes("gemini-3-6-flash-openai") || model.includes("gemini-3.6-flash-openai")) {
           targetUrl = "https://api.kie.ai/gemini-3-6-flash-openai/v1/chat/completions";
           modelToUse = "gemini-3-6-flash";
-        } else if (model.startsWith("gpt-") || model.startsWith("claude-")) {
+        } else {
           targetUrl = "https://api.kie.ai/v1/chat/completions";
+          modelToUse = model;
         }
       }
 
@@ -776,18 +730,22 @@ export class XclipsService {
         messages.push({ role: "user", content: userPrompt });
       }
 
-      // OpenAI API requires "max_completion_tokens" for newer reasoning models (GPT-5.x / o-series)
-      const needsCompletionTokens = /^(gpt-5|o[134])/i.test(modelToUse);
-      const tokenParam = needsCompletionTokens ? "max_completion_tokens" : "max_tokens";
+      // OpenAI API requires "max_completion_tokens" and forbids custom temperature for newer reasoning models (GPT-5.x / o-series)
+      const isReasoningModel = /^(gpt-5|o[134])/i.test(modelToUse);
+      const tokenParam = isReasoningModel ? "max_completion_tokens" : "max_tokens";
 
       const payload: Record<string, unknown> = {
         model: modelToUse,
         messages,
-        temperature: 0.1,
         [tokenParam]: 8192,
       };
 
-      let response = await fetch(targetUrl, {
+      // Reasoning models (o1, o3, gpt-5.x) do not accept custom temperature on OpenAI
+      if (!isReasoningModel) {
+        payload.temperature = 0.1;
+      }
+
+      const response = await fetch(targetUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -797,15 +755,15 @@ export class XclipsService {
         signal: AbortSignal.timeout(timeoutMs),
       });
 
-      // Adaptive retry 1: if provider rejects the token parameter name, swap and retry once
-      if (!response.ok && response.status === 400) {
+      if (!response.ok) {
+        // Read error body once to avoid empty string on subsequent reads
         const errText = await response.text().catch(() => "");
-        const isTokenParamError = /max_tokens|max_completion_tokens/i.test(errText) &&
-          /not supported|unsupported parameter|use 'max_completion_tokens'|use 'max_tokens'/i.test(errText);
-        if (isTokenParamError) {
-          const retryPayload: Record<string, unknown> = { ...payload };
-          delete retryPayload[tokenParam];
-          retryPayload[needsCompletionTokens ? "max_tokens" : "max_completion_tokens"] = 8192;
+
+        // Adaptive retry 1: if provider rejects custom temperature on reasoning models
+        if (response.status === 400 && /temperature/i.test(errText) && payload.temperature !== undefined) {
+          aiLogger.warn({ model: modelToUse }, "AI provider rejected custom temperature, retrying without temperature");
+          const retryPayload = { ...payload };
+          delete retryPayload.temperature;
           const retryRes = await fetch(targetUrl, {
             method: "POST",
             headers: {
@@ -820,17 +778,44 @@ export class XclipsService {
             return { success: true, data: retryJson.choices?.[0]?.message?.content || "" };
           }
         }
-      }
 
-      // Adaptive retry 2: if model is not found (404), automatically fallback to gpt-4o
-      if (!response.ok && response.status === 404) {
-        const errText = await response.text().catch(() => "");
-        if (/does not exist|model_not_found|not have access/i.test(errText) && modelToUse !== "gpt-4o") {
+        // Adaptive retry 2: if provider rejects the token parameter name, swap and retry once
+        if (response.status === 400) {
+          const isTokenParamError =
+            /max_tokens|max_completion_tokens/i.test(errText) &&
+            /not supported|unsupported parameter|use 'max_completion_tokens'|use 'max_tokens'/i.test(errText);
+          if (isTokenParamError) {
+            aiLogger.warn({ model: modelToUse }, "AI provider rejected token parameter name, swapping parameter");
+            const retryPayload: Record<string, unknown> = { ...payload };
+            delete retryPayload[tokenParam];
+            retryPayload[isReasoningModel ? "max_tokens" : "max_completion_tokens"] = 8192;
+            const retryRes = await fetch(targetUrl, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${apiKey}`,
+              },
+              body: JSON.stringify(retryPayload),
+              signal: AbortSignal.timeout(timeoutMs),
+            });
+            if (retryRes.ok) {
+              const retryJson = await retryRes.json();
+              return { success: true, data: retryJson.choices?.[0]?.message?.content || "" };
+            }
+          }
+        }
+
+        // Adaptive retry 3: if model is not found (404 or 400 model_not_found), automatically fallback to gpt-4o
+        const isModelNotFound =
+          response.status === 404 ||
+          (response.status === 400 && /does not exist|model_not_found|not have access|invalid_model/i.test(errText));
+        if (isModelNotFound && modelToUse !== "gpt-4o") {
           aiLogger.warn({ model: modelToUse, fallbackModel: "gpt-4o" }, "Model not found on AI provider, retrying with gpt-4o");
           const fallbackPayload: Record<string, unknown> = {
             ...payload,
             model: "gpt-4o",
             max_tokens: 8192,
+            temperature: 0.1,
           };
           delete fallbackPayload.max_completion_tokens;
           const fallbackRes = await fetch(targetUrl, {
@@ -847,17 +832,43 @@ export class XclipsService {
             return { success: true, data: fallbackJson.choices?.[0]?.message?.content || "" };
           }
         }
-        return {
-          success: false,
-          error: `AI API Error (404): ${errText.slice(0, 200)}`,
-        };
-      }
 
-      if (!response.ok) {
-        const errText = await response.text().catch(() => "");
+        // Adaptive retry 4: if Kie AI specialized route returns 404, fallback to /v1/chat/completions
+        if (isKieAi && response.status === 404 && !targetUrl.endsWith("/v1/chat/completions")) {
+          aiLogger.warn({ targetUrl, fallbackUrl: "https://api.kie.ai/v1/chat/completions" }, "Kie AI specialized route 404, falling back to /v1/chat/completions");
+          const fallbackRes = await fetch("https://api.kie.ai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              ...payload,
+              model: model,
+            }),
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          if (fallbackRes.ok) {
+            const fallbackJson = await fallbackRes.json();
+            return { success: true, data: fallbackJson.choices?.[0]?.message?.content || "" };
+          }
+        }
+
+        let detailedError = errText;
+        try {
+          const parsedErr = JSON.parse(errText);
+          if (parsedErr.error?.message) {
+            detailedError = parsedErr.error.message;
+          } else if (parsedErr.message) {
+            detailedError = parsedErr.message;
+          } else if (parsedErr.msg) {
+            detailedError = parsedErr.msg;
+          }
+        } catch {}
+
         return {
           success: false,
-          error: `AI API Error (${response.status}): ${errText.slice(0, 200)}`,
+          error: `AI API Error (${response.status}): ${detailedError.slice(0, 300)}`,
         };
       }
 
@@ -1889,8 +1900,8 @@ Format output WAJIB HANYA berupa JSON valid:
       positionX: 50,
       positionY: 80,
       rotation: 0,
-      boxWidthMode: "auto",
-      boxWidth: 85,
+      boxWidthMode: "custom",
+      boxWidth: 76,
       scaleX: 1,
       scaleY: 1,
       karaokeEnabled: false,
