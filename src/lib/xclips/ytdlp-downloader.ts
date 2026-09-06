@@ -12,8 +12,16 @@ import {
 import { ytdlpLogger } from "@/lib/logger";
 import { isXUrl, fetchXInfo } from "./scrapers/x-scraper";
 import { isPinterestUrl, fetchPinterestInfo } from "./scrapers/pinterest-scraper";
+import {
+  isWebMediaUrl,
+  isDirectVideoFileUrl,
+  fetchWebMediaInfo,
+  downloadWebMediaVideo,
+  extractWebMediaDomain,
+  WebMediaResult,
+} from "./scrapers/web-media-scraper";
 
-export type { YouTubeVideoInfo, DownloadProgress };
+export type { YouTubeVideoInfo, DownloadProgress, WebMediaResult };
 export {
   parseTimeToSeconds,
   formatSecondsToTime,
@@ -23,6 +31,11 @@ export {
   fetchXInfo,
   isPinterestUrl,
   fetchPinterestInfo,
+  isWebMediaUrl,
+  isDirectVideoFileUrl,
+  fetchWebMediaInfo,
+  downloadWebMediaVideo,
+  extractWebMediaDomain,
 };
 
 // Active ChildProcess registry for cancellation
@@ -283,7 +296,8 @@ export function isValidMediaUrl(url: string): boolean {
     isTikTokUrl(trimmed) ||
     isInstagramUrl(trimmed) ||
     isXUrl(trimmed) ||
-    isPinterestUrl(trimmed)
+    isPinterestUrl(trimmed) ||
+    isWebMediaUrl(trimmed)
   ) {
     return true;
   }
@@ -440,6 +454,14 @@ export async function fetchYouTubeInfo(url: string): Promise<Result<YouTubeVideo
     const pinRes = await fetchPinterestInfo(url);
     if (pinRes.success) return pinRes;
     ytdlpLogger.info({ url }, "Scratch Pinterest scraper failed, falling back to yt-dlp");
+    return fetchGenericYtDlpInfo(url);
+  }
+
+  // Handle General Web Media Video / Streams outside major social networks
+  if (isWebMediaUrl(url)) {
+    const webRes = await fetchWebMediaInfo(url);
+    if (webRes.success) return webRes;
+    ytdlpLogger.info({ url }, "Scratch WebMedia scraper failed, falling back to generic yt-dlp");
     return fetchGenericYtDlpInfo(url);
   }
 
@@ -831,13 +853,15 @@ export async function downloadGenericYtDlpVideo(
 export async function downloadDirectStreamMedia(
   mediaUrl: string,
   outputPath: string,
-  onProgress?: (progress: DownloadProgress) => void
+  onProgress?: (progress: DownloadProgress) => void,
+  customHeaders?: Record<string, string>
 ): Promise<Result<{ filePath: string; bytes: number }>> {
   try {
     const res = await fetch(mediaUrl, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        ...(customHeaders || {}),
       },
       signal: AbortSignal.timeout(180000),
     });
@@ -1011,6 +1035,11 @@ export async function downloadYouTubeVideo(
   // If Pinterest, use scratch extractor with yt-dlp fallback
   if (isPinterestUrl(url)) {
     return downloadPinterestVideo(options, onProgress, onProcSpawn);
+  }
+
+  // If General Web Media / Video Stream, use universal web media downloader
+  if (isWebMediaUrl(url)) {
+    return downloadWebMediaVideo(options, onProgress, onProcSpawn);
   }
 
   // If Instagram or generic, use generic downloader

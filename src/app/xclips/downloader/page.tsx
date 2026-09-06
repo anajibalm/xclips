@@ -59,6 +59,7 @@ import SubtitlesIcon from "@mui/icons-material/Subtitles";
 import ImageIcon from "@mui/icons-material/Image";
 import ClearIcon from "@mui/icons-material/Clear";
 import ContentPasteIcon from "@mui/icons-material/ContentPaste";
+import LanguageIcon from "@mui/icons-material/Language";
 import SettingsIcon from "@mui/icons-material/Settings";
 import SearchIcon from "@mui/icons-material/Search";
 import CancelIcon from "@mui/icons-material/Cancel";
@@ -155,12 +156,11 @@ export default function MultiplatformDownloaderPage() {
     severity: "info",
   });
 
-  // Strict check for supported platforms (YouTube, TikTok, Instagram, X/Twitter, Pinterest)
+  // Check for supported platforms (YouTube, TikTok, Instagram, X/Twitter, Pinterest, or any Web Media URL)
   const isSupportedPlatform = (inputUrl: string): boolean => {
     if (!inputUrl) return false;
     const trimmed = inputUrl.trim();
-    if (!trimmed.includes("http://") && !trimmed.includes("https://")) return false;
-    return /youtube\.com|youtu\.be|tiktok\.com|instagram\.com|twitter\.com|x\.com|pinterest\.com|pin\.it/i.test(trimmed);
+    return /^https?:\/\/.+/i.test(trimmed);
   };
 
   // Detect platform automatically from URL
@@ -171,6 +171,7 @@ export default function MultiplatformDownloaderPage() {
     if (/instagram\.com/i.test(inputUrl)) return "instagram";
     if (/twitter\.com|x\.com/i.test(inputUrl)) return "x";
     if (/pinterest\.com|pin\.it/i.test(inputUrl)) return "pinterest";
+    if (/^https?:\/\//i.test(inputUrl)) return "web_media";
     return "generic";
   };
 
@@ -238,7 +239,7 @@ export default function MultiplatformDownloaderPage() {
       setInfoError(null);
       if (trimmed && (trimmed.includes(".") || trimmed.length > 5)) {
         if (!isSupportedPlatform(trimmed)) {
-          setValidationError("Unsupported URL. Please enter a YouTube, TikTok, Instagram, X.com, or Pinterest link.");
+          setValidationError("Please enter a valid video link (YouTube, TikTok, Instagram, X, Pinterest, or Web Video URL).");
         }
       } else {
         setValidationError(null);
@@ -249,7 +250,7 @@ export default function MultiplatformDownloaderPage() {
     if (!isSupportedPlatform(trimmed)) {
       setVideoInfo(null);
       setInfoError(null);
-      setValidationError("Unsupported URL. Please enter a YouTube, TikTok, Instagram, X.com, or Pinterest link.");
+      setValidationError("Please enter a valid video link (YouTube, TikTok, Instagram, X, Pinterest, or Web Video URL).");
       return;
     }
 
@@ -400,7 +401,7 @@ export default function MultiplatformDownloaderPage() {
     if (!isSupportedPlatform(targetUrl)) {
       setSnackbar({
         open: true,
-        message: "Unsupported URL. Only YouTube, TikTok, Instagram, X.com, and Pinterest are supported.",
+        message: "Please enter a valid video link (YouTube, TikTok, Instagram, X, Pinterest, or Web Video URL).",
         severity: "error",
       });
       return;
@@ -637,6 +638,16 @@ export default function MultiplatformDownloaderPage() {
         />
       );
     }
+    if (platform === "web_media") {
+      return (
+        <Chip
+          icon={<LanguageIcon sx={{ color: "#38bdf8 !important", fontSize: "0.82rem !important" }} />}
+          label="Web Media"
+          size="small"
+          sx={{ bgcolor: "rgba(56, 189, 248, 0.12)", color: "#7dd3fc", fontWeight: 700, borderRadius: 0.8, height: 20, fontSize: "0.65rem" }}
+        />
+      );
+    }
     return (
       <Chip
         icon={<VideoLibraryIcon sx={{ fontSize: "0.8rem !important", color: "#a1a1aa !important" }} />}
@@ -654,6 +665,7 @@ export default function MultiplatformDownloaderPage() {
     if (platform === "instagram") return <InstagramIcon sx={{ color: "#ec4899", fontSize: s }} />;
     if (platform === "x") return <XIcon sx={{ color: "#f4f4f5", fontSize: s * 0.9 }} />;
     if (platform === "pinterest") return <PinterestIcon sx={{ color: "#e60023", fontSize: s }} />;
+    if (platform === "web_media") return <LanguageIcon sx={{ color: "#38bdf8", fontSize: s }} />;
     return <VideoLibraryIcon sx={{ color: "#71717a", fontSize: s }} />;
   };
 
@@ -726,6 +738,18 @@ export default function MultiplatformDownloaderPage() {
         return { text: author.startsWith("@") ? author : `@${author}`, url: `https://www.pinterest.com/${author.replace(/^@/, "")}` };
       }
       return { text: "Pinterest Source", url: rawUrl || "https://www.pinterest.com" };
+    }
+
+    // 6. General Web Media: https://domain.com/path
+    if (item.platform === "web_media" || /^https?:\/\//i.test(rawUrl)) {
+      let hostname = "Web Media";
+      try {
+        hostname = new URL(rawUrl).hostname.replace(/^www\./i, "");
+      } catch {
+        // ignore
+      }
+      const handle = author ? (author.startsWith("@") ? author : `@${author}`) : `@${hostname}`;
+      return { text: handle, url: rawUrl || "#" };
     }
 
     if (author) {
@@ -913,7 +937,7 @@ export default function MultiplatformDownloaderPage() {
                 {/* Main Input Row */}
                 <TextField
                   fullWidth
-                  placeholder="Paste YouTube, TikTok, Instagram, X (Twitter), or Pinterest link..."
+                  placeholder="Paste video link from YouTube, TikTok, Instagram, X, Pinterest, or any website..."
                   value={url}
                   onChange={(e) => handleUrlChange(e.target.value)}
                   onKeyDown={(e) => {
@@ -1683,6 +1707,7 @@ export default function MultiplatformDownloaderPage() {
                   <MenuItem value="instagram">Instagram</MenuItem>
                   <MenuItem value="x">𝕏 / Twitter</MenuItem>
                   <MenuItem value="pinterest">Pinterest</MenuItem>
+                  <MenuItem value="web_media">Web Video / Stream</MenuItem>
                 </Select>
               </FormControl>
 

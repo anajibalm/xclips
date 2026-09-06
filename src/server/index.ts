@@ -461,6 +461,7 @@ function detectPlatformHelper(url: string): DownloaderPlatform {
   if (/instagram\.com/i.test(url)) return "instagram";
   if (/twitter\.com|x\.com/i.test(url)) return "x";
   if (/pinterest\.com|pin\.it/i.test(url)) return "pinterest";
+  if (/^https?:\/\//i.test(url)) return "web_media";
   return "generic";
 }
 
@@ -1997,7 +1998,16 @@ app.post("/api/xclips/projects/import", async (c) => {
 const port = env.PORT_API;
 console.log(`[Hono API] Starting on http://0.0.0.0:${port}`);
 
-serve({
-  fetch: app.fetch,
+if (typeof Bun === "undefined") {
+  serve({
+    fetch: app.fetch,
+    port,
+  });
+}
+
+export default {
   port,
-});
+  reusePort: true,
+  fetch: app.fetch,
+};
+

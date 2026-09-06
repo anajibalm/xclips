@@ -16,7 +16,7 @@ export const WordTimestampSchema = z.object({
 
 export type WordTimestamp = z.infer<typeof WordTimestampSchema>;
 
-export const SourceTypeSchema = z.enum(["local", "youtube", "tiktok", "instagram", "x", "pinterest"]);
+export const SourceTypeSchema = z.enum(["local", "youtube", "tiktok", "instagram", "x", "pinterest", "web_media"]);
 export type SourceType = z.infer<typeof SourceTypeSchema>;
 
 export const AspectRatioSchema = z.enum(["9:16", "1:1", "4:5", "16:9"]);
@@ -368,7 +368,7 @@ export interface CleanResult {
 // Multiplatform Downloader Types
 // ============================================================
 
-export type DownloaderPlatform = "youtube" | "tiktok" | "instagram" | "x" | "pinterest" | "generic";
+export type DownloaderPlatform = "youtube" | "tiktok" | "instagram" | "x" | "pinterest" | "web_media" | "generic";
 export type DownloaderFormatType = "video" | "audio" | "subtitle" | "thumbnail" | "image";
 export type DownloaderQuality =
   | "4k"
