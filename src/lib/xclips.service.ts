@@ -36,6 +36,7 @@ import { renderQueue } from "@/lib/xclips/queue";
 import {
   fetchYouTubeInfo,
   downloadYouTubeVideo,
+  fetchYouTubeSubtitlesQuick,
   parseSrtToWords,
   findYtDlpBinary,
   YouTubeVideoInfo,
@@ -405,18 +406,77 @@ export class XclipsService {
       downloadSubtitles?: boolean;
       timeRange?: TimeRange;
     },
-    onProgress?: (progress: DownloadProgress) => void
+    onProgress?: (progress: DownloadProgress) => void,
+    onEagerProjectReady?: (project: XclipsProject) => void
   ): Promise<Result<XclipsProject>> {
     const projectId = `proj_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const downloadDir = path.resolve(process.cwd(), "vault", "xclips", "downloads", projectId);
     fs.mkdirSync(downloadDir, { recursive: true });
+
+    // P2: Eager Subtitle Interception (Fast background fetch in ~1.5 - 2.5s)
+    const shouldDownloadSubs = options?.downloadSubtitles ?? true;
+    if (shouldDownloadSubs && /youtube\.com|youtu\.be/i.test(url)) {
+      fetchYouTubeSubtitlesQuick(url, downloadDir)
+        .then((subRes) => {
+          if (subRes.success && subRes.data && fs.existsSync(subRes.data)) {
+            try {
+              const srtContent = fs.readFileSync(subRes.data, "utf-8");
+              const words = parseSrtToWords(srtContent);
+              if (words.length > 0) {
+                detectTokenFillers(words);
+                const transcript: XclipsTranscript = {
+                  id: `tr_yt_${Date.now()}`,
+                  projectId,
+                  label: "YouTube Subtitles (CC)",
+                  sourceType: "youtube_cc",
+                  isActive: true,
+                  language: "id",
+                  rawText: words.map((w) => w.word).join(" "),
+                  srtContent,
+                  words,
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                };
+                xclipsDb.saveTranscript(transcript);
+
+                // Initialize stub project if not created yet so UI can immediately show transcript & autoclip
+                const existingProj = xclipsDb.getProject(projectId);
+                if (!existingProj) {
+                  const stubProject: XclipsProject = {
+                    id: projectId,
+                    name: options?.customName || "YouTube Video",
+                    sourceType: "youtube",
+                    sourcePath: "",
+                    durationSec: 0,
+                    width: 1920,
+                    height: 1080,
+                    frameRate: 30,
+                    isVfr: false,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                  };
+                  xclipsDb.saveProject(stubProject);
+                  if (onEagerProjectReady) onEagerProjectReady(stubProject);
+                }
+                aiLogger.info(
+                  { projectId, wordsCount: words.length },
+                  "P2 Eager Subtitles stored in SQLite ahead of media download"
+                );
+              }
+            } catch (err) {
+              aiLogger.warn({ err }, "P2 Eager subtitle parsing encountered an error");
+            }
+          }
+        })
+        .catch(() => {});
+    }
 
     const dlRes = await downloadYouTubeVideo(
       {
         url,
         outputDir: downloadDir,
         quality: options?.quality || "1080p",
-        downloadSubtitles: options?.downloadSubtitles ?? true,
+        downloadSubtitles: shouldDownloadSubs,
         timeRange: options?.timeRange,
       },
       onProgress
@@ -425,7 +485,6 @@ export class XclipsService {
     if (!dlRes.success) {
       return { success: false, error: dlRes.error };
     }
-
 
     const { videoPath, srtPath, info } = dlRes.data;
 
@@ -488,8 +547,11 @@ export class XclipsService {
 
     xclipsDb.saveProject(project);
 
-    // If auto-subtitles were downloaded, parse and populate transcript immediately!
-    if (srtPath && fs.existsSync(srtPath)) {
+    // If auto-subtitles were downloaded and not already captured by eager fetch, parse & populate!
+    const existingTranscripts = xclipsDb.getProjectTranscripts(projectId);
+    const hasExistingSub = existingTranscripts.some((t) => t.sourceType === "youtube_cc");
+
+    if (!hasExistingSub && srtPath && fs.existsSync(srtPath)) {
       try {
         const srtContent = fs.readFileSync(srtPath, "utf-8");
         const words = parseSrtToWords(srtContent);
@@ -1453,35 +1515,58 @@ Synthesize the single best viral narrative focus prompt:`;
             "Starting multi-chunk OpenAI Whisper audio transcription"
           );
 
-          for (let cIdx = 0; cIdx < chunkCount; cIdx++) {
-            const chunkStart = cIdx * WHISPER_CHUNK_DURATION;
-            const chunkDuration = Math.min(WHISPER_CHUNK_DURATION, totalDuration - chunkStart);
-            const chunkPath = path.join(cacheDir, `audio_chunk_whisper_${cIdx}.mp3`);
+          const chunkResults: Array<{ cIdx: number; fullText: string; words: WordTimestamp[] }> = [];
+          const CONCURRENCY = Math.min(3, Math.max(1, chunkCount));
+          let currentWhisperIdx = 0;
 
-            // Extract segment from pre-extracted audio file rather than slow video re-encoding
-            await extractAudioSegment(audioToUse, chunkPath, chunkStart, chunkDuration);
-            if (!fs.existsSync(chunkPath)) continue;
+          const worker = async () => {
+            while (currentWhisperIdx < chunkCount) {
+              const cIdx = currentWhisperIdx++;
+              const chunkStart = cIdx * WHISPER_CHUNK_DURATION;
+              const chunkDuration = Math.min(WHISPER_CHUNK_DURATION, totalDuration - chunkStart);
+              const chunkPath = path.join(cacheDir, `audio_chunk_whisper_${cIdx}.mp3`);
 
-            const whisperRes = await this.transcribeWithOpenAiWhisper({
-              audioPath: chunkPath,
-              apiKey,
-              baseUrl: targetBaseUrl,
-              model: whisperModel,
-              timeoutMs: 90000,
-            });
+              await extractAudioSegment(audioToUse, chunkPath, chunkStart, chunkDuration);
+              if (!fs.existsSync(chunkPath)) continue;
 
-            if (whisperRes.success) {
-              if (whisperRes.data.fullText) fullTextCombined += (fullTextCombined ? " " : "") + whisperRes.data.fullText;
-              for (const w of whisperRes.data.words) {
-                allWords.push({
+              const whisperRes = await this.transcribeWithOpenAiWhisper({
+                audioPath: chunkPath,
+                apiKey,
+                baseUrl: targetBaseUrl,
+                model: whisperModel,
+                timeoutMs: 90000,
+              });
+
+              if (whisperRes.success) {
+                const remappedWords = whisperRes.data.words.map((w) => ({
                   ...w,
                   start: parseFloat((w.start + chunkStart).toFixed(2)),
                   end: parseFloat((w.end + chunkStart).toFixed(2)),
+                }));
+                chunkResults.push({
+                  cIdx,
+                  fullText: whisperRes.data.fullText,
+                  words: remappedWords,
                 });
+              } else {
+                aiLogger.warn(
+                  { chunkIndex: cIdx + 1, chunkCount, err: whisperRes.error },
+                  "Whisper chunk failed, continuing with remaining chunks"
+                );
               }
-            } else {
-              aiLogger.warn({ chunkIndex: cIdx + 1, chunkCount, err: whisperRes.error }, "Whisper chunk failed, continuing with remaining chunks");
             }
+          };
+
+          await Promise.all(
+            Array.from({ length: CONCURRENCY }, () => worker())
+          );
+
+          chunkResults.sort((a, b) => a.cIdx - b.cIdx);
+          for (const res of chunkResults) {
+            if (res.fullText) {
+              fullTextCombined += (fullTextCombined ? " " : "") + res.fullText;
+            }
+            allWords.push(...res.words);
           }
         }
       } else {
@@ -1501,7 +1586,7 @@ Format output WAJIB HANYA berupa JSON valid:
         if (modelToUse === "gpt-4o-transcribe") modelToUse = "gpt-4o";
         if (modelToUse === "gpt-4o-mini-transcribe") modelToUse = "gpt-4o-mini";
 
-        const LLM_CHUNK_DURATION = 45; // 45 seconds per chunk for sub-second token generation
+        const LLM_CHUNK_DURATION = 180; // 180s (3 min) per chunk for optimal context, reduced I/O & low rate-limit overhead
 
         if (totalDuration <= LLM_CHUNK_DURATION) {
           const audioBuffer = fs.readFileSync(audioToUse);
@@ -1856,64 +1941,74 @@ Format output WAJIB HANYA berupa JSON valid:
     const allRawHighlights: CandidateHighlight[] = [];
     let lastError: string | null = null;
 
-    for (const chunk of chunks) {
-      const prompt = buildHighlightPrompt(chunk, {
-        topicPrompt: effectiveTopic,
-        hookFormula: effectiveFormula,
-        targetDuration: effectiveDuration,
-        outputLanguage: effectiveLanguage,
-        strictBoundary: settings.strictBoundary,
-        videoMetadata: {
-          title: project.sourceMeta?.title || project.name,
-          channel: project.sourceMeta?.channel || project.sourceMeta?.uploader,
-          description: project.sourceMeta?.description,
-          webpageUrl: project.sourceMeta?.webpageUrl,
-        },
-      });
-      try {
-        const modelToUse = options?.model || (providerToUse === "kieai"
-          ? (settings.highlightModel || settings.transcribeModel || "gemini-3-7-flash")
-          : (settings.highlightModel || "gemini-3-7-flash"));
+    const CONCURRENCY = Math.min(3, Math.max(1, chunks.length));
+    let chunkIndexPointer = 0;
 
-        const dispatchRes = await this.dispatchAiContent({
-          provider: providerToUse,
-          baseUrl: effectiveBaseUrl,
-          apiKey,
-          model: modelToUse,
-          userPrompt: prompt,
-          timeoutMs: 60000,
+    const worker = async () => {
+      while (chunkIndexPointer < chunks.length) {
+        const chunk = chunks[chunkIndexPointer++];
+        const prompt = buildHighlightPrompt(chunk, {
+          topicPrompt: effectiveTopic,
+          hookFormula: effectiveFormula,
+          targetDuration: effectiveDuration,
+          outputLanguage: effectiveLanguage,
+          strictBoundary: settings.strictBoundary,
+          videoMetadata: {
+            title: project.sourceMeta?.title || project.name,
+            channel: project.sourceMeta?.channel || project.sourceMeta?.uploader,
+            description: project.sourceMeta?.description,
+            webpageUrl: project.sourceMeta?.webpageUrl,
+          },
         });
+        try {
+          const modelToUse = options?.model || (providerToUse === "kieai"
+            ? (settings.highlightModel || settings.transcribeModel || "gemini-3-7-flash")
+            : (settings.highlightModel || "gemini-3-7-flash"));
 
-        if (dispatchRes.success && dispatchRes.data?.trim()) {
-          try {
-            const cleanJsonStr = dispatchRes.data.replace(/```json/gi, "").replace(/```/g, "").trim();
-            const jsonMatch = cleanJsonStr.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) {
-              throw new Error("Respons AI tidak mengandung objek JSON yang valid");
+          const dispatchRes = await this.dispatchAiContent({
+            provider: providerToUse,
+            baseUrl: effectiveBaseUrl,
+            apiKey,
+            model: modelToUse,
+            userPrompt: prompt,
+            timeoutMs: 60000,
+          });
+
+          if (dispatchRes.success && dispatchRes.data?.trim()) {
+            try {
+              const cleanJsonStr = dispatchRes.data.replace(/```json/gi, "").replace(/```/g, "").trim();
+              const jsonMatch = cleanJsonStr.match(/\{[\s\S]*\}/);
+              if (!jsonMatch) {
+                throw new Error("Respons AI tidak mengandung objek JSON yang valid");
+              }
+              const parsed = JSON.parse(jsonMatch[0]);
+              if (Array.isArray(parsed.highlights) && parsed.highlights.length > 0) {
+                allRawHighlights.push(...parsed.highlights);
+                aiLogger.debug({ chunkIndex: chunk.chunkIndex, foundCount: parsed.highlights.length }, "Scored highlight candidates for chunk");
+              } else {
+                aiLogger.warn({ chunkIndex: chunk.chunkIndex }, "AI response contained no highlights array");
+              }
+            } catch (parseErr: unknown) {
+              const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+              lastError = `Gagal parse JSON chunk ${chunk.chunkIndex}: ${parseMsg}`;
+              aiLogger.warn({ chunkIndex: chunk.chunkIndex, err: parseMsg, preview: dispatchRes.data.slice(0, 150) }, "Failed to parse JSON highlights from chunk");
             }
-            const parsed = JSON.parse(jsonMatch[0]);
-            if (Array.isArray(parsed.highlights) && parsed.highlights.length > 0) {
-              allRawHighlights.push(...parsed.highlights);
-              aiLogger.debug({ chunkIndex: chunk.chunkIndex, foundCount: parsed.highlights.length }, "Scored highlight candidates for chunk");
-            } else {
-              aiLogger.warn({ chunkIndex: chunk.chunkIndex }, "AI response contained no highlights array");
-            }
-          } catch (parseErr: unknown) {
-            const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
-            lastError = `Gagal parse JSON chunk ${chunk.chunkIndex}: ${parseMsg}`;
-            aiLogger.warn({ chunkIndex: chunk.chunkIndex, err: parseMsg, preview: dispatchRes.data.slice(0, 150) }, "Failed to parse JSON highlights from chunk");
+          } else {
+            const errMsg = !dispatchRes.success ? dispatchRes.error : "Empty response from AI";
+            lastError = errMsg;
+            aiLogger.warn({ chunkIndex: chunk.chunkIndex, err: errMsg }, "Failed scoring chunk");
           }
-        } else {
-          const errMsg = !dispatchRes.success ? dispatchRes.error : "Empty response from AI";
-          lastError = errMsg;
-          aiLogger.warn({ chunkIndex: chunk.chunkIndex, err: errMsg }, "Failed scoring chunk");
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          lastError = msg;
+          aiLogger.error({ chunkIndex: chunk.chunkIndex, err: msg }, `Error scoring chunk ${chunk.chunkIndex}`);
         }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        lastError = msg;
-        aiLogger.error({ chunkIndex: chunk.chunkIndex, err: msg }, `Error scoring chunk ${chunk.chunkIndex}`);
       }
-    }
+    };
+
+    await Promise.all(
+      Array.from({ length: CONCURRENCY }, () => worker())
+    );
 
     if (allRawHighlights.length === 0 && chunks.length > 0) {
       return {

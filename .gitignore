@@ -1,83 +1,168 @@
 # ============================================
-# xClips / Live Assist — Master Gitignore
+# xClips — Smart Video Clipper & Studio
+# Master Production Gitignore
 # ============================================
 
-# --- Vault & Sensitive data ---
+# --- 1. Vault, Local Storage & State ---
 vault/
 .vault/
 .hermes/
+data/
+downloads/
+output/
+temp/
+tmp/
+.temp/
+.tmp/
+scratch/
 
-# --- Environment & secrets ---
+# --- 2. SQLite Databases & WAL Journal ---
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite3-journal
+*.sqlite-wal
+*.sqlite3-wal
+*.sqlite-shm
+*.sqlite3-shm
+
+# --- 3. Environment & Secrets ---
 .env
+.env*.local
 .env.local
-.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.backup
+.env.vault
 *.key
 *.pem
 *.enc
+*.crt
+*.cert
+id_rsa*
+credentials*.json
+client_secret*.json
+!credentials.example.json
+!.env.example
 
-# --- Node & Web Dependencies / Build ---
+# --- 4. Node, Bun & Web Dependencies / Build ---
 node_modules/
 .next/
 out/
 build/
 dist/
 *.tsbuildinfo
+next-env.d.ts.bak
+.turbo/
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
 
-# --- Rust & Tauri Desktop Build ---
+# --- 5. Rust & Tauri Desktop Build ---
 src-tauri/target/
 src-tauri/gen/
 target/
 *.pdb
+*.exe
+*.dll
+*.dylib
+*.so
+*.node
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
 
-# --- xClips Databases & Local State ---
-data/
-*.sqlite
-*.sqlite-journal
-*.db
-*.db-journal
-*.db-wal
-*.db-shm
-
-# --- xClips Media Renders, Uploads & Temp Files ---
+# --- 6. Media Renders, Uploads, Transcripts & AI Cache ---
 public/renders/
 public/uploads/
 public/temp/
-temp/
-output/
+
+# Video formats
 *.mp4
 *.mkv
 *.mov
 *.avi
 *.webm
+*.flv
+*.m4v
+*.3gp
+*.wmv
+*.m2ts
+*.mts
+
+# Audio formats
 *.wav
 *.mp3
 *.m4a
 *.aac
+*.ogg
+*.opus
+*.flac
+*.alac
+
+# Subtitle & caption formats
 *.ass
 *.srt
 *.vtt
+*.lrc
+*.sbv
 
-# Keep test fixture files if added in the future
+# AI weights, models & embeddings cache
+models/
+whisper_models/
+*.onnx
+*.safetensors
+*.bin
+
+# Keep test fixtures if added
 !tests/fixtures/**
 
-# --- Logs ---
+# --- 7. Testing & Coverage ---
+coverage/
+.nyc_output/
+*.lcov
+.vitest/
+test-results/
+junit.xml
+
+# --- 8. Logs & Debugging ---
 logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
+bun.log*
 
-# --- OS junk ---
+# --- 9. OS Junk & File System Artifacts ---
 Thumbs.db
-.DS_Store
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
 Desktop.ini
 $RECYCLE.BIN/
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 
-# --- Editor & IDE ---
+# --- 10. Editor, IDE & Tools ---
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json
+!.vscode/launch.json
 .idea/
 *.swp
+*.swo
 *~
 *.bak
+.fleet/
+.cursor/
+*.patch
+*.diff

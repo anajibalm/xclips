@@ -55,7 +55,7 @@ describe("xclips - Media Downloader & Parser (YouTube, TikTok, Instagram)", () =
     expect(res2?.totalSizeStr).toBe("15.20MiB");
     expect(res2?.status).toBe("merging");
 
-    const line3 = "[Merger] Merging formats into '[FULL] video.mp4'";
+    const line3 = "[Merger] Merging formats into 'video.mp4'";
     const res3 = parseYtDlpProgressLine(line3);
     expect(res3).not.toBeNull();
     expect(res3?.status).toBe("merging");
@@ -194,6 +194,23 @@ Hari ini kita bahas AI`;
     // Boundary cases: invalid ranges return empty array
     expect(sliceWordsByTimeRange(sampleWords, 10.0, 5.0)).toEqual([]);
     expect(sliceWordsByTimeRange([], 0, 10)).toEqual([]);
+  });
+
+  it("should provide multi-fragment network acceleration arguments", () => {
+    const { getNetworkAccelerationArgs } = require("@/lib/xclips/ytdlp-downloader");
+    const flags = getNetworkAccelerationArgs();
+
+    expect(flags).toContain("--concurrent-fragments");
+    expect(flags).toContain("5");
+    expect(flags).toContain("--buffer-size");
+    expect(flags).toContain("16M");
+  });
+
+  it("should handle fetchYouTubeSubtitlesQuick gracefully on invalid URL", async () => {
+    const { fetchYouTubeSubtitlesQuick } = require("@/lib/xclips/ytdlp-downloader");
+    const res = await fetchYouTubeSubtitlesQuick("not-a-youtube-url", "vault/xclips/cache/test_quick");
+    expect(res.success).toBe(true);
+    expect(res.data).toBeNull();
   });
 });
 

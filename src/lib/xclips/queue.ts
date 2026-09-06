@@ -16,7 +16,7 @@ export type HardwareEncoder = "nvenc" | "videotoolbox" | "qsv" | "amf" | "cpu";
 export interface HardwareProfile {
   encoder: HardwareEncoder;
   label: string;
-  deviceType: "nvidia" | "apple_silicon" | "cpu";
+  deviceType: "nvidia" | "intel_qsv" | "amd_amf" | "apple_silicon" | "cpu";
   cpuModel: string;
   cpuCores: number;
   description: string;
@@ -25,9 +25,14 @@ export interface HardwareProfile {
 let cachedHardwareProfile: HardwareProfile | null = null;
 let cachedHwAccel: HardwareEncoder | null = null;
 
+export function resetHardwareProfileCacheForTesting() {
+  cachedHardwareProfile = null;
+  cachedHwAccel = null;
+}
+
 /**
  * Detects supported hardware acceleration profile on the host system by actively verifying
- * 1-frame encoding execution, adapting dynamically to NVIDIA GPU, Apple Silicon, or Multi-Core CPU.
+ * 1-frame encoding execution, adapting dynamically to NVIDIA GPU, Intel QSV, AMD AMF, Apple Silicon, or Multi-Core CPU.
  */
 export async function detectHardwareProfile(): Promise<HardwareProfile> {
   if (cachedHardwareProfile) return cachedHardwareProfile;
@@ -45,10 +50,22 @@ export async function detectHardwareProfile(): Promise<HardwareProfile> {
         "null",
         "-",
       ]);
+
+      const timer = setTimeout(() => {
+        try {
+          proc.kill();
+        } catch {
+          // ignore kill error
+        }
+        resolve(false);
+      }, 1500);
+
       proc.on("close", (code) => {
+        clearTimeout(timer);
         resolve(code === 0);
       });
       proc.on("error", () => {
+        clearTimeout(timer);
         resolve(false);
       });
     });
@@ -74,7 +91,22 @@ export async function detectHardwareProfile(): Promise<HardwareProfile> {
       return cachedHardwareProfile;
     }
 
-    // 2. Check Apple Silicon VideoToolbox (Hardware acceleration for Mac M1/M2/M3/M4)
+    // 2. Check Intel Quick Sync Video (QSV) (Hardware acceleration for Intel Core / Iris / Arc iGPU/dGPU)
+    if (await testEncoder("h264_qsv")) {
+      cachedHardwareProfile = {
+        encoder: "qsv",
+        label: "Intel Quick Sync Video (QSV Hardware Acceleration)",
+        deviceType: "intel_qsv",
+        cpuModel,
+        cpuCores,
+        description: "Akselerasi hardware cepat melalui Intel Quick Sync Video (iGPU/dGPU)",
+      };
+      cachedHwAccel = "qsv";
+      ffmpegLogger.info(cachedHardwareProfile, "Hardware acceleration profile: Intel QSV detected");
+      return cachedHardwareProfile;
+    }
+
+    // 3. Check Apple Silicon VideoToolbox (Hardware acceleration for Mac M1/M2/M3/M4)
     if (platform === "darwin" && (await testEncoder("h264_videotoolbox"))) {
       cachedHardwareProfile = {
         encoder: "videotoolbox",
@@ -89,7 +121,22 @@ export async function detectHardwareProfile(): Promise<HardwareProfile> {
       return cachedHardwareProfile;
     }
 
-    // 3. Optimized Multi-threaded CPU libx264
+    // 4. Check AMD AMF (Hardware acceleration for AMD Radeon GPUs)
+    if (await testEncoder("h264_amf")) {
+      cachedHardwareProfile = {
+        encoder: "amf",
+        label: "AMD AMF (Radeon Hardware Acceleration)",
+        deviceType: "amd_amf",
+        cpuModel,
+        cpuCores,
+        description: "Akselerasi hardware GPU melalui AMD Advanced Media Framework",
+      };
+      cachedHwAccel = "amf";
+      ffmpegLogger.info(cachedHardwareProfile, "Hardware acceleration profile: AMD AMF detected");
+      return cachedHardwareProfile;
+    }
+
+    // 5. Optimized Multi-threaded CPU libx264
     cachedHardwareProfile = {
       encoder: "cpu",
       label: `${cpuModel} (${cpuCores} Threads - libx264 AVX2)`,
@@ -122,7 +169,7 @@ export async function detectHardwareAcceleration(): Promise<HardwareEncoder> {
 
 
 class JobQueueManager {
-  private maxConcurrent = 2;
+  private maxConcurrent = os.cpus().length >= 12 ? 2 : 1;
   private runningJobs = 0;
   private queue: string[] = [];
 
@@ -397,6 +444,15 @@ class JobQueueManager {
         await runFfmpeg("cpu");
       } else {
         throw hwError;
+      }
+    } finally {
+      // Auto-clean temporary ASS subtitle file to conserve disk space
+      if (actualAssPath && fs.existsSync(actualAssPath)) {
+        try {
+          fs.unlinkSync(actualAssPath);
+        } catch {
+          // ignore
+        }
       }
     }
   }

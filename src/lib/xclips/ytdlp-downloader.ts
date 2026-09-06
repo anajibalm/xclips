@@ -1,9 +1,29 @@
 import { spawn, ChildProcess } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
-import { Result, WordTimestamp, TimeRange } from "@/lib/xclips/types";
+import { Result, WordTimestamp, TimeRange, YouTubeVideoInfo, DownloadProgress } from "@/lib/xclips/types";
 import { generateSrtFromWords } from "@/lib/xclips/phrase-segmentation";
+import {
+  parseTimeToSeconds,
+  formatSecondsToTime,
+  sanitizeTimeForFilename,
+  sliceWordsByTimeRange,
+} from "./time-utils";
 import { ytdlpLogger } from "@/lib/logger";
+import { isXUrl, fetchXInfo } from "./scrapers/x-scraper";
+import { isPinterestUrl, fetchPinterestInfo } from "./scrapers/pinterest-scraper";
+
+export type { YouTubeVideoInfo, DownloadProgress };
+export {
+  parseTimeToSeconds,
+  formatSecondsToTime,
+  sanitizeTimeForFilename,
+  sliceWordsByTimeRange,
+  isXUrl,
+  fetchXInfo,
+  isPinterestUrl,
+  fetchPinterestInfo,
+};
 
 // Active ChildProcess registry for cancellation
 const activeProcessMap = new Map<string, ChildProcess>();
@@ -30,27 +50,6 @@ export function cancelActiveProcess(taskId: string): boolean {
   return false;
 }
 
-export interface YouTubeVideoInfo {
-  id: string;
-  title: string;
-  duration: number; // in seconds
-  thumbnail: string;
-  uploader: string;
-  channel: string;
-  description: string;
-  webpageUrl: string;
-}
-
-export interface DownloadProgress {
-  percent: number;
-  downloadedBytes: number;
-  totalBytes: number;
-  totalSizeStr?: string;
-  speedStr: string;
-  etaStr: string;
-  status: "downloading" | "merging" | "transcribing" | "completed" | "error";
-}
-
 export interface YouTubeDownloadOptions {
   url: string;
   outputDir: string;
@@ -63,73 +62,6 @@ export interface YouTubeDownloadResult {
   videoPath: string;
   srtPath?: string;
   info: YouTubeVideoInfo;
-}
-
-/**
- * Parses time string (HH:MM:SS, MM:SS, or seconds) to seconds number
- */
-export function parseTimeToSeconds(timeStr: string): number {
-  if (!timeStr || typeof timeStr !== "string") return 0;
-  const clean = timeStr.trim();
-  const parts = clean.split(":").map((p) => parseFloat(p));
-  if (parts.some((n) => isNaN(n))) return 0;
-  if (parts.length === 3) {
-    return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  }
-  if (parts.length === 2) {
-    return parts[0] * 60 + parts[1];
-  }
-  if (parts.length === 1) {
-    return parts[0] || 0;
-  }
-  return 0;
-}
-
-/**
- * Formats seconds to HH:MM:SS string
- */
-export function formatSecondsToTime(seconds: number): string {
-  if (isNaN(seconds) || seconds < 0) return "00:00:00";
-  const total = Math.floor(seconds);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-}
-
-/**
- * Sanitizes time string for safe inclusion in filenames (e.g. 00:01:30 -> 00-01-30)
- */
-export function sanitizeTimeForFilename(timeStr: string): string {
-  return (timeStr || "").replace(/[:\s]+/g, "-");
-}
-
-/**
- * Slices an array of WordTimestamp to fit within [startSec, endSec]
- * and re-bases timestamps so the new segment starts at 0.00s.
- */
-export function sliceWordsByTimeRange(
-  words: WordTimestamp[],
-  startSec: number,
-  endSec: number
-): WordTimestamp[] {
-  if (!Array.isArray(words) || words.length === 0) return [];
-  if (endSec <= startSec) return [];
-
-  const sliced: WordTimestamp[] = [];
-  for (const w of words) {
-    // Word overlaps with [startSec, endSec]
-    if (w.end > startSec && w.start < endSec) {
-      const newStart = Math.max(0, parseFloat((w.start - startSec).toFixed(2)));
-      const newEnd = Math.max(newStart + 0.05, parseFloat((w.end - startSec).toFixed(2)));
-      sliced.push({
-        ...w,
-        start: newStart,
-        end: newEnd,
-      });
-    }
-  }
-  return sliced;
 }
 
 
@@ -224,6 +156,98 @@ export function getQualitySelectorArgs(
 }
 
 /**
+ * Resolves standard yt-dlp network acceleration arguments
+ */
+export function getNetworkAccelerationArgs(): string[] {
+  return [
+    "--concurrent-fragments",
+    "5",
+    "--buffer-size",
+    "16M",
+  ];
+}
+
+/**
+ * Quickly fetches YouTube subtitles (CC or auto-generated) without downloading any video media.
+ * Completes in ~1.5 - 2.5 seconds, enabling eager transcript availability.
+ */
+export async function fetchYouTubeSubtitlesQuick(
+  url: string,
+  outputDir: string,
+  timeoutMs: number = 20000
+): Promise<Result<string | null>> {
+  if (!isValidYouTubeUrl(url)) {
+    return { success: true, data: null };
+  }
+
+  fs.mkdirSync(outputDir, { recursive: true });
+  const ytdlp = findYtDlpBinary();
+  const outputTemplate = path.join(outputDir, "sub_%(title)s [%(id)s].%(ext)s");
+
+  const args = [
+    "--skip-download",
+    "--write-subs",
+    "--write-auto-subs",
+    "--sub-lang",
+    "id,id-orig,en,en-orig",
+    "--sub-format",
+    "srt",
+    "--no-warnings",
+    "--ignore-errors",
+    ...getNetworkAccelerationArgs(),
+    "-o",
+    outputTemplate,
+    url.trim(),
+  ];
+
+  ytdlpLogger.debug({ url, outputDir }, "Executing quick eager subtitle fetch with yt-dlp");
+
+  return new Promise((resolve) => {
+    let killed = false;
+    const proc = spawn(ytdlp, args, { windowsHide: true });
+
+    const timer = setTimeout(() => {
+      killed = true;
+      try {
+        proc.kill();
+      } catch {}
+      ytdlpLogger.warn({ url }, "Quick subtitle fetch timed out");
+      resolve({ success: true, data: null });
+    }, timeoutMs);
+
+    proc.on("close", () => {
+      clearTimeout(timer);
+      if (killed) return;
+
+      try {
+        if (fs.existsSync(outputDir)) {
+          const files = fs.readdirSync(outputDir);
+          const srtFile = files.find(
+            (f) => (f.endsWith(".srt") || f.endsWith(".vtt")) && f.startsWith("sub_")
+          );
+          if (srtFile) {
+            const srtPath = path.join(outputDir, srtFile);
+            ytdlpLogger.info({ url, srtPath }, "Quick subtitle fetched successfully");
+            return resolve({ success: true, data: srtPath });
+          }
+        }
+        resolve({ success: true, data: null });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        ytdlpLogger.warn({ url, err: msg }, "Error inspecting quick subtitle directory");
+        resolve({ success: true, data: null });
+      }
+    });
+
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      ytdlpLogger.warn({ url, err: err.message }, "Quick subtitle fetch process error");
+      resolve({ success: true, data: null });
+    });
+  });
+}
+
+/**
  * Checks if a given string is a valid YouTube URL
  */
 export function isValidYouTubeUrl(url: string): boolean {
@@ -254,7 +278,13 @@ export function isInstagramUrl(url: string): boolean {
 export function isValidMediaUrl(url: string): boolean {
   if (!url || typeof url !== "string") return false;
   const trimmed = url.trim();
-  if (isValidYouTubeUrl(trimmed) || isTikTokUrl(trimmed) || isInstagramUrl(trimmed)) {
+  if (
+    isValidYouTubeUrl(trimmed) ||
+    isTikTokUrl(trimmed) ||
+    isInstagramUrl(trimmed) ||
+    isXUrl(trimmed) ||
+    isPinterestUrl(trimmed)
+  ) {
     return true;
   }
   return /^https?:\/\/.+/i.test(trimmed);
@@ -395,6 +425,22 @@ export async function fetchYouTubeInfo(url: string): Promise<Result<YouTubeVideo
   // Handle TikTok separately with fast TikWM API
   if (isTikTokUrl(url)) {
     return fetchTikTokInfo(url);
+  }
+
+  // Handle X/Twitter separately with fast scratch extractor (fallback to yt-dlp)
+  if (isXUrl(url)) {
+    const xRes = await fetchXInfo(url);
+    if (xRes.success) return xRes;
+    ytdlpLogger.info({ url }, "Scratch X scraper failed, falling back to yt-dlp");
+    return fetchGenericYtDlpInfo(url);
+  }
+
+  // Handle Pinterest separately with fast scratch extractor (fallback to yt-dlp)
+  if (isPinterestUrl(url)) {
+    const pinRes = await fetchPinterestInfo(url);
+    if (pinRes.success) return pinRes;
+    ytdlpLogger.info({ url }, "Scratch Pinterest scraper failed, falling back to yt-dlp");
+    return fetchGenericYtDlpInfo(url);
   }
 
   // If not YouTube, use generic yt-dlp extractor
@@ -553,7 +599,7 @@ export async function downloadTikTokVideo(
       const d = json.data;
       const id = d.id || `${Date.now()}`;
       const title = (d.title || "TikTok Video").replace(/[<>:"/\\|?*]+/g, "_").slice(0, 80);
-      const videoFilename = `[FULL] ${title} [${id}].mp4`;
+      const videoFilename = `${title} [${id}].mp4`;
       const videoPath = path.join(outputDir, videoFilename);
 
       const info: YouTubeVideoInfo = {
@@ -681,7 +727,7 @@ export async function downloadGenericYtDlpVideo(
   const { formatSelector, formatSort } = getQualitySelectorArgs(quality);
   const ffmpeg = findFfmpegBinary();
 
-  const outputTemplate = path.join(outputDir, "[FULL] %(title)s [%(id)s].%(ext)s");
+  const outputTemplate = path.join(outputDir, "%(title)s [%(id)s].%(ext)s");
   const args = [
     "-i",
     "--no-warnings",
@@ -692,6 +738,7 @@ export async function downloadGenericYtDlpVideo(
     formatSort,
     "--merge-output-format",
     "mp4",
+    ...getNetworkAccelerationArgs(),
     "--js-runtimes",
     "node",
     "--remote-components",
@@ -779,6 +826,165 @@ export async function downloadGenericYtDlpVideo(
 }
 
 /**
+ * Downloads media directly via HTTP stream to file with live progress tracking
+ */
+export async function downloadDirectStreamMedia(
+  mediaUrl: string,
+  outputPath: string,
+  onProgress?: (progress: DownloadProgress) => void
+): Promise<Result<{ filePath: string; bytes: number }>> {
+  try {
+    const res = await fetch(mediaUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+      },
+      signal: AbortSignal.timeout(180000),
+    });
+
+    if (!res.ok || !res.body) {
+      return { success: false, error: `Gagal mengunduh stream media (HTTP ${res.status})` };
+    }
+
+    const totalBytes = Number(res.headers.get("content-length")) || 0;
+    let downloadedBytes = 0;
+    const reader = res.body.getReader();
+    const fileStream = fs.createWriteStream(outputPath);
+    const startTime = Date.now();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        fileStream.write(Buffer.from(value));
+        downloadedBytes += value.length;
+        if (onProgress && totalBytes > 0) {
+          const percent = Math.min(99, Math.round((downloadedBytes / totalBytes) * 100));
+          const elapsedSec = (Date.now() - startTime) / 1000;
+          const speedBytesPerSec = elapsedSec > 0 ? downloadedBytes / elapsedSec : 0;
+          const speedMb = (speedBytesPerSec / (1024 * 1024)).toFixed(1);
+          const remainingBytes = totalBytes - downloadedBytes;
+          const etaSec = speedBytesPerSec > 0 ? Math.round(remainingBytes / speedBytesPerSec) : 0;
+          const totalMb = (totalBytes / (1024 * 1024)).toFixed(1);
+          onProgress({
+            percent,
+            downloadedBytes,
+            totalBytes,
+            totalSizeStr: totalBytes > 0 ? `${totalMb} MiB` : "",
+            speedStr: `${speedMb} MiB/s`,
+            etaStr: etaSec > 0 ? `${Math.floor(etaSec / 60)}:${(etaSec % 60).toString().padStart(2, "0")}` : "",
+            status: "downloading",
+          });
+        }
+      }
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      fileStream.end(() => resolve());
+      fileStream.on("error", reject);
+    });
+
+    if (onProgress) {
+      onProgress({
+        percent: 100,
+        downloadedBytes,
+        totalBytes: downloadedBytes,
+        totalSizeStr: `${(downloadedBytes / (1024 * 1024)).toFixed(1)} MiB`,
+        speedStr: "0.0 MiB/s",
+        etaStr: "00:00",
+        status: "completed",
+      });
+    }
+
+    return { success: true, data: { filePath: outputPath, bytes: downloadedBytes } };
+  } catch (err) {
+    if (fs.existsSync(outputPath)) {
+      try {
+        fs.unlinkSync(outputPath);
+      } catch {
+        // ignore
+      }
+    }
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Downloads X.com / Twitter media using scratch extractor with yt-dlp fallback
+ */
+export async function downloadXVideo(
+  options: YouTubeDownloadOptions,
+  onProgress?: (progress: DownloadProgress) => void,
+  onProcSpawn?: (proc: ChildProcess) => void
+): Promise<Result<YouTubeDownloadResult>> {
+  const { url, outputDir } = options;
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  const infoRes = await fetchXInfo(url);
+  if (infoRes.success && infoRes.data.directMediaUrl) {
+    const d = infoRes.data;
+    const safeTitle = (d.title || "X Media").replace(/[<>:"/\\|?*]+/g, "_").slice(0, 80);
+    const isImage = d.mediaType === "image";
+    const ext = isImage ? "jpg" : "mp4";
+    const filename = isImage ? `[PHOTO] ${safeTitle} [${d.id}].${ext}` : `${safeTitle} [${d.id}].${ext}`;
+    const filePath = path.join(outputDir, filename);
+
+    const dlRes = await downloadDirectStreamMedia(d.directMediaUrl, filePath, onProgress);
+    if (dlRes.success) {
+      ytdlpLogger.info({ url, filePath }, "X media downloaded successfully via scratch direct stream");
+      return {
+        success: true,
+        data: {
+          videoPath: filePath,
+          info: d,
+        },
+      };
+    }
+    ytdlpLogger.warn({ url, err: dlRes.error }, "X scratch direct stream failed, attempting yt-dlp fallback");
+  }
+
+  return downloadGenericYtDlpVideo(options, onProgress, onProcSpawn);
+}
+
+/**
+ * Downloads Pinterest media using scratch extractor with yt-dlp fallback
+ */
+export async function downloadPinterestVideo(
+  options: YouTubeDownloadOptions,
+  onProgress?: (progress: DownloadProgress) => void,
+  onProcSpawn?: (proc: ChildProcess) => void
+): Promise<Result<YouTubeDownloadResult>> {
+  const { url, outputDir } = options;
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  const infoRes = await fetchPinterestInfo(url);
+  if (infoRes.success && infoRes.data.directMediaUrl) {
+    const d = infoRes.data;
+    const safeTitle = (d.title || "Pinterest Media").replace(/[<>:"/\\|?*]+/g, "_").slice(0, 80);
+    const isImage = d.mediaType === "image";
+    const ext = isImage ? "jpg" : "mp4";
+    const prefix = isImage ? "[PIN_IMG]" : "[PIN_VID]";
+    const filename = `${prefix} ${safeTitle} [${d.id}].${ext}`;
+    const filePath = path.join(outputDir, filename);
+
+    const dlRes = await downloadDirectStreamMedia(d.directMediaUrl, filePath, onProgress);
+    if (dlRes.success) {
+      ytdlpLogger.info({ url, filePath }, "Pinterest media downloaded successfully via scratch direct stream");
+      return {
+        success: true,
+        data: {
+          videoPath: filePath,
+          info: d,
+        },
+      };
+    }
+    ytdlpLogger.warn({ url, err: dlRes.error }, "Pinterest scratch direct stream failed, attempting yt-dlp fallback");
+  }
+
+  return downloadGenericYtDlpVideo(options, onProgress, onProcSpawn);
+}
+
+/**
  * Downloads a video from YouTube, TikTok, or Instagram with live progress feedback
  */
 export async function downloadYouTubeVideo(
@@ -795,6 +1001,16 @@ export async function downloadYouTubeVideo(
   // If TikTok, use optimized direct TikTok downloader
   if (isTikTokUrl(url)) {
     return downloadTikTokVideo(options, onProgress);
+  }
+
+  // If X / Twitter, use scratch extractor with yt-dlp fallback
+  if (isXUrl(url)) {
+    return downloadXVideo(options, onProgress, onProcSpawn);
+  }
+
+  // If Pinterest, use scratch extractor with yt-dlp fallback
+  if (isPinterestUrl(url)) {
+    return downloadPinterestVideo(options, onProgress, onProcSpawn);
   }
 
   // If Instagram or generic, use generic downloader
@@ -829,7 +1045,7 @@ export async function downloadYouTubeVideo(
 
   const outputTemplate = hasTimeRange
     ? path.join(outputDir, `[SPLIT_${startSafe}_${endSafe}] %(title)s [%(id)s].%(ext)s`)
-    : path.join(outputDir, "[FULL] %(title)s [%(id)s].%(ext)s");
+    : path.join(outputDir, "%(title)s [%(id)s].%(ext)s");
 
   const args = [
     "-i",
@@ -841,6 +1057,7 @@ export async function downloadYouTubeVideo(
     formatSort,
     "--merge-output-format",
     "mp4",
+    ...getNetworkAccelerationArgs(),
     "--js-runtimes",
     "node",
     "--remote-components",

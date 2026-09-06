@@ -44,8 +44,7 @@ import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import SettingsIcon from "@mui/icons-material/Settings";
 import DownloadIcon from "@mui/icons-material/Download";
 import { apiFetch } from "@/lib/api-client";
-import { XclipsProject, SubtitlePreset, XclipsAiSettings } from "@/lib/xclips/types";
-import { YouTubeVideoInfo } from "@/lib/xclips/ytdlp-downloader";
+import { XclipsProject, SubtitlePreset, XclipsAiSettings, YouTubeVideoInfo } from "@/lib/xclips/types";
 import { useRouter } from "next/navigation";
 
 const AI_TRANSCRIBE_MODELS = [

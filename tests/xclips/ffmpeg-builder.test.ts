@@ -27,14 +27,16 @@ describe("xclips - FFmpeg Filter Complex Builder", () => {
     // Verify concat is present for multiple segments
     expect(filterComplex).toContain("concat=n=2:v=1:a=0");
 
-    // Verify blur_bg filter components
-    expect(filterComplex).toContain("boxblur=25:5");
+    // Verify optimized pyramid blur_bg filter components
+    expect(filterComplex).toContain("boxblur=4:1");
     expect(filterComplex).toContain("overlay=(W-w)/2:(H-h)/2");
 
     // Verify loudnorm is applied
     expect(filterComplex).toContain("loudnorm=");
 
-    // Verify args structure
+    // Verify args structure and fast-seeking before -i
+    expect(args).toContain("-ss");
+    expect(args).toContain("-to");
     expect(args).toContain("-c:v");
     expect(args).toContain("libx264");
     expect(args).toContain("-preset");
@@ -307,6 +309,19 @@ describe("xclips - FFmpeg Filter Complex Builder", () => {
     expect(amfCmd.args).toContain("h264_amf");
     expect(amfCmd.args).toContain("-quality");
   });
+
+  it("should detect available hardware profile on host system dynamically", async () => {
+    const { detectHardwareProfile, resetHardwareProfileCacheForTesting } = require("@/lib/xclips/queue");
+    resetHardwareProfileCacheForTesting();
+
+    const profile = await detectHardwareProfile();
+    expect(profile).toBeDefined();
+    expect(profile.encoder).toBeDefined();
+    expect(["nvenc", "qsv", "videotoolbox", "amf", "cpu"]).toContain(profile.encoder);
+    expect(["nvidia", "intel_qsv", "amd_amf", "apple_silicon", "cpu"]).toContain(profile.deviceType);
+    expect(profile.label).toBeTruthy();
+    expect(profile.cpuCores).toBeGreaterThan(0);
+  }, 10000);
 });
 
 

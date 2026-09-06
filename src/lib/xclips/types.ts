@@ -16,7 +16,7 @@ export const WordTimestampSchema = z.object({
 
 export type WordTimestamp = z.infer<typeof WordTimestampSchema>;
 
-export const SourceTypeSchema = z.enum(["local", "youtube", "tiktok", "instagram"]);
+export const SourceTypeSchema = z.enum(["local", "youtube", "tiktok", "instagram", "x", "pinterest"]);
 export type SourceType = z.infer<typeof SourceTypeSchema>;
 
 export const AspectRatioSchema = z.enum(["9:16", "1:1", "4:5", "16:9"]);
@@ -368,8 +368,8 @@ export interface CleanResult {
 // Multiplatform Downloader Types
 // ============================================================
 
-export type DownloaderPlatform = "youtube" | "tiktok" | "instagram" | "generic";
-export type DownloaderFormatType = "video" | "audio" | "subtitle" | "thumbnail";
+export type DownloaderPlatform = "youtube" | "tiktok" | "instagram" | "x" | "pinterest" | "generic";
+export type DownloaderFormatType = "video" | "audio" | "subtitle" | "thumbnail" | "image";
 export type DownloaderQuality =
   | "4k"
   | "1440p"
@@ -417,6 +417,29 @@ export interface DownloaderOptions {
   customName?: string;
   outputDir?: string;
   timeRange?: TimeRange;
+}
+
+export interface YouTubeVideoInfo {
+  id: string;
+  title: string;
+  duration: number; // in seconds
+  thumbnail: string;
+  uploader: string;
+  channel: string;
+  description: string;
+  webpageUrl: string;
+  mediaType?: "video" | "image";
+  directMediaUrl?: string;
+}
+
+export interface DownloadProgress {
+  percent: number;
+  downloadedBytes: number;
+  totalBytes: number;
+  totalSizeStr?: string;
+  speedStr: string;
+  etaStr: string;
+  status: "downloading" | "merging" | "transcribing" | "completed" | "error";
 }
 
 

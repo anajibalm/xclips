@@ -95,6 +95,24 @@ export function MediaPreviewModal({
         />
       );
     }
+    if (record.platform === "x") {
+      return (
+        <Chip
+          label="𝕏 / Twitter"
+          size="small"
+          sx={{ bgcolor: "rgba(255, 255, 255, 0.12)", color: "#ffffff", fontWeight: 700, borderRadius: 1 }}
+        />
+      );
+    }
+    if (record.platform === "pinterest") {
+      return (
+        <Chip
+          label="Pinterest"
+          size="small"
+          sx={{ bgcolor: "rgba(230, 0, 35, 0.18)", color: "#f87171", fontWeight: 700, borderRadius: 1 }}
+        />
+      );
+    }
     return (
       <Chip
         icon={<VideoLibraryIcon sx={{ fontSize: "0.9rem !important", color: "#a1a1aa !important" }} />}
@@ -236,7 +254,7 @@ export function MediaPreviewModal({
         )}
 
         {/* Image / Thumbnail Preview */}
-        {record.formatType === "thumbnail" && (
+        {(record.formatType === "thumbnail" || record.formatType === "image") && (
           <Box
             sx={{
               width: "100%",

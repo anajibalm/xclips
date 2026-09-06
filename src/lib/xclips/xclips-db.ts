@@ -826,6 +826,18 @@ export class XclipsDatabase {
       fields.push("thumbnailUrl = $thumbnailUrl");
       params.$thumbnailUrl = updates.thumbnailUrl;
     }
+    if (updates.formatType !== undefined) {
+      fields.push("formatType = $formatType");
+      params.$formatType = updates.formatType;
+    }
+    if (updates.durationSec !== undefined) {
+      fields.push("durationSec = $durationSec");
+      params.$durationSec = updates.durationSec;
+    }
+    if (updates.author !== undefined) {
+      fields.push("author = $author");
+      params.$author = updates.author;
+    }
 
     if (fields.length === 0) return;
 

@@ -228,10 +228,21 @@ app.post("/api/xclips/youtube/ingest-async", async (c) => {
             downloadSubtitles: downloadSubtitles ?? true,
           },
           (prog) => {
+            const current = activeDownloads.get(taskId);
             activeDownloads.set(taskId, {
+              ...current,
               ...prog,
               status: prog.status,
             });
+          },
+          (eagerProject) => {
+            const current = activeDownloads.get(taskId);
+            if (current) {
+              activeDownloads.set(taskId, {
+                ...current,
+                project: eagerProject,
+              });
+            }
           }
         );
 
@@ -335,10 +346,12 @@ app.get("/api/xclips/youtube/progress/:taskId", (c) => {
 // =============================================================================
 
 /** Detect platform from a URL string */
-function detectFootagePlatform(url: string): "youtube" | "tiktok" | "instagram" | "unknown" {
+function detectFootagePlatform(url: string): "youtube" | "tiktok" | "instagram" | "x" | "pinterest" | "unknown" {
   if (/youtube\.com|youtu\.be/i.test(url)) return "youtube";
   if (/tiktok\.com/i.test(url)) return "tiktok";
   if (/instagram\.com/i.test(url)) return "instagram";
+  if (/twitter\.com|x\.com/i.test(url)) return "x";
+  if (/pinterest\.com|pin\.it/i.test(url)) return "pinterest";
   return "unknown";
 }
 
@@ -446,6 +459,8 @@ function detectPlatformHelper(url: string): DownloaderPlatform {
   if (/youtube\.com|youtu\.be/i.test(url)) return "youtube";
   if (/tiktok\.com/i.test(url)) return "tiktok";
   if (/instagram\.com/i.test(url)) return "instagram";
+  if (/twitter\.com|x\.com/i.test(url)) return "x";
+  if (/pinterest\.com|pin\.it/i.test(url)) return "pinterest";
   return "generic";
 }
 
@@ -481,7 +496,6 @@ app.post("/api/xclips/downloader/start", async (c) => {
       quality = "1080p",
       downloadSubtitles = false,
       customName,
-      sendToStudio = false,
       timeRange,
     } = body as {
       url?: string;
@@ -489,7 +503,6 @@ app.post("/api/xclips/downloader/start", async (c) => {
       quality?: DownloaderQuality;
       downloadSubtitles?: boolean;
       customName?: string;
-      sendToStudio?: boolean;
       timeRange?: TimeRange;
     };
 
@@ -649,30 +662,19 @@ app.post("/api/xclips/downloader/start", async (c) => {
             ? `${baseTitle}${rangeTag}`
             : baseTitle;
 
+          const isImg = info?.mediaType === "image" || /\.(jpg|jpeg|png|webp)$/i.test(finalFile);
+          const resolvedFormatType: DownloaderFormatType = isImg ? "image" : formatType;
+
           xclipsDb.updateDownloadRecord(taskId, {
             status: "completed",
             filePath: finalFile,
             fileSizeBytes,
             title: finalTitle,
             author: info?.uploader || info?.channel || "",
-            durationSec: info?.duration || 0,
+            durationSec: isImg ? 0 : (info?.duration || 0),
             thumbnailUrl: info?.thumbnail || "",
+            formatType: resolvedFormatType,
           });
-
-          let studioProject: XclipsProject | undefined = undefined;
-          if (sendToStudio && formatType === "video") {
-            try {
-              const projRes = await xclipsService.ingestLocalFile(
-                finalFile,
-                info?.title || customName || path.basename(finalFile)
-              );
-              if (projRes.success) {
-                studioProject = projRes.data;
-              }
-            } catch {
-              // non-fatal
-            }
-          }
 
           const completedRecord = xclipsDb.getDownloadRecordById(taskId);
           activeDownloads.set(taskId, {
@@ -683,7 +685,6 @@ app.post("/api/xclips/downloader/start", async (c) => {
             etaStr: "",
             status: "completed",
             downloadRecord: completedRecord || undefined,
-            project: studioProject,
           });
         }
       } catch (err: unknown) {

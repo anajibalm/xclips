@@ -11,10 +11,12 @@ interface AppShellProps {
 export default function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const isXclipsStudio = pathname === "/xclips/studio";
+  const isXclipsDownloader = pathname === "/xclips/downloader";
+  const isFixed100vh = isXclipsStudio || isXclipsDownloader;
   const isXclips = pathname.startsWith("/xclips");
 
-  // Standalone xClips Studio: 100vh fixed desktop container without padding overflow
-  if (isXclipsStudio) {
+  // Standalone xClips Studio & Downloader: 100vh fixed desktop container without padding overflow
+  if (isFixed100vh) {
     return (
       <Box
         sx={{
@@ -23,9 +25,11 @@ export default function AppShell({ children }: AppShellProps) {
           overflow: "hidden",
           bgcolor: "#09090b",
           color: "#f4f4f5",
-          width: "100vw",
+          width: "100%",
+          maxWidth: "100vw",
           m: 0,
           p: 0,
+          boxSizing: "border-box",
         }}
       >
         {children}
