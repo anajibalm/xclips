@@ -26,16 +26,17 @@ import {
 } from "@mui/material";
 import { useCallback, useState } from "react";
 import { FormField } from "@/components/form/FormField";
-import { detectSourceType } from "@/lib/xclips/auto-production-helpers";
-import type {
-	AutoProductionJobResult,
-	AutoProductionStage,
-	RerenderJobContext,
-} from "@/lib/xclips/auto-production-service";
-import type {
-	AccountPresetId,
-	ProductionBrief,
-} from "@/lib/xclips/auto-production-types";
+import {
+	type AutoProductionJobResult,
+	type AutoProductionStage,
+	type RerenderJobContext,
+	type AccountPresetId,
+	type ProductionBrief,
+	detectSourceType,
+	generateAutoProduction,
+	rerenderAutoProduction,
+	regenerateAutoProduction,
+} from "@/lib/xclips/auto-production-api";
 
 // ============================================================
 // Auto Production UI — Slice 5
@@ -106,20 +107,7 @@ export default function AutoProductionPage() {
 		setUiState({ phase: "processing", stage: "preparing_source" });
 
 		try {
-			const { runAutoProductionJob: runJob } = await import(
-				"@/lib/xclips/auto-production-service"
-			);
-			const { getAutoProductionDeps } = await import(
-				"@/lib/xclips/auto-production-deps"
-			);
-			const deps = getAutoProductionDeps();
-
-			const result = await runJob({
-				brief,
-				deps,
-				onProgress: (stage) => setUiState({ phase: "processing", stage }),
-			});
-
+			const result = await generateAutoProduction(brief);
 			setUiState({ phase: "result", result });
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
@@ -138,15 +126,7 @@ export default function AutoProductionPage() {
 
 		setUiState({ phase: "processing", stage: "preparing_graphics" });
 		try {
-			const { rerenderAutoProductionJob } = await import(
-				"@/lib/xclips/auto-production-service"
-			);
-
-			const result = await rerenderAutoProductionJob({
-				context: rerenderContext,
-				onProgress: (stage) => setUiState({ phase: "processing", stage }),
-			});
-
+			const result = await rerenderAutoProduction(rerenderContext);
 			setUiState({ phase: "result", result });
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
@@ -161,25 +141,11 @@ export default function AutoProductionPage() {
 		if (uiState.phase !== "result" || uiState.result.status === "FAILED")
 			return;
 
-		// Reuse the brief from the rerender context to rerun full planning
 		const rerenderContext = uiState.result.bundle.rerenderContext;
 
 		setUiState({ phase: "processing", stage: "preparing_source" });
 		try {
-			const { runAutoProductionJob: runJob } = await import(
-				"@/lib/xclips/auto-production-service"
-			);
-			const { getAutoProductionDeps } = await import(
-				"@/lib/xclips/auto-production-deps"
-			);
-			const deps = getAutoProductionDeps();
-
-			const result = await runJob({
-				brief: rerenderContext.brief,
-				deps,
-				onProgress: (stage) => setUiState({ phase: "processing", stage }),
-			});
-
+			const result = await regenerateAutoProduction(rerenderContext.brief);
 			setUiState({ phase: "result", result });
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);

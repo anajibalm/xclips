@@ -2016,6 +2016,63 @@ app.post("/api/xclips/projects/import", async (c) => {
   }
 });
 
+// --- Auto Production Routes -----------------------------------------------
+import {
+  runAutoProductionJob,
+  rerenderAutoProductionJob,
+  type AutoProductionJobResult,
+  type RerenderJobContext,
+} from "../lib/xclips/auto-production-service";
+import { getAutoProductionDeps } from "../lib/xclips/auto-production-deps";
+import type { ProductionBrief } from "../lib/xclips/auto-production-types";
+
+app.post("/api/xclips/auto-production/jobs", async (c) => {
+  try {
+    const body = await c.req.json();
+    const brief: ProductionBrief = body.brief;
+    if (!brief || !brief.source || !brief.editorialAngle) {
+      return c.json({ ok: false, message: "Invalid brief: missing required fields" }, 400);
+    }
+    const deps = getAutoProductionDeps();
+    const result = await runAutoProductionJob({ brief, deps });
+    return c.json({ ok: true, data: result });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Auto production job failed";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
+app.post("/api/xclips/auto-production/rerender", async (c) => {
+  try {
+    const body = await c.req.json();
+    const context: RerenderJobContext = body.context;
+    if (!context || !context.brief || !context.editPlan) {
+      return c.json({ ok: false, message: "Invalid rerender context" }, 400);
+    }
+    const result = await rerenderAutoProductionJob({ context });
+    return c.json({ ok: true, data: result });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Auto production rerender failed";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
+app.post("/api/xclips/auto-production/regenerate", async (c) => {
+  try {
+    const body = await c.req.json();
+    const brief: ProductionBrief = body.brief;
+    if (!brief || !brief.source || !brief.editorialAngle) {
+      return c.json({ ok: false, message: "Invalid brief: missing required fields" }, 400);
+    }
+    const deps = getAutoProductionDeps();
+    const result = await runAutoProductionJob({ brief, deps });
+    return c.json({ ok: true, data: result });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Auto production regenerate failed";
+    return c.json({ ok: false, message }, 500);
+  }
+});
+
 // Start Server
 const port = env.PORT_API;
 console.log(`[Hono API] Starting on http://0.0.0.0:${port}`);
