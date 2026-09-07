@@ -25,6 +25,8 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import VideoLibraryIcon from "@mui/icons-material/VideoLibrary";
 import { DownloadRecord } from "@/lib/xclips/types";
 
+import { getApiBaseUrl } from "@/lib/api-client";
+
 interface MediaPreviewModalProps {
   open: boolean;
   onClose: () => void;
@@ -44,11 +46,16 @@ export function MediaPreviewModal({
 }: MediaPreviewModalProps) {
   const [subtitleText, setSubtitleText] = useState<string>("");
   const [loadingSub, setLoadingSub] = useState(false);
+  const [videoError, setVideoError] = useState(false);
+
+  useEffect(() => {
+    setVideoError(false);
+  }, [record?.id]);
 
   useEffect(() => {
     if (open && record && record.formatType === "subtitle") {
       setLoadingSub(true);
-      fetch(`/api/xclips/downloader/file/${record.id}`)
+      fetch(`${getApiBaseUrl()}/api/xclips/downloader/file/${record.id}`)
         .then((res) => res.text())
         .then((txt) => {
           setSubtitleText(txt);
@@ -63,8 +70,8 @@ export function MediaPreviewModal({
 
   if (!record) return null;
 
-  const fileStreamUrl = `/api/xclips/downloader/file/${record.id}`;
-  const downloadUrl = `/api/xclips/downloader/file/${record.id}?download=1`;
+  const fileStreamUrl = `${getApiBaseUrl()}/api/xclips/downloader/file/${record.id}`;
+  const downloadUrl = `${getApiBaseUrl()}/api/xclips/downloader/file/${record.id}?download=1`;
 
   const getPlatformBadge = () => {
     if (record.platform === "youtube") {
@@ -197,17 +204,38 @@ export function MediaPreviewModal({
               border: "1px solid #27272a",
             }}
           >
-            <video
-              src={fileStreamUrl}
-              controls
-              autoPlay
-              style={{
-                width: "100%",
-                maxHeight: "55vh",
-                objectFit: "contain",
-                outline: "none",
-              }}
-            />
+            {videoError ? (
+              <Box sx={{ p: 4, textAlign: "center", maxWidth: 450 }}>
+                <Typography variant="body2" sx={{ color: "#ef4444", mb: 1, fontWeight: 700 }}>
+                  Failed to play video stream.
+                </Typography>
+                <Typography variant="caption" sx={{ color: "#a1a1aa", display: "block", mb: 2 }}>
+                  The video codec or format might not be natively supported by the browser player. You can still &quot;Show in Folder&quot; or &quot;Download to Browser&quot;.
+                </Typography>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => setVideoError(false)}
+                  sx={{ borderColor: "#3f3f46", color: "#e4e4e7", fontSize: "0.75rem", textTransform: "none" }}
+                >
+                  Retry Playback
+                </Button>
+              </Box>
+            ) : (
+              <video
+                src={fileStreamUrl}
+                controls
+                autoPlay
+                crossOrigin="anonymous"
+                onError={() => setVideoError(true)}
+                style={{
+                  width: "100%",
+                  maxHeight: "55vh",
+                  objectFit: "contain",
+                  outline: "none",
+                }}
+              />
+            )}
           </Box>
         )}
 
@@ -248,6 +276,7 @@ export function MediaPreviewModal({
               src={fileStreamUrl}
               controls
               autoPlay
+              crossOrigin="anonymous"
               style={{ width: "100%", maxWidth: 500, outline: "none" }}
             />
           </Box>

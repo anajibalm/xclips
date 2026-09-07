@@ -181,6 +181,108 @@ export function getNetworkAccelerationArgs(): string[] {
 }
 
 /**
+ * Finds the node binary on the system for yt-dlp JS runtime (EJS challenge solving)
+ */
+export function findNodeBinary(): string | undefined {
+  const candidates = [
+    "C:\\Program Files\\nodejs\\node.exe",
+    "C:\\Program Files (x86)\\nodejs\\node.exe",
+    "node.exe",
+    "node",
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Returns common yt-dlp arguments to bypass bot blocks and ensure high reliability:
+ * 1. Force IPv4 (-4) to prevent YouTube / CDN bot detection blocks on dual-stack ISP IPv6 ranges
+ * 2. Configure Node.js runtime for JavaScript challenge solving
+ * 3. Auto-attach cookies.txt if placed in vault/xclips/cookies.txt
+ */
+export function getCommonYtDlpArgs(): string[] {
+  const args: string[] = ["-4"];
+
+  const nodeBin = findNodeBinary();
+  if (nodeBin) {
+    args.push("--js-runtimes", `node:${nodeBin}`);
+  } else {
+    args.push("--js-runtimes", "node");
+  }
+  args.push("--remote-components", "ejs:github");
+
+  // Check if user has provided cookies file
+  const cookieCandidates = [
+    path.resolve(process.cwd(), "vault", "xclips", "cookies.txt"),
+    path.resolve(process.cwd(), "vault", "xclips", "youtube_cookies.txt"),
+  ];
+  for (const cp of cookieCandidates) {
+    try {
+      if (fs.existsSync(cp) && fs.statSync(cp).size > 0) {
+        args.push("--cookies", cp);
+        break;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return args;
+}
+
+/**
+ * Fallback metadata extractor via public YouTube oEmbed API
+ * Ensures metadata preview never fails even if bot challenge is temporarily triggered
+ */
+export async function fetchYouTubeOEmbedFallback(url: string): Promise<Result<YouTubeVideoInfo>> {
+  try {
+    const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+    const res = await fetch(oembedUrl, {
+      signal: AbortSignal.timeout(8000),
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+      },
+    });
+    if (!res.ok) {
+      return { success: false, error: `oEmbed API failed (HTTP ${res.status})` };
+    }
+    const json = (await res.json()) as {
+      title?: string;
+      author_name?: string;
+      thumbnail_url?: string;
+    };
+    const videoIdMatch = url.match(/(?:v=|\/embed\/|youtu\.be\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
+    const videoId = videoIdMatch ? videoIdMatch[1] : "";
+
+    const info: YouTubeVideoInfo = {
+      id: videoId,
+      title: json.title || "YouTube Video",
+      duration: 0,
+      thumbnail: json.thumbnail_url || (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : ""),
+      uploader: json.author_name || "YouTube Creator",
+      channel: json.author_name || "YouTube Creator",
+      description: "",
+      webpageUrl: url,
+    };
+    return { success: true, data: info };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { success: false, error: `oEmbed error: ${msg}` };
+  }
+}
+
+/**
  * Quickly fetches YouTube subtitles (CC or auto-generated) without downloading any video media.
  * Completes in ~1.5 - 2.5 seconds, enabling eager transcript availability.
  */
@@ -207,6 +309,7 @@ export async function fetchYouTubeSubtitlesQuick(
     "srt",
     "--no-warnings",
     "--ignore-errors",
+    ...getCommonYtDlpArgs(),
     ...getNetworkAccelerationArgs(),
     "-o",
     outputTemplate,
@@ -365,10 +468,7 @@ export async function fetchGenericYtDlpInfo(url: string): Promise<Result<YouTube
       "--dump-json",
       "--no-download",
       "--no-warnings",
-      "--js-runtimes",
-      "node",
-      "--remote-components",
-      "ejs:github",
+      ...getCommonYtDlpArgs(),
       "--ignore-errors",
       url.trim(),
     ];
@@ -478,10 +578,7 @@ export async function fetchYouTubeInfo(url: string): Promise<Result<YouTubeVideo
       "--dump-json",
       "--no-download",
       "--no-warnings",
-      "--js-runtimes",
-      "node",
-      "--remote-components",
-      "ejs:github",
+      ...getCommonYtDlpArgs(),
       "--ignore-errors",
       url.trim(),
     ];
@@ -492,9 +589,13 @@ export async function fetchYouTubeInfo(url: string): Promise<Result<YouTubeVideo
       windowsHide: true,
     });
 
-    const timeout = setTimeout(() => {
+    const timeout = setTimeout(async () => {
       proc.kill();
-      ytdlpLogger.error({ url }, "Timeout fetching YouTube metadata (60s)");
+      ytdlpLogger.warn({ url }, "Timeout fetching YouTube metadata (60s), trying oEmbed fallback");
+      const oembedRes = await fetchYouTubeOEmbedFallback(url);
+      if (oembedRes.success) {
+        return resolve(oembedRes);
+      }
       resolve({ success: false, error: "Timeout saat mengambil metadata YouTube (60s)" });
     }, 60000);
 
@@ -506,10 +607,15 @@ export async function fetchYouTubeInfo(url: string): Promise<Result<YouTubeVideo
       stderrData += chunk.toString();
     });
 
-    proc.on("close", (code) => {
+    proc.on("close", async (code) => {
       clearTimeout(timeout);
       if (code !== 0 && !stdoutData.trim()) {
-        ytdlpLogger.error({ url, code, stderr: stderrData.slice(0, 500) }, "yt-dlp failed to fetch metadata");
+        ytdlpLogger.warn({ url, code, stderr: stderrData.slice(0, 500) }, "yt-dlp failed to fetch metadata, trying oEmbed fallback");
+        const oembedRes = await fetchYouTubeOEmbedFallback(url);
+        if (oembedRes.success) {
+          ytdlpLogger.info({ url, info: oembedRes.data }, "YouTube metadata recovered via oEmbed fallback");
+          return resolve(oembedRes);
+        }
         return resolve({
           success: false,
           error: `Gagal membaca info video: ${stderrData.slice(0, 300) || "Unknown error"}`,
@@ -754,6 +860,7 @@ export async function downloadGenericYtDlpVideo(
     "-i",
     "--no-warnings",
     "--ignore-errors",
+    ...getCommonYtDlpArgs(),
     "-f",
     formatSelector,
     "--format-sort",
@@ -761,10 +868,6 @@ export async function downloadGenericYtDlpVideo(
     "--merge-output-format",
     "mp4",
     ...getNetworkAccelerationArgs(),
-    "--js-runtimes",
-    "node",
-    "--remote-components",
-    "ejs:github",
     "-o",
     outputTemplate,
   ];
@@ -1080,6 +1183,7 @@ export async function downloadYouTubeVideo(
     "-i",
     "--no-warnings",
     "--ignore-errors",
+    ...getCommonYtDlpArgs(),
     "-f",
     formatSelector,
     "--format-sort",
@@ -1087,10 +1191,6 @@ export async function downloadYouTubeVideo(
     "--merge-output-format",
     "mp4",
     ...getNetworkAccelerationArgs(),
-    "--js-runtimes",
-    "node",
-    "--remote-components",
-    "ejs:github",
     "-o",
     outputTemplate,
   ];
@@ -1385,15 +1485,12 @@ export async function downloadAudioOnly(
     "-i",
     "--no-warnings",
     "--ignore-errors",
+    ...getCommonYtDlpArgs(),
     "-x",
     "--audio-format",
     format,
     "--audio-quality",
     "0",
-    "--js-runtimes",
-    "node",
-    "--remote-components",
-    "ejs:github",
     "-o",
     outputTemplate,
   ];
@@ -1526,16 +1623,13 @@ export async function downloadSubtitleOnly(
     "--skip-download",
     "--no-warnings",
     "--ignore-errors",
+    ...getCommonYtDlpArgs(),
     "--write-subs",
     "--write-auto-subs",
     "--sub-lang",
     "id,id-orig,en,en-orig,all",
     "--sub-format",
     downloadExt,
-    "--js-runtimes",
-    "node",
-    "--remote-components",
-    "ejs:github",
     "-o",
     outputTemplate,
     url.trim(),

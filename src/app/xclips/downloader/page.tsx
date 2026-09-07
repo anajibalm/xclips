@@ -20,6 +20,7 @@ import {
   FormControl,
   InputLabel,
   Switch,
+  Checkbox,
   FormControlLabel,
   CircularProgress,
   Dialog,
@@ -130,6 +131,62 @@ export default function MultiplatformDownloaderPage() {
   const [videoInfo, setVideoInfo] = useState<YouTubeVideoInfo | null>(null);
   const [infoError, setInfoError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  // Dynamic available format options based on platform and detected media
+  const availableFormatTypes: { value: DownloaderFormatType; label: string }[] = React.useMemo(() => {
+    if (videoInfo?.mediaType === "image") {
+      return [{ value: "image", label: "Photo / Image (JPG / PNG)" }];
+    }
+    const options: { value: DownloaderFormatType; label: string }[] = [
+      { value: "video", label: "Video (MP4)" },
+      { value: "audio", label: "Audio Only (MP3 / WAV)" },
+    ];
+    if (detectedPlatform === "youtube") {
+      options.push({ value: "subtitle", label: "Subtitle Track (SRT / VTT)" });
+    }
+    options.push({ value: "thumbnail", label: "Cover Thumbnail (JPG)" });
+    return options;
+  }, [videoInfo?.mediaType, detectedPlatform]);
+
+  // Ensure selected formatType is available
+  useEffect(() => {
+    const isAvailable = availableFormatTypes.some((f) => f.value === formatType);
+    if (!isAvailable) {
+      if (videoInfo?.mediaType === "image") {
+        setFormatType("image");
+      } else {
+        setFormatType("video");
+      }
+    }
+  }, [availableFormatTypes, formatType, videoInfo?.mediaType]);
+
+  // Dynamic available video quality options based on platform
+  const availableVideoQualities: { value: DownloaderQuality; label: string }[] = React.useMemo(() => {
+    if (detectedPlatform === "youtube") {
+      return [
+        { value: "1080p", label: "1080p · Full HD" },
+        { value: "4k", label: "4K · Ultra HD (2160p)" },
+        { value: "1440p", label: "1440p · 2K QHD" },
+        { value: "720p", label: "720p · HD" },
+        { value: "480p", label: "480p · SD" },
+        { value: "best", label: "Best Original Source" },
+      ];
+    }
+    return [
+      { value: "best", label: "Best Original Source" },
+      { value: "1080p", label: "1080p · Full HD" },
+      { value: "720p", label: "720p · HD" },
+      { value: "480p", label: "480p · SD" },
+    ];
+  }, [detectedPlatform]);
+
+  // Ensure selected videoQuality is available
+  useEffect(() => {
+    const isAvailable = availableVideoQualities.some((q) => q.value === videoQuality);
+    if (!isAvailable) {
+      setVideoQuality(detectedPlatform === "youtube" ? "1080p" : "best");
+    }
+  }, [availableVideoQualities, videoQuality, detectedPlatform]);
 
   // Active Multi-Task Queue State
   const [activeTasks, setActiveTasks] = useState<Map<string, ActiveTaskItem>>(new Map());
@@ -383,10 +440,10 @@ export default function MultiplatformDownloaderPage() {
     };
   }, [activeTasks]);
 
-  // Add quick duration to splitEnd
-  const handleAddSplitDuration = (secondsToAdd: number) => {
-    const s = parseTimeToSeconds(splitStart);
-    let target = s + secondsToAdd;
+  // Add quick duration to splitEnd (fine-tune or relative to splitStart)
+  const handleAddSplitDuration = (secondsToAdd: number, isFineTune = false) => {
+    const base = isFineTune ? parseTimeToSeconds(splitEnd) : parseTimeToSeconds(splitStart);
+    let target = base + secondsToAdd;
     if (videoInfo?.duration && target > videoInfo.duration) {
       target = videoInfo.duration;
     }
@@ -882,9 +939,8 @@ export default function MultiplatformDownloaderPage() {
         sx={{
           display: "flex",
           flexDirection: { xs: "column", md: "row" },
-          flexGrow: 1,
+          flex: "1 1 0px",
           minHeight: 0,
-          height: "100%",
           alignItems: "stretch",
           overflow: "hidden",
           gap: { xs: 2, md: 2.5 },
@@ -897,12 +953,12 @@ export default function MultiplatformDownloaderPage() {
         {/* ========================================================================= */}
         <Box
           sx={{
-            height: "100%",
             display: "flex",
             flexDirection: "column",
             minHeight: 0,
             minWidth: 0,
-            flex: { xs: "none", md: "1 1 50%" },
+            flex: { xs: 1, md: "1 1 50%" },
+            height: "100%",
             width: { xs: "100%", md: "50%" },
             maxWidth: { xs: "100%", md: "50%" },
             pr: { md: 2.5 },
@@ -920,7 +976,7 @@ export default function MultiplatformDownloaderPage() {
               display: "flex",
               flexDirection: "column",
               gap: 2.5,
-              pb: 2,
+              pb: 3,
             }}
           >
             {/* CARD 1: INPUT & SETTINGS FORM */}
@@ -1019,27 +1075,27 @@ export default function MultiplatformDownloaderPage() {
 
                 {/* Collapsible Metadata Preview & Settings */}
                 <Collapse in={Boolean(isSupportedPlatform(url) && (videoInfo || fetchingInfo))} timeout={300}>
-                  <Box sx={{ mt: 2.2, pt: 2, borderTop: "1px solid #1f1f23" }}>
+                  <Box sx={{ mt: 1.8, pt: 1.8, borderTop: "1px solid #1f1f23" }}>
                     {/* Media Preview Card */}
                     {videoInfo && (
                       <Box
                         sx={{
                           display: "flex",
                           alignItems: "center",
-                          gap: 1.8,
-                          p: 1.5,
-                          bgcolor: "#18181b",
-                          borderRadius: 1.8,
+                          gap: 1.5,
+                          p: 1.2,
+                          bgcolor: "#161619",
+                          borderRadius: 1.5,
                           border: "1px solid #27272a",
-                          mb: 2.2,
+                          mb: 1.5,
                         }}
                       >
                         {videoInfo.thumbnail && (
                           <Box
                             sx={{
-                              width: 100,
-                              height: 60,
-                              borderRadius: 1.2,
+                              width: 96,
+                              height: 54,
+                              borderRadius: 1,
                               overflow: "hidden",
                               flexShrink: 0,
                               position: "relative",
@@ -1055,10 +1111,10 @@ export default function MultiplatformDownloaderPage() {
                               <Box
                                 sx={{
                                   position: "absolute",
-                                  bottom: 3,
-                                  right: 3,
+                                  bottom: 2,
+                                  right: 2,
                                   bgcolor: "rgba(0,0,0,0.85)",
-                                  px: 0.6,
+                                  px: 0.5,
                                   py: 0.1,
                                   borderRadius: 0.5,
                                   fontSize: "0.65rem",
@@ -1072,10 +1128,10 @@ export default function MultiplatformDownloaderPage() {
                               <Box
                                 sx={{
                                   position: "absolute",
-                                  bottom: 3,
-                                  right: 3,
+                                  bottom: 2,
+                                  right: 2,
                                   bgcolor: "rgba(59, 130, 246, 0.85)",
-                                  px: 0.6,
+                                  px: 0.5,
                                   py: 0.1,
                                   borderRadius: 0.5,
                                   fontSize: "0.65rem",
@@ -1090,7 +1146,7 @@ export default function MultiplatformDownloaderPage() {
                         )}
 
                         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.3 }}>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.2 }}>
                             {renderPlatformBadge(detectedPlatform)}
                             <Typography variant="caption" sx={{ color: "#a1a1aa", fontSize: "0.75rem" }} noWrap>
                               {videoInfo.uploader || videoInfo.channel || "Creator"}
@@ -1106,7 +1162,7 @@ export default function MultiplatformDownloaderPage() {
                               WebkitBoxOrient: "vertical",
                               overflow: "hidden",
                               lineHeight: 1.3,
-                              fontSize: "0.85rem",
+                              fontSize: "0.82rem",
                             }}
                           >
                             {videoInfo.title}
@@ -1126,75 +1182,77 @@ export default function MultiplatformDownloaderPage() {
                       </Box>
                     )}
 
-                    {/* Download Settings Form (Grid layout for wide 8-col area) */}
-                    <Grid container spacing={2} sx={{ mb: 2 }}>
+                    {/* Download Settings Form (Compact Grid) */}
+                    <Grid container spacing={1.2} sx={{ mb: 1.2 }}>
                       {/* Format Type Dropdown */}
-                      <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                      <Grid size={{ xs: 12, sm: 3.5 }}>
                         <FormControl fullWidth size="small">
-                          <InputLabel sx={{ color: "#a1a1aa", fontSize: "0.85rem" }}>Media Format</InputLabel>
+                          <InputLabel sx={{ color: "#a1a1aa", fontSize: "0.82rem" }}>Format</InputLabel>
                           <Select
                             value={formatType}
-                            label="Media Format"
+                            label="Format"
                             onChange={(e) => setFormatType(e.target.value as DownloaderFormatType)}
                             sx={{
-                              bgcolor: "#18181b",
+                              bgcolor: "#161619",
                               color: "#f4f4f5",
-                              borderRadius: 1.2,
-                              fontSize: "0.85rem",
+                              borderRadius: 1,
+                              fontSize: "0.82rem",
+                              height: 38,
                               "& .MuiOutlinedInput-notchedOutline": { borderColor: "#27272a" },
                               "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: "#3f3f46" },
                             }}
                           >
-                            <MenuItem value="video">Video (MP4)</MenuItem>
-                            <MenuItem value="audio">Audio Only (MP3 / WAV)</MenuItem>
-                            <MenuItem value="image">Photo / Image (JPG / PNG)</MenuItem>
-                            <MenuItem value="subtitle">Subtitle Track (SRT / VTT)</MenuItem>
-                            <MenuItem value="thumbnail">Cover Thumbnail (JPG)</MenuItem>
+                            {availableFormatTypes.map((fmt) => (
+                              <MenuItem key={fmt.value} value={fmt.value}>
+                                {fmt.label}
+                              </MenuItem>
+                            ))}
                           </Select>
                         </FormControl>
                       </Grid>
 
                       {/* Adaptive Quality Dropdown */}
                       {formatType === "video" && (
-                        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                        <Grid size={{ xs: 12, sm: 3.5 }}>
                           <FormControl fullWidth size="small">
-                            <InputLabel sx={{ color: "#a1a1aa", fontSize: "0.85rem" }}>Video Quality</InputLabel>
+                            <InputLabel sx={{ color: "#a1a1aa", fontSize: "0.82rem" }}>Quality</InputLabel>
                             <Select
                               value={videoQuality}
-                              label="Video Quality"
+                              label="Quality"
                               onChange={(e) => setVideoQuality(e.target.value as DownloaderQuality)}
                               sx={{
-                                bgcolor: "#18181b",
+                                bgcolor: "#161619",
                                 color: "#f4f4f5",
-                                borderRadius: 1.2,
-                                fontSize: "0.85rem",
+                                borderRadius: 1,
+                                fontSize: "0.82rem",
+                                height: 38,
                                 "& .MuiOutlinedInput-notchedOutline": { borderColor: "#27272a" },
                               }}
                             >
-                              <MenuItem value="1080p">Full HD 1080p (Recommended)</MenuItem>
-                              <MenuItem value="4k">Ultra HD 4K (2160p)</MenuItem>
-                              <MenuItem value="1440p">Quad HD 2K (1440p)</MenuItem>
-                              <MenuItem value="720p">HD 720p (Fast &amp; Lightweight)</MenuItem>
-                              <MenuItem value="480p">SD 480p (Compact)</MenuItem>
-                              <MenuItem value="best">Best Original Source</MenuItem>
+                              {availableVideoQualities.map((q) => (
+                                <MenuItem key={q.value} value={q.value}>
+                                  {q.label}
+                                </MenuItem>
+                              ))}
                             </Select>
                           </FormControl>
                         </Grid>
                       )}
 
                       {formatType === "audio" && (
-                        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                        <Grid size={{ xs: 12, sm: 3.5 }}>
                           <FormControl fullWidth size="small">
-                            <InputLabel sx={{ color: "#a1a1aa", fontSize: "0.85rem" }}>Audio Quality</InputLabel>
+                            <InputLabel sx={{ color: "#a1a1aa", fontSize: "0.82rem" }}>Quality</InputLabel>
                             <Select
                               value={audioQuality}
-                              label="Audio Quality"
+                              label="Quality"
                               onChange={(e) => setAudioQuality(e.target.value as DownloaderQuality)}
                               sx={{
-                                bgcolor: "#18181b",
+                                bgcolor: "#161619",
                                 color: "#f4f4f5",
-                                borderRadius: 1.2,
-                                fontSize: "0.85rem",
+                                borderRadius: 1,
+                                fontSize: "0.82rem",
+                                height: 38,
                                 "& .MuiOutlinedInput-notchedOutline": { borderColor: "#27272a" },
                               }}
                             >
@@ -1207,18 +1265,19 @@ export default function MultiplatformDownloaderPage() {
                       )}
 
                       {formatType === "subtitle" && (
-                        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                        <Grid size={{ xs: 12, sm: 3.5 }}>
                           <FormControl fullWidth size="small">
-                            <InputLabel sx={{ color: "#a1a1aa", fontSize: "0.85rem" }}>Subtitle Format</InputLabel>
+                            <InputLabel sx={{ color: "#a1a1aa", fontSize: "0.82rem" }}>Format</InputLabel>
                             <Select
                               value={subQuality}
-                              label="Subtitle Format"
+                              label="Format"
                               onChange={(e) => setSubQuality(e.target.value as DownloaderQuality)}
                               sx={{
-                                bgcolor: "#18181b",
+                                bgcolor: "#161619",
                                 color: "#f4f4f5",
-                                borderRadius: 1.2,
-                                fontSize: "0.85rem",
+                                borderRadius: 1,
+                                fontSize: "0.82rem",
+                                height: 38,
                                 "& .MuiOutlinedInput-notchedOutline": { borderColor: "#27272a" },
                               }}
                             >
@@ -1231,116 +1290,179 @@ export default function MultiplatformDownloaderPage() {
                       )}
 
                       {/* Custom Filename */}
-                      <Grid size={{ xs: 12, sm: 6, md: formatType === "image" || formatType === "thumbnail" ? 8 : 4 }}>
+                      <Grid size={{ xs: 12, sm: formatType === "image" || formatType === "thumbnail" ? 8.5 : 5 }}>
                         <TextField
                           fullWidth
                           size="small"
-                          label="Custom File Name (Optional)"
-                          placeholder="File name when saved..."
+                          label="File Name (Optional)"
+                          placeholder="Save file name..."
                           value={customName}
                           onChange={(e) => setCustomName(e.target.value)}
                           slotProps={{
                             input: {
-                              sx: { bgcolor: "#18181b", color: "#f4f4f5", fontSize: "0.85rem", borderRadius: 1.2 },
+                              sx: { bgcolor: "#161619", color: "#f4f4f5", fontSize: "0.82rem", borderRadius: 1, height: 38 },
                             },
-                            inputLabel: { sx: { color: "#a1a1aa", fontSize: "0.85rem" } },
+                            inputLabel: { sx: { color: "#a1a1aa", fontSize: "0.82rem" } },
                           }}
                         />
                       </Grid>
+                    </Grid>
 
-                      {/* YouTube Specific Options: Subtitles & Splitter */}
-                      {detectedPlatform === "youtube" && formatType === "video" && (
-                        <Grid size={{ xs: 12, sm: 6 }}>
-                          <Box sx={{ bgcolor: "#18181b", p: 1, px: 1.5, borderRadius: 1.2, border: "1px solid #27272a", height: "100%", display: "flex", alignItems: "center" }}>
+                    {/* Minimalist Options Strip: Subtitles (CC) & (Splitter) */}
+                    {detectedPlatform === "youtube" && (formatType === "video" || formatType === "audio") && (
+                      <Box sx={{ mb: 1.2 }}>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "flex-start",
+                            flexWrap: "wrap",
+                            columnGap: 2.5,
+                            rowGap: 0.5,
+                            px: 0.5,
+                            py: 0.2,
+                          }}
+                        >
+                          {formatType === "video" && (
                             <FormControlLabel
                               control={
-                                <Switch
+                                <Checkbox
                                   size="small"
                                   checked={downloadSubtitles}
                                   onChange={(e) => setDownloadSubtitles(e.target.checked)}
-                                  sx={{ "& .MuiSwitch-switchBase.Mui-checked": { color: "#3b82f6" } }}
+                                  sx={{
+                                    color: "#71717a",
+                                    "&.Mui-checked": { color: "#3b82f6" },
+                                    p: 0.3,
+                                  }}
                                 />
                               }
-                              label={<Typography sx={{ fontSize: "0.8rem", color: "#e4e4e7" }}>Auto Download Subtitles (SRT)</Typography>}
-                            />
-                          </Box>
-                        </Grid>
-                      )}
-
-                      {detectedPlatform === "youtube" && (formatType === "video" || formatType === "audio") && (
-                        <Grid size={{ xs: 12 }}>
-                          <Box sx={{ bgcolor: "#18181b", p: 1.5, borderRadius: 1.2, border: "1px solid #27272a" }}>
-                            <FormControlLabel
-                              control={
-                                <Switch
-                                  size="small"
-                                  checked={enableSplitter}
-                                  onChange={(e) => setEnableSplitter(e.target.checked)}
-                                  sx={{ "& .MuiSwitch-switchBase.Mui-checked": { color: "#3b82f6" } }}
-                                />
+                              label={
+                                <Typography sx={{ fontSize: "0.8rem", color: "#d4d4d8", fontWeight: 500 }}>
+                                  Download Subtitles (CC)
+                                </Typography>
                               }
-                              label={<Typography sx={{ fontSize: "0.8rem", color: "#e4e4e7" }}>Direct Splitter (Cut Time Range)</Typography>}
+                              sx={{ m: 0 }}
                             />
-                            <Collapse in={enableSplitter}>
-                              <Box sx={{ pt: 1.5, display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
-                                <TextField
-                                  size="small"
-                                  label="Start"
-                                  value={splitStart}
-                                  onChange={(e) => setSplitStart(e.target.value)}
-                                  placeholder="00:00:00"
-                                  slotProps={{ input: { sx: { fontSize: "0.82rem", color: "#fff" } } }}
-                                  sx={{ width: 130 }}
-                                />
-                                <TextField
-                                  size="small"
-                                  label="End"
-                                  value={splitEnd}
-                                  onChange={(e) => setSplitEnd(e.target.value)}
-                                  placeholder="00:01:00"
-                                  slotProps={{ input: { sx: { fontSize: "0.82rem", color: "#fff" } } }}
-                                  sx={{ width: 130 }}
-                                />
-                                <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap" }}>
-                                  {[
-                                    { label: "+30s", sec: 30 },
-                                    { label: "+1m", sec: 60 },
-                                    { label: "+3m", sec: 180 },
-                                    { label: "+5m", sec: 300 },
-                                  ].map((btn) => (
-                                    <Button
-                                      key={btn.label}
-                                      size="small"
-                                      variant="outlined"
-                                      onClick={() => handleAddSplitDuration(btn.sec)}
-                                      sx={{
-                                        py: 0.3,
-                                        px: 1,
-                                        minWidth: "auto",
-                                        fontSize: "0.72rem",
-                                        fontWeight: 700,
-                                        borderColor: "#27272a",
-                                        color: "#cbd5e1",
-                                        bgcolor: "#18181b",
-                                        borderRadius: 0.8,
-                                        textTransform: "none",
-                                      }}
-                                    >
-                                      {btn.label}
-                                    </Button>
-                                  ))}
-                                </Box>
-                              </Box>
-                            </Collapse>
-                          </Box>
-                        </Grid>
-                      )}
-                    </Grid>
+                          )}
 
-                    {/* Action Buttons Row */}
-                    <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
+                          <FormControlLabel
+                            control={
+                              <Switch
+                                size="small"
+                                checked={enableSplitter}
+                                onChange={(e) => setEnableSplitter(e.target.checked)}
+                                sx={{
+                                  "& .MuiSwitch-switchBase.Mui-checked": { color: "#3b82f6" },
+                                  "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: "#3b82f6" },
+                                }}
+                              />
+                            }
+                            label={
+                              <Typography sx={{ fontSize: "0.8rem", color: "#d4d4d8", fontWeight: 500 }}>
+                                (Splitter)
+                              </Typography>
+                            }
+                            sx={{ m: 0 }}
+                          />
+                        </Box>
+
+                        {/* Collapsible Splitter Panel */}
+                        <Collapse in={enableSplitter} timeout={200}>
+                          <Box
+                            sx={{
+                              mt: 0.8,
+                              p: 1.2,
+                              bgcolor: "#161619",
+                              border: "1px solid #27272a",
+                              borderRadius: 1.2,
+                              display: "flex",
+                              gap: 1,
+                              flexWrap: "wrap",
+                              alignItems: "center",
+                            }}
+                          >
+                            <TextField
+                              size="small"
+                              label="Start"
+                              value={splitStart}
+                              onChange={(e) => setSplitStart(e.target.value)}
+                              placeholder="00:00:00"
+                              slotProps={{
+                                input: {
+                                  sx: {
+                                    fontSize: "0.78rem",
+                                    color: "#fff",
+                                    height: 32,
+                                    borderRadius: 1,
+                                    bgcolor: "#111114",
+                                  },
+                                },
+                                inputLabel: { sx: { fontSize: "0.72rem", color: "#a1a1aa" } },
+                              }}
+                              sx={{ width: 100 }}
+                            />
+                            <TextField
+                              size="small"
+                              label="End"
+                              value={splitEnd}
+                              onChange={(e) => setSplitEnd(e.target.value)}
+                              placeholder="00:01:00"
+                              slotProps={{
+                                input: {
+                                  sx: {
+                                    fontSize: "0.78rem",
+                                    color: "#fff",
+                                    height: 32,
+                                    borderRadius: 1,
+                                    bgcolor: "#111114",
+                                  },
+                                },
+                                inputLabel: { sx: { fontSize: "0.72rem", color: "#a1a1aa" } },
+                              }}
+                              sx={{ width: 100 }}
+                            />
+                            <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", alignItems: "center" }}>
+                              {[
+                                { label: "+1s", sec: 1, fineTune: true },
+                                { label: "+30s", sec: 30, fineTune: false },
+                                { label: "+1m", sec: 60, fineTune: false },
+                                { label: "+3m", sec: 180, fineTune: false },
+                                { label: "+5m", sec: 300, fineTune: false },
+                              ].map((btn) => (
+                                <Button
+                                  key={btn.label}
+                                  size="small"
+                                  variant="outlined"
+                                  onClick={() => handleAddSplitDuration(btn.sec, btn.fineTune)}
+                                  sx={{
+                                    py: 0.2,
+                                    px: 0.8,
+                                    minWidth: "auto",
+                                    fontSize: "0.7rem",
+                                    fontWeight: 600,
+                                    borderColor: "#27272a",
+                                    color: "#cbd5e1",
+                                    bgcolor: "#18181b",
+                                    borderRadius: 0.8,
+                                    textTransform: "none",
+                                    "&:hover": { borderColor: "#3f3f46", bgcolor: "#27272a" },
+                                  }}
+                                >
+                                  {btn.label}
+                                </Button>
+                              ))}
+                            </Box>
+                          </Box>
+                        </Collapse>
+                      </Box>
+                    )}
+
+                    {/* Action Button Row */}
+                    <Box sx={{ mt: 0.5 }}>
                       <Button
                         variant="contained"
+                        fullWidth
                         startIcon={
                           url.trim() && detectedPlatform !== "generic" ? (
                             getPlatformIcon(detectedPlatform)
@@ -1356,9 +1478,8 @@ export default function MultiplatformDownloaderPage() {
                           fontWeight: 700,
                           textTransform: "none",
                           borderRadius: 1.2,
-                          fontSize: "0.88rem",
+                          fontSize: "0.85rem",
                           py: 1,
-                          px: 3,
                           boxShadow: "0 2px 10px rgba(59, 130, 246, 0.35)",
                           "&:hover": { bgcolor: "#2563eb" },
                           "&.Mui-disabled": { bgcolor: "#27272a", color: "#71717a" },

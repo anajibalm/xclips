@@ -1,11 +1,30 @@
 export function getApiBaseUrl(): string {
   if (typeof window !== "undefined") {
-    const hostname = window.location.hostname;
-    const protocol = window.location.protocol;
-    // Connect to port 3351 on same host (localhost or Tailscale IP)
-    return `${protocol}//${hostname}:3351`;
+    const hostname = window.location.hostname || "127.0.0.1";
+    const protocol = window.location.protocol || "http:";
+
+    // Detect Tauri desktop environment, WebView2, or local development
+    const isTauri =
+      (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== undefined ||
+      (window as unknown as { __TAURI__?: unknown }).__TAURI__ !== undefined ||
+      protocol === "tauri:" ||
+      hostname === "tauri.localhost";
+
+    if (
+      isTauri ||
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "[::1]" ||
+      !hostname
+    ) {
+      return "http://127.0.0.1:3351";
+    }
+
+    // Remote access / Tailscale IP (e.g. 100.x.y.z or custom LAN IP)
+    const scheme = protocol === "https:" ? "http:" : protocol;
+    return `${scheme}//${hostname}:3351`;
   }
-  return process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3351";
+  return process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:3351";
 }
 
 export async function apiFetch<T>(
@@ -18,7 +37,6 @@ export async function apiFetch<T>(
   try {
     const res = await fetch(url, {
       ...options,
-      credentials: "include", // send cookies
       headers: {
         "Content-Type": "application/json",
         ...(options.headers || {}),
@@ -42,7 +60,11 @@ export async function apiFetch<T>(
       message: json.message,
     };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Gagal terhubung ke API backend";
+    const originalMsg = err instanceof Error ? err.message : String(err);
+    const message =
+      originalMsg === "Failed to fetch"
+        ? `Gagal terhubung ke API backend (${baseUrl}). Pastikan service backend xClips berjalan di port 3351.`
+        : originalMsg || "Gagal terhubung ke API backend";
     return {
       ok: false,
       status: 0,
@@ -50,3 +72,4 @@ export async function apiFetch<T>(
     };
   }
 }
+

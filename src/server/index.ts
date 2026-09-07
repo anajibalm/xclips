@@ -18,13 +18,21 @@ const env = getEnv();
 app.use(
   "*",
   cors({
-    origin: (origin) => origin || "*",
+    origin: (origin) => {
+      // Safely allow browser/webview origins (http://localhost:*, http://127.0.0.1:*, http://tauri.localhost, tauri://localhost)
+      if (!origin || origin === "null") return "http://127.0.0.1:3350";
+      return origin;
+    },
     credentials: true,
     allowHeaders: ["Content-Type", "Authorization", "X-Trace-Id", "X-Request-Id", "Range"],
     exposeHeaders: ["Content-Range", "Accept-Ranges", "Content-Length", "Content-Type", "X-Trace-Id"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   })
 );
+
+// Health Check Endpoints
+app.get("/health", (c) => c.json({ ok: true, status: "healthy", version: "1.1.0" }));
+app.get("/api/health", (c) => c.json({ ok: true, status: "healthy", version: "1.1.0" }));
 
 
 // 
@@ -853,31 +861,45 @@ app.get("/api/xclips/downloader/file/:id", (c) => {
     const start = parseInt(parts[0], 10);
     const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
     const chunksize = end - start + 1;
-    const stream = fs.createReadStream(record.filePath, { start, end });
 
-    return new Response(stream as unknown as ReadableStream, {
+    const fileBody =
+      typeof Bun !== "undefined"
+        ? Bun.file(record.filePath).slice(start, end + 1)
+        : (fs.createReadStream(record.filePath, { start, end }) as unknown as ReadableStream);
+
+    return new Response(fileBody as any, {
       status: 206,
       headers: {
         "Content-Range": `bytes ${start}-${end}/${stat.size}`,
         "Accept-Ranges": "bytes",
         "Content-Length": String(chunksize),
         "Content-Type": contentType,
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
       },
     });
   }
 
-  const stream = fs.createReadStream(record.filePath);
+  const fileBody =
+    typeof Bun !== "undefined"
+      ? Bun.file(record.filePath)
+      : (fs.createReadStream(record.filePath) as unknown as ReadableStream);
+
   const headers: Record<string, string> = {
     "Content-Length": String(stat.size),
     "Content-Type": contentType,
     "Accept-Ranges": "bytes",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+    "Access-Control-Allow-Headers": "*",
   };
   if (isDownload) {
     const filename = path.basename(record.filePath);
     headers["Content-Disposition"] = `attachment; filename="${encodeURIComponent(filename)}"`;
   }
 
-  return new Response(stream as unknown as ReadableStream, {
+  return new Response(fileBody as any, {
     status: 200,
     headers,
   });
