@@ -77,6 +77,7 @@ export function getAutoProductionDeps(): AutoProductionDeps {
 			projectId: string,
 			options?: {
 				topicPrompt?: string;
+				editorialFunction?: string;
 				hookFormula?: string;
 				targetDuration?: "short" | "standard" | "long" | "extended";
 				maxClipsCount?: number;

@@ -36,13 +36,16 @@ export interface AutoProductionDeps {
   ): Promise<Result<XclipsTranscript>>;
   /**
    * Discover highlights from a project's transcript.
-   * We pass editorialAngle as topicPrompt and constrain to short duration (30-60s).
+   * We pass editorialAngle as topicPrompt, editorialFunction as planning
+   * context (Bakom content category — never conflated with hookFormula),
+   * and constrain to short duration (30-60s).
    * Returns XclipsClip[] with startSec/endSec/title.
    */
   discoverHighlights(
     projectId: string,
     options?: {
       topicPrompt?: string;
+      editorialFunction?: string;
       hookFormula?: string;
       targetDuration?: "short" | "standard" | "long" | "extended";
       maxClipsCount?: number;
@@ -123,8 +126,8 @@ export async function runAutoProductionPlanning(
   }
   const resolvedTranscript = transcript.data;
 
-  // 5. Select statement (30-60s, guided by editorialAngle)
-  const statement = await selectStatement(resolvedProject, validBrief.editorialAngle, deps);
+  // 5. Select statement (30-60s, guided by editorialAngle + editorialFunction)
+  const statement = await selectStatement(resolvedProject, validBrief.editorialAngle, validBrief.editorialFunction, deps);
   if (!statement.success) {
     return { success: false, error: statement.error, stage: "select_statement" };
   }
@@ -215,11 +218,13 @@ async function obtainTranscript(
 async function selectStatement(
   project: XclipsProject,
   editorialAngle: string,
+  editorialFunction: string,
   deps: AutoProductionDeps,
 ): Promise<Result<{ candidate: XclipsClip; signal: EditorialSignal }>> {
   try {
     const highlightsResult = await deps.discoverHighlights(project.id, {
       topicPrompt: editorialAngle,
+      editorialFunction,
       targetDuration: "short", // 30-60s
       maxClipsCount: 3,
     });

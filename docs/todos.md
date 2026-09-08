@@ -66,20 +66,28 @@ be proven E2E; never widen a story for adjacent problems.
 
 ## Remaining MVP Stories (ordered, dependency order)
 
-### S2 — Manual brief inputs: editorialFunction + sensitivity attestation (NEXT)
+### S2 — Manual brief inputs: editorialFunction + sensitivity attestation (PASS)
 - Why required: decisions 2 + 4 (field half). No editorial-function field
-  exists in the brief schema/form (it is not `hookFormula`, see decision 2);
-  `selectStatement` omits `hookFormula` and falls back to settings `"auto"`;
-  zero sensitivity constructs exist in the path.
-- Acceptance: brief carries `editorialFunction` (Bakom category, manually
-  selected; `hookFormula` behavior unchanged) threaded into planning context;
-  sensitivity attestation field present with validation; focused tests
-  (pass-through capture test, same pattern as the existing topicPrompt test).
-- Non-goals: AI auto-detection of sensitivity (backlog); hook-formula
-  changes; any planning-logic redesign.
-- Dependency: none.
+  existed in the brief schema/form (it is not `hookFormula`, see decision 2);
+  `selectStatement` omitted `hookFormula` and fell back to settings `"auto"`;
+  zero sensitivity constructs existed in the path.
+- Implemented: `ProductionBriefSchema` gains required `editorialFunction`
+  (free string, manually selected; no invented enum lock-in) and
+  `sensitiveContent: boolean` (default false, backward compatible);
+  threading `selectStatement → deps.discoverHighlights → xclipsService →
+  buildHighlightPrompt` as `EDITORIAL FUNCTION CONTEXT` (additive optional
+  params only; `hookFormula` path untouched); form select with the four Bakom
+  categories + sensitivity attestation checkbox + Generate gate;
+  client-safe `buildAutoProductionBrief` extended.
+- Verification: tsc clean; focused 114/114 (5 files); full suite 252/252
+  (+7 new: schema validation/defaults, orchestrator capture incl.
+  `hookFormula` absence, builder passthrough, prompt context
+  present/absent); factories updated mechanically, no assertions weakened.
+- Non-goals (held): AI auto-detection of sensitivity (backlog); hook-formula
+  changes; planning-logic redesign.
+- Dependency: none. Unblocks S4 (real AI planning uses this brief).
 
-### S3 — Duration range policy (corrects hard-FAIL conflict)
+### S3 — Duration range policy (corrects hard-FAIL conflict) (NEXT)
 - Why required: decision 1 + recorded conflict. Minimum-side behavior only:
   a semantically complete but short statement must route to NEEDS_REVIEW
   naming the cause (PRD FR-6), never FAIL; no filler/padding/looping may be

@@ -108,6 +108,7 @@ function makeValidBrief(overrides?: Partial<ProductionBrief>): ProductionBrief {
   return {
     source: { sourcePath: "/tmp/test-video.mp4", sourceType: "local" },
     editorialAngle: "Dampak erupsi Anak Krakatau terhadap warga sekitar",
+    editorialFunction: "Public communication / information integrity",
     accountPresetId: "shadow",
     sourceName: "TVRI Nasional",
     sourceDate: "2026-09-07",
@@ -161,6 +162,24 @@ describe("xclips - Auto Production Orchestrator (Slice 2)", () => {
       expect(capturedOptions!.targetDuration).toBe("short");
     });
 
+    it("passes editorialFunction to discoverHighlights as planning context", async () => {
+      let capturedOptions: Record<string, unknown> | undefined;
+      const deps = makeMockDeps({
+        discoverHighlights: async (_id: string, options?: Record<string, unknown>) => {
+          capturedOptions = options;
+          return { success: true, data: [mockHighlight] };
+        },
+      });
+
+      const fn = "Humanization";
+      await runAutoProductionPlanning(makeValidBrief({ editorialFunction: fn }), deps);
+
+      expect(capturedOptions).toBeDefined();
+      expect(capturedOptions!.editorialFunction).toBe(fn);
+      // hookFormula stays untouched by Auto Production planning
+      expect(capturedOptions!.hookFormula).toBeUndefined();
+    });
+
     it("resolves kabakom preset correctly", async () => {
       const deps = makeMockDeps();
       const result = await runAutoProductionPlanning(
@@ -209,6 +228,18 @@ describe("xclips - Auto Production Orchestrator (Slice 2)", () => {
       const deps = makeMockDeps();
       const brief = makeValidBrief();
       delete (brief as Record<string, unknown>).editorialAngle;
+      const result = await runAutoProductionPlanning(brief, deps);
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.stage).toBe("validate_brief");
+      }
+    });
+
+    it("missing editorialFunction blocks validation", async () => {
+      const deps = makeMockDeps();
+      const brief = makeValidBrief();
+      delete (brief as Record<string, unknown>).editorialFunction;
       const result = await runAutoProductionPlanning(brief, deps);
 
       expect(result.success).toBe(false);

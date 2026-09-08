@@ -129,11 +129,16 @@ export type AccountPreset = z.infer<typeof AccountPresetSchema>;
 export const ProductionBriefSchema = z.object({
   source: SourceReferenceSchema,
   editorialAngle: z.string().min(1, "editorialAngle is required"),
+  // Bakom content function/category, manually selected by the operator.
+  // Distinct from hookFormula (viral hook matrix mechanics) — never conflate.
+  editorialFunction: z.string().min(1, "editorialFunction is required"),
   accountPresetId: AccountPresetIdSchema,
   sourceName: z.string().min(1, "sourceName is required"),
   sourceDate: z.string().optional(),
   accountHandle: z.string().min(1, "accountHandle is required"),
   sourceRole: z.string().optional(),
+  // Operator attestation: source contains sensitive content → S5 routes to NEEDS_REVIEW.
+  sensitiveContent: z.boolean().default(false),
   brollPool: z.array(BrollAssetRefSchema),
 });
 export type ProductionBrief = z.infer<typeof ProductionBriefSchema>;

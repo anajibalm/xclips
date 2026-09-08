@@ -33,6 +33,7 @@ function makeBrief(overrides?: Partial<ProductionBrief>): ProductionBrief {
   return {
     source: { sourcePath: FIXTURE_VIDEO, sourceType: "local" },
     editorialAngle: "Dampak erupsi Gunung Kelud",
+    editorialFunction: "Public communication / information integrity",
     accountPresetId: "shadow",
     sourceName: "TVRI Jatim",
     sourceDate: "2026-09-07",

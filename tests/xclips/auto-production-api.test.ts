@@ -17,6 +17,7 @@ describe("auto-production-api (client-safe)", () => {
 		const validInput: BuildAutoProductionBriefInput = {
 			sourcePath: "/tmp/video.mp4",
 			editorialAngle: "Focus on main speaker",
+			editorialFunction: "Humanization",
 			accountPresetId: "shadow",
 			sourceName: "test-clip",
 			accountHandle: "@testaccount",
@@ -98,6 +99,23 @@ describe("auto-production-api (client-safe)", () => {
 			});
 			expect(brief.sourceRole).toBe("interviewee");
 		});
+
+		it("should pass through editorialFunction trimmed", () => {
+			const brief = buildAutoProductionBrief({
+				...validInput,
+				editorialFunction: "  Accountability  ",
+			});
+			expect(brief.editorialFunction).toBe("Accountability");
+		});
+
+		it("should default sensitiveContent to false and pass through true", () => {
+			expect(buildAutoProductionBrief(validInput).sensitiveContent).toBe(false);
+			const flagged = buildAutoProductionBrief({
+				...validInput,
+				sensitiveContent: true,
+			});
+			expect(flagged.sensitiveContent).toBe(true);
+		});
 	});
 
 	// --- Serializability of RerenderJobContext --------------------------------
@@ -108,6 +126,7 @@ describe("auto-production-api (client-safe)", () => {
 				brief: {
 					source: { sourcePath: "/tmp/v.mp4", sourceType: "local" },
 					editorialAngle: "Focus",
+					editorialFunction: "Humanization",
 					accountPresetId: "shadow",
 					sourceName: "clip",
 					accountHandle: "@test",
@@ -162,6 +181,7 @@ describe("auto-production-api (client-safe)", () => {
 					brief: {
 						source: { sourcePath: "/tmp/v.mp4", sourceType: "local" },
 						editorialAngle: "Focus",
+						editorialFunction: "Humanization",
 						accountPresetId: "shadow",
 						sourceName: "clip",
 						accountHandle: "@test",

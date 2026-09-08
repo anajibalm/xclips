@@ -105,11 +105,13 @@ export interface RerenderJobContext {
 export interface BuildAutoProductionBriefInput {
 	sourcePath: string;
 	editorialAngle: string;
+	editorialFunction: string;
 	accountPresetId: AccountPresetId;
 	sourceName: string;
 	sourceDate?: string;
 	accountHandle: string;
 	sourceRole?: string;
+	sensitiveContent?: boolean;
 }
 
 /**
@@ -123,11 +125,13 @@ export function buildAutoProductionBrief(
 	return {
 		source: { sourcePath: input.sourcePath.trim(), sourceType },
 		editorialAngle: input.editorialAngle.trim(),
+		editorialFunction: input.editorialFunction.trim(),
 		accountPresetId: input.accountPresetId,
 		sourceName: input.sourceName.trim(),
 		sourceDate: input.sourceDate?.trim() || undefined,
 		accountHandle: input.accountHandle.trim(),
 		sourceRole: input.sourceRole?.trim() || undefined,
+		sensitiveContent: input.sensitiveContent ?? false,
 		brollPool: [],
 	};
 }

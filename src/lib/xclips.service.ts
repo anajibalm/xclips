@@ -1897,6 +1897,7 @@ Format output WAJIB HANYA berupa JSON valid:
       provider?: AiProviderType;
       model?: string;
       topicPrompt?: string;
+      editorialFunction?: string;
       hookFormula?: string;
       targetDuration?: "short" | "standard" | "long" | "extended";
       maxClipsCount?: number;
@@ -1949,6 +1950,7 @@ Format output WAJIB HANYA berupa JSON valid:
         const chunk = chunks[chunkIndexPointer++];
         const prompt = buildHighlightPrompt(chunk, {
           topicPrompt: effectiveTopic,
+          editorialFunction: options?.editorialFunction,
           hookFormula: effectiveFormula,
           targetDuration: effectiveDuration,
           outputLanguage: effectiveLanguage,

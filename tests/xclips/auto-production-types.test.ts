@@ -65,6 +65,7 @@ describe("xclips - Auto Production Contract (Slice 1)", () => {
       const result = ProductionBriefSchema.safeParse({
         source: { sourcePath: "/tmp/video.mp4", sourceType: "local" },
         editorialAngle: "Dampak erupsi",
+        editorialFunction: "Accountability",
         accountPresetId: "shadow",
         sourceName: "TVRI",
         sourceDate: "2026-09-01",
@@ -79,6 +80,7 @@ describe("xclips - Auto Production Contract (Slice 1)", () => {
       const result = ProductionBriefSchema.safeParse({
         source: { sourcePath: "/tmp/video.mp4", sourceType: "local" },
         editorialAngle: "Dampak erupsi",
+        editorialFunction: "Accountability",
         accountPresetId: "kabakom",
         sourceName: "TVRI",
         accountHandle: "@newsdesk",
@@ -93,6 +95,7 @@ describe("xclips - Auto Production Contract (Slice 1)", () => {
     it("missing source blocks validation", () => {
       const result = ProductionBriefSchema.safeParse({
         editorialAngle: "test",
+        editorialFunction: "Accountability",
         accountPresetId: "shadow",
         sourceName: "x",
         accountHandle: "@x",
@@ -116,6 +119,7 @@ describe("xclips - Auto Production Contract (Slice 1)", () => {
       const result = ProductionBriefSchema.safeParse({
         source: { sourcePath: "/tmp/v.mp4", sourceType: "local" },
         editorialAngle: "test",
+        editorialFunction: "Accountability",
         sourceName: "x",
         accountHandle: "@x",
         brollPool: [],
@@ -127,6 +131,7 @@ describe("xclips - Auto Production Contract (Slice 1)", () => {
       const result = ProductionBriefSchema.safeParse({
         source: { sourcePath: "/tmp/v.mp4", sourceType: "local" },
         editorialAngle: "test",
+        editorialFunction: "Accountability",
         accountPresetId: "shadow",
         accountHandle: "@x",
         brollPool: [],
@@ -138,6 +143,7 @@ describe("xclips - Auto Production Contract (Slice 1)", () => {
       const result = ProductionBriefSchema.safeParse({
         source: { sourcePath: "/tmp/v.mp4", sourceType: "local" },
         editorialAngle: "test",
+        editorialFunction: "Accountability",
         accountPresetId: "shadow",
         sourceName: "x",
         brollPool: [],
@@ -145,10 +151,54 @@ describe("xclips - Auto Production Contract (Slice 1)", () => {
       expect(result.success).toBe(false);
     });
 
+    it("missing editorialFunction blocks validation", () => {
+      const result = ProductionBriefSchema.safeParse({
+        source: { sourcePath: "/tmp/v.mp4", sourceType: "local" },
+        editorialAngle: "test",
+        accountPresetId: "shadow",
+        sourceName: "x",
+        accountHandle: "@x",
+        brollPool: [],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("sensitiveContent defaults to false and accepts true", () => {
+      const omitted = ProductionBriefSchema.safeParse({
+        source: { sourcePath: "/tmp/v.mp4", sourceType: "local" },
+        editorialAngle: "test",
+        editorialFunction: "Accountability",
+        accountPresetId: "shadow",
+        sourceName: "x",
+        accountHandle: "@x",
+        brollPool: [],
+      });
+      expect(omitted.success).toBe(true);
+      if (omitted.success) {
+        expect(omitted.data.sensitiveContent).toBe(false);
+      }
+
+      const flagged = ProductionBriefSchema.safeParse({
+        source: { sourcePath: "/tmp/v.mp4", sourceType: "local" },
+        editorialAngle: "test",
+        editorialFunction: "Accountability",
+        accountPresetId: "shadow",
+        sourceName: "x",
+        accountHandle: "@x",
+        sensitiveContent: true,
+        brollPool: [],
+      });
+      expect(flagged.success).toBe(true);
+      if (flagged.success) {
+        expect(flagged.data.sensitiveContent).toBe(true);
+      }
+    });
+
     it("empty brollPool is valid", () => {
       const result = ProductionBriefSchema.safeParse({
         source: { sourcePath: "/tmp/v.mp4", sourceType: "local" },
         editorialAngle: "test",
+        editorialFunction: "Accountability",
         accountPresetId: "shadow",
         sourceName: "x",
         accountHandle: "@x",
@@ -161,6 +211,7 @@ describe("xclips - Auto Production Contract (Slice 1)", () => {
       const withRole = ProductionBriefSchema.safeParse({
         source: { sourcePath: "/tmp/v.mp4", sourceType: "local" },
         editorialAngle: "test",
+        editorialFunction: "Accountability",
         accountPresetId: "shadow",
         sourceName: "x",
         accountHandle: "@x",
@@ -172,6 +223,7 @@ describe("xclips - Auto Production Contract (Slice 1)", () => {
       const withoutRole = ProductionBriefSchema.safeParse({
         source: { sourcePath: "/tmp/v.mp4", sourceType: "local" },
         editorialAngle: "test",
+        editorialFunction: "Accountability",
         accountPresetId: "shadow",
         sourceName: "x",
         accountHandle: "@x",

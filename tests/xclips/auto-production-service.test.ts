@@ -94,6 +94,7 @@ const mockHighlight: XclipsClip = {
 const mockBrief: ProductionBrief = {
 	source: { sourcePath: "/tmp/svc-test-video.mp4", sourceType: "local" },
 	editorialAngle: "Dampak erupsi Gunung Kelud terhadap warga sekitar",
+	editorialFunction: "Public communication / information integrity",
 	accountPresetId: "shadow",
 	sourceName: "TVRI Jatim",
 	sourceDate: "2026-09-07",

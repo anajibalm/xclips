@@ -13,10 +13,12 @@ import {
 	Button,
 	Card,
 	CardContent,
+	Checkbox,
 	Chip,
 	CircularProgress,
 	Divider,
 	FormControl,
+	FormControlLabel,
 	InputLabel,
 	LinearProgress,
 	MenuItem,
@@ -56,12 +58,22 @@ const STAGE_LABELS: Record<AutoProductionStage, string> = {
 	running_qc: "Running QC",
 };
 
+// Bakom content functions — manually selected per job. Distinct from
+// hookFormula (viral hook mechanics); never conflated.
+const EDITORIAL_FUNCTIONS = [
+	"Humanization",
+	"Public education / policy",
+	"Public communication / information integrity",
+	"Accountability",
+] as const;
+
 export default function AutoProductionPage() {
 	const [uiState, setUiState] = useState<UiState>({ phase: "new_job" });
 
 	// Form fields
 	const [sourcePath, setSourcePath] = useState("");
 	const [editorialAngle, setEditorialAngle] = useState("");
+	const [editorialFunction, setEditorialFunction] = useState("");
 	const [accountPresetId, setAccountPresetId] = useState<AccountPresetId | "">(
 		"",
 	);
@@ -69,10 +81,12 @@ export default function AutoProductionPage() {
 	const [sourceDate, setSourceDate] = useState("");
 	const [accountHandle, setAccountHandle] = useState("");
 	const [sourceRole, setSourceRole] = useState("");
+	const [sensitiveContent, setSensitiveContent] = useState(false);
 
 	const canGenerate =
 		sourcePath.trim().length > 0 &&
 		editorialAngle.trim().length > 0 &&
+		editorialFunction.trim().length > 0 &&
 		accountPresetId !== "" &&
 		sourceName.trim().length > 0 &&
 		accountHandle.trim().length > 0;
@@ -82,21 +96,25 @@ export default function AutoProductionPage() {
 		return {
 			source: { sourcePath: sourcePath.trim(), sourceType },
 			editorialAngle: editorialAngle.trim(),
+			editorialFunction: editorialFunction.trim(),
 			accountPresetId: accountPresetId as AccountPresetId,
 			sourceName: sourceName.trim(),
 			sourceDate: sourceDate.trim() || undefined,
 			accountHandle: accountHandle.trim(),
 			sourceRole: sourceRole.trim() || undefined,
+			sensitiveContent,
 			brollPool: [],
 		};
 	}, [
 		sourcePath,
 		editorialAngle,
+		editorialFunction,
 		accountPresetId,
 		sourceName,
 		sourceDate,
 		accountHandle,
 		sourceRole,
+		sensitiveContent,
 	]);
 
 	const handleGenerate = useCallback(async () => {
@@ -189,6 +207,8 @@ export default function AutoProductionPage() {
 					setSourcePath={setSourcePath}
 					editorialAngle={editorialAngle}
 					setEditorialAngle={setEditorialAngle}
+					editorialFunction={editorialFunction}
+					setEditorialFunction={setEditorialFunction}
 					accountPresetId={accountPresetId}
 					setAccountPresetId={setAccountPresetId}
 					sourceName={sourceName}
@@ -199,6 +219,8 @@ export default function AutoProductionPage() {
 					setAccountHandle={setAccountHandle}
 					sourceRole={sourceRole}
 					setSourceRole={setSourceRole}
+					sensitiveContent={sensitiveContent}
+					setSensitiveContent={setSensitiveContent}
 					canGenerate={canGenerate}
 					onGenerate={handleGenerate}
 				/>
@@ -230,6 +252,8 @@ interface NewJobFormProps {
 	setSourcePath: (v: string) => void;
 	editorialAngle: string;
 	setEditorialAngle: (v: string) => void;
+	editorialFunction: string;
+	setEditorialFunction: (v: string) => void;
 	accountPresetId: AccountPresetId | "";
 	setAccountPresetId: (v: AccountPresetId | "") => void;
 	sourceName: string;
@@ -240,6 +264,8 @@ interface NewJobFormProps {
 	setAccountHandle: (v: string) => void;
 	sourceRole: string;
 	setSourceRole: (v: string) => void;
+	sensitiveContent: boolean;
+	setSensitiveContent: (v: boolean) => void;
 	canGenerate: boolean;
 	onGenerate: () => void;
 }
@@ -249,6 +275,8 @@ function NewJobForm({
 	setSourcePath,
 	editorialAngle,
 	setEditorialAngle,
+	editorialFunction,
+	setEditorialFunction,
 	accountPresetId,
 	setAccountPresetId,
 	sourceName,
@@ -259,6 +287,8 @@ function NewJobForm({
 	setAccountHandle,
 	sourceRole,
 	setSourceRole,
+	sensitiveContent,
+	setSensitiveContent,
 	canGenerate,
 	onGenerate,
 }: NewJobFormProps) {
@@ -297,6 +327,36 @@ function NewJobForm({
 					placeholder="e.g. Dampak erupsi Gunung Kelud"
 					value={editorialAngle}
 					onChange={(e) => setEditorialAngle(e.target.value)}
+				/>
+
+				<FormControl fullWidth size="small" sx={{ mt: 2 }}>
+					<InputLabel sx={{ color: "#a1a1aa" }}>
+						Editorial Function
+					</InputLabel>
+					<Select
+						value={editorialFunction}
+						label="Editorial Function"
+						onChange={(e) => setEditorialFunction(e.target.value)}
+						sx={{ bgcolor: "#18181b", color: "#f4f4f5", borderRadius: 1 }}
+					>
+						{EDITORIAL_FUNCTIONS.map((fn) => (
+							<MenuItem key={fn} value={fn}>
+								{fn}
+							</MenuItem>
+						))}
+					</Select>
+				</FormControl>
+
+				<FormControlLabel
+					control={
+						<Checkbox
+							checked={sensitiveContent}
+							onChange={(e) => setSensitiveContent(e.target.checked)}
+							sx={{ color: "#a1a1aa" }}
+						/>
+					}
+					label="Sensitive content"
+					sx={{ mt: 1, color: "#a1a1aa" }}
 				/>
 
 				<FormControl fullWidth size="small" sx={{ mt: 2 }}>

@@ -112,6 +112,7 @@ const e2eHighlight: XclipsClip = {
 const e2eBrief: ProductionBrief = {
 	source: { sourcePath: FIXTURE_PATH, sourceType: "local" },
 	editorialAngle: "E2E smoke test validation",
+	editorialFunction: "Public communication / information integrity",
 	accountPresetId: "shadow",
 	sourceName: "E2E Test Source",
 	sourceDate: "2026-09-07",

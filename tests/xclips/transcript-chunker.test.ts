@@ -90,7 +90,6 @@ describe("xclips - Transcript Chunker & Highlight Reducer", () => {
     expect(prompt).toContain("STRICT NARRATIVE BOUNDARY");
     expect(prompt).toContain("target duration 30-45 seconds");
     expect(prompt).toContain("LANGUAGE REQUIREMENT (CRITICAL)");
-
     // Test explicit Indonesian language
     const promptId = buildHighlightPrompt(chunk, {
       outputLanguage: "id",
@@ -102,6 +101,33 @@ describe("xclips - Transcript Chunker & Highlight Reducer", () => {
       outputLanguage: "es",
     });
     expect(promptEs).toContain("Spanish");
+  });
+
+  it("should include editorial function context without touching hook formula", () => {
+    const chunk = {
+      chunkIndex: 0,
+      startSec: 0,
+      endSec: 120,
+      text: "Pemerintah memantau erupsi Anak Krakatau.",
+      words: [],
+    };
+
+    const prompt = buildHighlightPrompt(chunk, {
+      topicPrompt: "Dampak erupsi",
+      editorialFunction: "Humanization",
+      targetDuration: "short",
+    });
+
+    expect(prompt).toContain("EDITORIAL FUNCTION CONTEXT");
+    expect(prompt).toContain("Humanization");
+    // hookFormula untouched → default AUTO guideline still applies
+    expect(prompt).toContain("HOOK FORMULA GUIDELINE");
+
+    const withoutFunction = buildHighlightPrompt(chunk, {
+      topicPrompt: "Dampak erupsi",
+      targetDuration: "short",
+    });
+    expect(withoutFunction).not.toContain("EDITORIAL FUNCTION CONTEXT");
   });
 
   it("should return static models for kieai provider", async () => {
