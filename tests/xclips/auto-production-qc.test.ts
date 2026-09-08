@@ -77,13 +77,14 @@ function makeWords(): WordTimestamp[] {
 function makeQcInput(overrides?: Partial<RunAutoProductionQcInput>): RunAutoProductionQcInput {
   return {
     outputPath: "/tmp/nonexistent.mp4",
-    brief: makeBrief(),
+       brief: makeBrief({ contextIntegrityConfirmed: true }),
     preset: ACCOUNT_PRESETS.get("shadow")!,
     editPlan: makeEditPlan(),
     renderWidth: 1080,
     renderHeight: 1920,
     renderFps: 30,
     renderDurationSec: 30,
+    transcriptWords: makeWords(),
     ...overrides,
   };
 }
@@ -242,6 +243,60 @@ describe("xclips - Auto Production QC (Slice 4)", () => {
     const check = result.checks.find((c) => c.id === "contract_account_handle");
     expect(check).toBeDefined();
     expect(check!.status).toBe("REVIEW");
+    expect(result.verdict).toBe("NEEDS_REVIEW");
+  });
+
+  it("sensitive content produces stable review gate", async () => {
+    const result = await runAutoProductionQc({ ...makeQcInput({ outputPath: FIXTURE_VIDEO }), brief: makeBrief({ sensitiveContent: true, contextIntegrityConfirmed: true }) });
+    expect(result.checks.find((c) => c.id === "editorial_sensitive_content")?.status).toBe("REVIEW");
+    expect(result.verdict).toBe("NEEDS_REVIEW");
+  });
+
+  it("false sensitivity adds no sensitivity review", async () => {
+    const result = await runAutoProductionQc({ ...makeQcInput({ outputPath: FIXTURE_VIDEO }), brief: makeBrief({ sensitiveContent: false, contextIntegrityConfirmed: true }) });
+    expect(result.checks.some((c) => c.id === "editorial_sensitive_content")).toBe(false);
+  });
+
+  it("unresolved Context Integrity produces review", async () => {
+    const result = await runAutoProductionQc({ ...makeQcInput({ outputPath: FIXTURE_VIDEO }), brief: makeBrief({ contextIntegrityConfirmed: undefined }) });
+    expect(result.checks.find((c) => c.id === "editorial_context_integrity")?.status).toBe("REVIEW");
+  });
+
+  it("affirmed Context Integrity produces no review", async () => {
+    const result = await runAutoProductionQc({ ...makeQcInput({ outputPath: FIXTURE_VIDEO }), brief: makeBrief({ contextIntegrityConfirmed: true }) });
+    expect(result.checks.find((c) => c.id === "editorial_context_integrity")?.status).toBe("PASS");
+  });
+
+  it("subtitle phrase over six words produces review", async () => {
+    const words = makeWords().map((word, index) => ({ ...word, breakAfter: index === 10 || index === makeWords().length - 1 }));
+    const result = await runAutoProductionQc({ ...makeQcInput({ outputPath: FIXTURE_VIDEO, transcriptWords: words }), brief: makeBrief({ contextIntegrityConfirmed: true }) });
+    expect(result.checks.find((c) => c.id === "subtitle_contract_max_words")?.status).toBe("REVIEW");
+  });
+
+  it("compliant subtitle produces no contract review", async () => {
+    const words = makeWords().map((word, index) => ({ ...word, breakAfter: index % 6 === 5 }));
+    const result = await runAutoProductionQc({ ...makeQcInput({ outputPath: FIXTURE_VIDEO, transcriptWords: words }), brief: makeBrief({ contextIntegrityConfirmed: true }) });
+    expect(result.checks.find((c) => c.id === "subtitle_contract")?.status).toBe("PASS");
+    expect(result.checks.some((c) => c.id === "subtitle_contract_max_words")).toBe(false);
+  });
+
+  it("preserves multiple review reasons", async () => {
+    const result = await runAutoProductionQc({ ...makeQcInput({ outputPath: FIXTURE_VIDEO }), brief: makeBrief({ sourceDate: undefined, sensitiveContent: true }) });
+    const ids = result.checks.filter((c) => c.status === "REVIEW").map((c) => c.id);
+    expect(ids).toContain("contract_source_date");
+    expect(ids).toContain("editorial_sensitive_content");
+    expect(ids).toContain("editorial_context_integrity");
+  });
+
+  it("missing subtitle words produces review, not failure", async () => {
+    const result = await runAutoProductionQc({ ...makeQcInput({ outputPath: FIXTURE_VIDEO, transcriptWords: [] }), brief: makeBrief({ contextIntegrityConfirmed: true }) });
+    expect(result.checks.find((c) => c.id === "subtitle_contract_missing")?.status).toBe("REVIEW");
+    expect(result.failedCount).toBe(0);
+  });
+
+  it("undefined subtitle evidence produces NEEDS_REVIEW", async () => {
+    const result = await runAutoProductionQc({ ...makeQcInput({ outputPath: FIXTURE_VIDEO, transcriptWords: undefined }), brief: makeBrief({ contextIntegrityConfirmed: true }) });
+    expect(result.checks.find((c) => c.id === "subtitle_contract_missing")?.status).toBe("REVIEW");
     expect(result.verdict).toBe("NEEDS_REVIEW");
   });
 
@@ -435,7 +490,7 @@ describe("xclips - Slice 4 Real Smoke", () => {
     const words = makeWords();
     const renderResult = await renderAutoProduction(
       {
-        brief: makeBrief(),
+        brief: makeBrief({ contextIntegrityConfirmed: true }),
         preset: ACCOUNT_PRESETS.get("shadow")!,
         editPlan: makeEditPlan({ statementStart: 5, statementEnd: 35 }),
         transcriptWords: words,
@@ -465,13 +520,14 @@ describe("xclips - Slice 4 Real Smoke", () => {
     // Run QC
     const qc = await runAutoProductionQc({
       outputPath: renderResult.outputPath,
-      brief: makeBrief(),
+      brief: makeBrief({ contextIntegrityConfirmed: true }),
       preset: ACCOUNT_PRESETS.get("shadow")!,
       editPlan: makeEditPlan({ statementStart: 5, statementEnd: 35 }),
       renderWidth: 1080,
       renderHeight: 1920,
       renderFps: 30,
       renderDurationSec: 30,
+      transcriptWords: words,
     });
 
     // Verify video

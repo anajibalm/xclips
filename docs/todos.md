@@ -135,23 +135,48 @@ be proven E2E; never widen a story for adjacent problems.
   + cover `cover_1788846155136.jpg`; QC 15 PASS / 1 REVIEW / 0 FAIL.
 - Focused orchestrator tests: 32 PASS. `tsc --noEmit` clean. Full suite
   not a gate: 256 PASS, 3 pre-existing real-render timeout failures in
-  `auto-production-e2e-smoke.test.ts` (5s test timeout); no S5 work started.
+  `auto-production-e2e-smoke.test.ts` (5s test timeout); S5 work remained scoped.
 - Semantic blocker closed: both real calls now record stable project and
   transcript identities, planning twice, and zero transcription dispatches.
 - Non-goals held: provider marketplace, model discovery, keychain work;
   no watermark, headline-fit, copy-pack, or later QC story changes.
 
-### S5 — QC review gates: Context Integrity + SUBTITLE CONTRACT + sensitivity flag (NEXT)
+### S5 — QC review gates: Context Integrity + SUBTITLE CONTRACT + sensitivity flag (PASS)
 - Why required: decisions 3 + 4 (gate half) + 6 (verification half).
-- Acceptance: new REVIEW-only checks (never FAIL, never auto-repair):
-  Context Integrity gate, SUBTITLE CONTRACT checks (existence, uppercase,
-  ≤6 words per phrase, safe/readable rendering signals), sensitivity-flag
-  gate wired to the S2 attestation; unit tests on `runAutoProductionQc`;
-  every REVIEW carries a machine-readable reason.
-- Non-goals: AI-driven sensitivity detection (backlog); caption re-rendering.
+- Implemented deterministic REVIEW-only gates. Context Integrity uses one
+  minimum human attestation field, `contextIntegrityConfirmed`; false,
+  undefined, or omitted emits `editorial_context_integrity` REVIEW. True
+  emits same stable check as PASS. Checklist remains human-authoritative;
+  no AI fact-checking or semantic repair.
+- `sensitiveContent: true` emits `editorial_sensitive_content` REVIEW and
+  routes final verdict to `NEEDS_REVIEW`; false emits no sensitivity reason.
+- Subtitle contract receives renderer transcript words through service QC
+  wiring. Explicit missing words emits `subtitle_contract_missing` REVIEW;
+  invalid statement-relative timing emits `subtitle_contract_timing` REVIEW;
+  phrase segmentation uses existing `segmentPhrases` and preset cap, with
+  over-six-word evidence emitting `subtitle_contract_max_words` REVIEW.
+  Uppercase is reported deterministically as
+  `subtitle_contract_uppercase` PASS from preset transform configuration;
+  compliant phrases emit `subtitle_contract` PASS. No subtitle rewrite or
+  re-render added. Legacy direct QC callers without transcript words remain
+  compatible; explicit empty artifact remains REVIEW.
+- Existing technical FAIL checks, sourceDate review, and S3 duration policy
+  preserved. Multiple review checks coexist without overwriting.
+- Verification: focused QC/service/orchestrator/types/API tests 135/135 PASS;
+  `tsc --noEmit` clean. Full suite 264 PASS / 3 FAIL, same known
+  `auto-production-e2e-smoke.test.ts` 5-second real-render timeouts; no S6
+  work started.
+- Files: `src/lib/xclips/auto-production-qc.ts`,
+  `src/lib/xclips/auto-production-service.ts`,
+  `src/lib/xclips/auto-production-types.ts`,
+  `src/lib/xclips/auto-production-api.ts`,
+  `src/app/xclips/auto-production/page.tsx`,
+  `tests/xclips/auto-production-qc.test.ts`.
+- Non-goals: AI-driven sensitivity detection (backlog); caption
+  re-rendering; headline safe-fit, watermark, copy pack, final E2E.
 - Dependency: S2 (sensitivity field); S4 closed.
 
-### S6 — Headline safe-fit (must precede final gate)
+### S6 — Headline safe-fit (must precede final gate) (NEXT)
 - Why required: decision 9. Evidence unchanged from S1: centered drawtext
   (`x=(w-text_w)/2`, 56px) with no max-width/wrap clips long headlines in
   video (`auto-production-renderer.ts`) and cover (`auto-production-cover.ts`);

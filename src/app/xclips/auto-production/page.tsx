@@ -82,6 +82,7 @@ export default function AutoProductionPage() {
 	const [accountHandle, setAccountHandle] = useState("");
 	const [sourceRole, setSourceRole] = useState("");
 	const [sensitiveContent, setSensitiveContent] = useState(false);
+	const [contextIntegrityConfirmed, setContextIntegrityConfirmed] = useState(false);
 
 	const canGenerate =
 		sourcePath.trim().length > 0 &&
@@ -103,6 +104,7 @@ export default function AutoProductionPage() {
 			accountHandle: accountHandle.trim(),
 			sourceRole: sourceRole.trim() || undefined,
 			sensitiveContent,
+			contextIntegrityConfirmed,
 			brollPool: [],
 		};
 	}, [
@@ -115,6 +117,7 @@ export default function AutoProductionPage() {
 		accountHandle,
 		sourceRole,
 		sensitiveContent,
+		contextIntegrityConfirmed,
 	]);
 
 	const handleGenerate = useCallback(async () => {
@@ -221,6 +224,8 @@ export default function AutoProductionPage() {
 					setSourceRole={setSourceRole}
 					sensitiveContent={sensitiveContent}
 					setSensitiveContent={setSensitiveContent}
+					contextIntegrityConfirmed={contextIntegrityConfirmed}
+					setContextIntegrityConfirmed={setContextIntegrityConfirmed}
 					canGenerate={canGenerate}
 					onGenerate={handleGenerate}
 				/>
@@ -266,6 +271,8 @@ interface NewJobFormProps {
 	setSourceRole: (v: string) => void;
 	sensitiveContent: boolean;
 	setSensitiveContent: (v: boolean) => void;
+	contextIntegrityConfirmed: boolean;
+	setContextIntegrityConfirmed: (v: boolean) => void;
 	canGenerate: boolean;
 	onGenerate: () => void;
 }
@@ -289,6 +296,8 @@ function NewJobForm({
 	setSourceRole,
 	sensitiveContent,
 	setSensitiveContent,
+	contextIntegrityConfirmed,
+	setContextIntegrityConfirmed,
 	canGenerate,
 	onGenerate,
 }: NewJobFormProps) {
@@ -356,6 +365,18 @@ function NewJobForm({
 						/>
 					}
 					label="Sensitive content"
+					 sx={{ mt: 1, color: "#a1a1aa" }}
+				/>
+
+				<FormControlLabel
+					control={
+						<Checkbox
+							checked={contextIntegrityConfirmed}
+							onChange={(e) => setContextIntegrityConfirmed(e.target.checked)}
+							sx={{ color: "#a1a1aa" }}
+						/>
+					}
+					label="Context Integrity reviewed"
 					sx={{ mt: 1, color: "#a1a1aa" }}
 				/>
 

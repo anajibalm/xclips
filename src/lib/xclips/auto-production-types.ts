@@ -139,6 +139,8 @@ export const ProductionBriefSchema = z.object({
   sourceRole: z.string().optional(),
   // Operator attestation: source contains sensitive content → S5 routes to NEEDS_REVIEW.
   sensitiveContent: z.boolean().default(false),
+  // Human attestation only; unresolved context stays in review.
+  contextIntegrityConfirmed: z.boolean().optional(),
   brollPool: z.array(BrollAssetRefSchema),
 });
 export type ProductionBrief = z.infer<typeof ProductionBriefSchema>;

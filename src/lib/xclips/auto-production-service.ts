@@ -117,6 +117,7 @@ export interface RunAutoProductionJobInput {
 			renderHeight: number;
 			renderFps: number;
 			renderDurationSec: number;
+			transcriptWords?: WordTimestamp[];
 		}) => Promise<QcResult>;
 	};
 }
@@ -228,6 +229,7 @@ interface ExecuteInput {
 		renderHeight: number;
 		renderFps: number;
 		renderDurationSec: number;
+		transcriptWords?: WordTimestamp[];
 	}) => Promise<QcResult>;
 }
 
@@ -295,7 +297,8 @@ async function executeRenderCoverQc(
 		renderWidth: renderResult.width,
 		renderHeight: renderResult.height,
 		renderFps: renderResult.fps,
-		renderDurationSec: renderResult.durationSec,
+			renderDurationSec: renderResult.durationSec,
+		transcriptWords,
 	});
 
 	const bundle: AutoProductionJobBundle = {

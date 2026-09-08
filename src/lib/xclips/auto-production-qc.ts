@@ -6,6 +6,8 @@ import {
   EditPlan,
 } from "@/lib/xclips/auto-production-types";
 import { Result } from "@/lib/xclips/types";
+import { WordTimestamp } from "@/lib/xclips/types";
+import { segmentPhrases } from "@/lib/xclips/phrase-segmentation";
 
 // ============================================================
 // Auto Production QC — Slice 4
@@ -39,6 +41,8 @@ export interface RunAutoProductionQcInput {
   renderHeight: number;
   renderFps: number;
   renderDurationSec: number;
+  /** Words used by renderer; optional for direct callers, review on absence. */
+  transcriptWords?: WordTimestamp[];
 }
 
 // --- Constants ------------------------------------------------------------
@@ -58,6 +62,9 @@ export async function runAutoProductionQc(
 
   // ── Contract / Compliance Checks ────────────────────────────────────────
   runContractChecks(input, checks);
+
+  // ── Editorial review gates ──────────────────────────────────────────────
+  runReviewGates(input, checks);
 
   // ── Editorial Signal Checks ─────────────────────────────────────────────
   runEditorialChecks(input.editPlan, checks);
@@ -212,6 +219,120 @@ function runContractChecks(
     checks.push({ id: "contract_source_date", category: "contract", status: "REVIEW", message: "sourceDate not provided — editorial compliance requires human review" });
   } else {
     checks.push({ id: "contract_source_date", category: "contract", status: "PASS", message: `sourceDate present: "${input.brief.sourceDate}"` });
+  }
+}
+
+// --- Review Gates ----------------------------------------------------------
+
+function runReviewGates(
+  input: RunAutoProductionQcInput,
+  checks: QcCheck[],
+): void {
+  if (input.brief.contextIntegrityConfirmed === true) {
+    checks.push({
+      id: "editorial_context_integrity",
+      category: "editorial",
+      status: "PASS",
+      message: "Context Integrity checklist affirmatively attested",
+    });
+  } else {
+    checks.push({
+      id: "editorial_context_integrity",
+      category: "editorial",
+      status: "REVIEW",
+      message: "Context Integrity not affirmatively attested — human review required for cut meaning, subject, references, headline support, claims, and implied meaning",
+    });
+  }
+
+  if (input.brief.sensitiveContent === true) {
+    checks.push({
+      id: "editorial_sensitive_content",
+      category: "editorial",
+      status: "REVIEW",
+      message: "Sensitive content attested — human review required",
+    });
+  }
+
+  runSubtitleContractChecks(input, checks);
+}
+
+function runSubtitleContractChecks(
+  input: RunAutoProductionQcInput,
+  checks: QcCheck[],
+): void {
+  const words = input.transcriptWords;
+  if (!words || words.length === 0) {
+    checks.push({
+      id: "subtitle_contract_missing",
+      category: "contract",
+      status: "REVIEW",
+      message: "Subtitle artifact words are missing — human review required",
+    });
+    return;
+  }
+
+  const statementWords = words.filter((word) =>
+    Number.isFinite(word.start) &&
+    Number.isFinite(word.end) &&
+    word.start >= input.editPlan.statementStart &&
+    word.end <= input.editPlan.statementEnd,
+  );
+  if (statementWords.length === 0) {
+    checks.push({
+      id: "subtitle_contract_timing",
+      category: "contract",
+      status: "REVIEW",
+      message: "Subtitle timing does not overlap selected statement — human review required",
+    });
+    return;
+  }
+
+  const phrases = segmentPhrases(statementWords, {
+    maxWords: input.preset.captionStyle.maxWordsPerPhrase,
+  });
+  const oversized = phrases.find((phrase) => phrase.words.length > 6);
+  if (oversized) {
+    checks.push({
+      id: "subtitle_contract_max_words",
+      category: "contract",
+      status: "REVIEW",
+      message: `Subtitle phrase contains ${oversized.words.length} words — maximum is 6; human review required`,
+    });
+  }
+
+  const invalidTiming = phrases.find((phrase) =>
+    !Number.isFinite(phrase.startSec) ||
+    !Number.isFinite(phrase.endSec) ||
+    phrase.endSec <= phrase.startSec ||
+    phrase.startSec < input.editPlan.statementStart ||
+    phrase.endSec > input.editPlan.statementEnd,
+  );
+  if (invalidTiming) {
+    checks.push({
+      id: "subtitle_contract_timing",
+      category: "contract",
+      status: "REVIEW",
+      message: "Subtitle phrase timing is invalid relative to selected statement — human review required",
+    });
+  }
+
+  const uppercaseRequired = input.preset.captionStyle.uppercase;
+  checks.push({
+    id: "subtitle_contract_uppercase",
+    category: "contract",
+    status: "PASS",
+    message: uppercaseRequired
+      ? "Subtitle uppercase transform is enabled by preset"
+      : "Subtitle uppercase contract not applicable to preset",
+  });
+
+  if (!oversized && !invalidTiming) {
+    checks.push({
+      id: "subtitle_contract",
+      category: "contract",
+      status: "PASS",
+      message: `Subtitle phrases comply with maximum 6 words and selected statement timing (${phrases.length} phrases)`,
+    });
   }
 }
 

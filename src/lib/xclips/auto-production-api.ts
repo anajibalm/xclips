@@ -112,6 +112,7 @@ export interface BuildAutoProductionBriefInput {
 	accountHandle: string;
 	sourceRole?: string;
 	sensitiveContent?: boolean;
+	contextIntegrityConfirmed?: boolean;
 }
 
 /**
@@ -132,6 +133,7 @@ export function buildAutoProductionBrief(
 		accountHandle: input.accountHandle.trim(),
 		sourceRole: input.sourceRole?.trim() || undefined,
 		sensitiveContent: input.sensitiveContent ?? false,
+		contextIntegrityConfirmed: input.contextIntegrityConfirmed,
 		brollPool: [],
 	};
 }
