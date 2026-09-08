@@ -294,6 +294,24 @@ describe("xclips - Auto Production QC (Slice 4)", () => {
     expect(result.failedCount).toBe(0);
   });
 
+  it("headline truncation produces editorial review", async () => {
+    const longHeadline = Array.from({ length: 30 }, (_, i) => `headline${i}`).join(" ");
+    const result = await runAutoProductionQc({
+      ...makeQcInput({ outputPath: FIXTURE_VIDEO }),
+      editPlan: makeEditPlan({ headline: longHeadline }),
+    });
+    expect(result.checks.find((c) => c.id === "editorial_headline_truncated")?.status).toBe("REVIEW");
+    expect(result.verdict).toBe("NEEDS_REVIEW");
+  });
+
+  it("headline within capacity has no truncation review", async () => {
+    const result = await runAutoProductionQc({
+      ...makeQcInput({ outputPath: FIXTURE_VIDEO }),
+      editPlan: makeEditPlan({ headline: "Berita Terkini" }),
+    });
+    expect(result.checks.find((c) => c.id === "editorial_headline_truncated")).toBeUndefined();
+  });
+
   it("undefined subtitle evidence produces NEEDS_REVIEW", async () => {
     const result = await runAutoProductionQc({ ...makeQcInput({ outputPath: FIXTURE_VIDEO, transcriptWords: undefined }), brief: makeBrief({ contextIntegrityConfirmed: true }) });
     expect(result.checks.find((c) => c.id === "subtitle_contract_missing")?.status).toBe("REVIEW");

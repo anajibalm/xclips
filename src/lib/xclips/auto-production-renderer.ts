@@ -10,6 +10,8 @@ import { WordTimestamp, Result } from "@/lib/xclips/types";
 import { hexToAssColor, formatAssTime } from "@/lib/xclips/ffmpeg-builder";
 import { segmentPhrases } from "@/lib/xclips/phrase-segmentation";
 import { detectHardwareAcceleration, HardwareEncoder } from "@/lib/xclips/queue";
+import { fitAutoProductionHeadline } from "@/lib/xclips/auto-production-headline";
+import { buildSourceTransformFilter, getBakomLayout, HEADLINE_ACCENT_BAR_GAP, HEADLINE_ACCENT_BAR_WIDTH, HEADLINE_ENTER_DURATION_SEC, HEADLINE_ENTER_OFFSET_Y, type ContentType } from "@/lib/xclips/auto-production-bakom-layout";
 
 // ============================================================
 // Auto Production Renderer — Slice 3
@@ -25,6 +27,7 @@ export interface RenderAutoProductionInput {
   sourceVideoPath: string;
   sourceWidth: number;
   sourceHeight: number;
+  contentType?: ContentType;
 }
 
 export interface RenderAutoProductionResult {
@@ -101,8 +104,8 @@ export function buildAutoProductionAss(
 
     // Position: lower-middle safe area
     const posX = Math.round(playResX / 2);
-    const posY = Math.round(playResY * 0.72);
-    const transformTag = `{\\an5\\pos(${posX},${posY})}`;
+    const posY = getBakomLayout(preset).captionTop;
+    const transformTag = `{\\an8\\pos(${posX},${posY})}`;
 
     const events: string[] = [];
     for (const phrase of phrases) {
@@ -261,6 +264,7 @@ interface AutoProductionFfmpegOptions {
   editPlan: EditPlan;
   brief: ProductionBrief;
   assSubtitlePath: string;
+  contentType?: ContentType;
 }
 
 interface FfmpegCommand {
@@ -273,7 +277,7 @@ export function buildAutoProductionFfmpegCommand(
   outputPath: string,
   hwaccel: HardwareEncoder = "cpu",
 ): FfmpegCommand {
-  const { sourceVideoPath, sourceWidth, sourceHeight, clipStart, clipEnd, preset, editPlan, brief, assSubtitlePath } = opts;
+  const { sourceVideoPath, sourceWidth, sourceHeight, clipStart, clipEnd, preset, editPlan, brief, assSubtitlePath, contentType = "default" } = opts;
   const { width: targetW, height: targetH } = { width: preset.width, height: preset.height };
   const targetFps = preset.fps || DEFAULT_FPS;
   const duration = clipEnd - clipStart;
@@ -282,50 +286,57 @@ export function buildAutoProductionFfmpegCommand(
 
   // --- Video Pipeline ---
 
-  // 1. Scale source to fit within target canvas (letterbox/pad approach)
-  //    preserve_aspect_ratio=decrease ensures no cropping
-  //    pad adds black bars to fill exact target dimensions
-  filterChains.push(
-    `[0:v]scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,` +
-    `pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:black[v_padded]`,
-  );
+  // 1. Contain source inside deterministic BAKOM media zone.
+  //    force_original_aspect_ratio=decrease preserves complete source frame.
+  const layout = getBakomLayout(preset);
+  filterChains.push(buildSourceTransformFilter("[0:v]", "[v_padded]", layout, targetW, targetH, "default", sourceWidth, sourceHeight, contentType));
 
   // 2. Headline overlay (top safe zone)
-  const headlineText = escapeDrawText(editPlan.headline);
-  const headlineFontSize = preset.headlineStyle.fontSizePx;
-  const headlineY = preset.safeZone.topPx;
-
+  const headlineLayout = fitAutoProductionHeadline(editPlan.headline, preset);
+  let headlineInput = "[v_padded]";
+  const headlineOverlay = `[v_headline_overlay]`;
   filterChains.push(
-    `[v_padded]drawtext=text='${headlineText}':` +
-    `fontsize=${headlineFontSize}:fontcolor=${preset.headlineStyle.color}:` +
-    `x=(w-text_w)/2:y=${headlineY}:` +
-    `box=1:boxcolor=black@0.7:boxborderw=12` +
-    `[v_headline]`,
+    `${headlineInput}drawbox=x=0:y=${layout.headlineTop - 12}:w=${targetW}:h=${layout.headlineAreaHeight}:color=black@0.7:t=fill${headlineOverlay}`,
   );
+  const accentOutput = "[v_headline_accent]";
+  filterChains.push(
+    `${headlineOverlay}drawbox=x=${layout.safeMarginX}:y=${layout.headlineTop}:w=${HEADLINE_ACCENT_BAR_WIDTH}:h=${layout.headlineAreaHeight - 24}:color=${layout.headlineAccentColor}:t=fill${accentOutput}`,
+  );
+  headlineInput = accentOutput;
+  headlineLayout.lines.forEach((line, index) => {
+    const output = `[v_headline_${index}]`;
+    const headlineY = layout.headlineTop + index * (headlineLayout.fontSizePx + headlineLayout.lineSpacingPx);
+    filterChains.push(
+      `${headlineInput}drawtext=text='${escapeDrawText(line)}':` +
+      `fontsize=${headlineLayout.fontSizePx}:fontcolor=${preset.headlineStyle.color}:` +
+      `x=${layout.safeMarginX + HEADLINE_ACCENT_BAR_WIDTH + HEADLINE_ACCENT_BAR_GAP}:y='${headlineY}+${HEADLINE_ENTER_OFFSET_Y}*(1-min(t/${HEADLINE_ENTER_DURATION_SEC},1))':alpha='if(lt(t,${HEADLINE_ENTER_DURATION_SEC}),t/${HEADLINE_ENTER_DURATION_SEC},1)':box=0${output}`,
+    );
+    headlineInput = output;
+  });
 
   // 3. Source credit overlay (bottom-left)
   const creditText = brief.sourceDate
     ? `Sumber: ${brief.sourceName} (${brief.sourceDate})`
     : `Sumber: ${brief.sourceName}`;
   const creditEscaped = escapeDrawText(creditText);
-  const creditY = targetH - preset.safeZone.bottomPx - 30;
+  const creditY = targetH - layout.sourceBottomOffset;
 
   filterChains.push(
-    `[v_headline]drawtext=text='${creditEscaped}':` +
-    `fontsize=28:fontcolor=white:` +
-    `x=${preset.safeZone.leftPx}:y=${creditY}:` +
+    `${headlineInput}drawtext=text='${creditEscaped}':` +
+    `fontsize=${layout.sourceFontSize}:fontcolor=white:` +
+    `x=${layout.safeMarginX}:y=${creditY}:` +
     `box=1:boxcolor=black@0.6:boxborderw=6` +
     `[v_credit]`,
   );
 
   // 4. Handle overlay (bottom-right)
   const handleEscaped = escapeDrawText(brief.accountHandle);
-  const handleY = targetH - preset.safeZone.bottomPx - 30;
+  const handleY = targetH - layout.sourceBottomOffset;
 
   filterChains.push(
     `[v_credit]drawtext=text='${handleEscaped}':` +
-    `fontsize=28:fontcolor=white:` +
-    `x=w-text_w-${preset.safeZone.rightPx}:y=${handleY}:` +
+    `fontsize=${layout.sourceFontSize}:fontcolor=white:` +
+    `x=w-text_w-${layout.safeMarginX}:y=${handleY}:` +
     `box=1:boxcolor=black@0.6:boxborderw=6` +
     `[v_with_text]`,
   );

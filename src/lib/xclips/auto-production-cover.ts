@@ -7,6 +7,8 @@ import {
 } from "@/lib/xclips/auto-production-types";
 import { escapeDrawText } from "@/lib/xclips/auto-production-renderer";
 import { Result } from "@/lib/xclips/types";
+import { fitAutoProductionHeadline } from "@/lib/xclips/auto-production-headline";
+import { buildSourceTransformFilter, getBakomLayout, HEADLINE_ACCENT_BAR_GAP, HEADLINE_ACCENT_BAR_WIDTH, type ContentType } from "@/lib/xclips/auto-production-bakom-layout";
 
 // ============================================================
 // Auto Production Cover — Slice 4
@@ -20,6 +22,7 @@ export interface GenerateCoverInput {
   sourceHeight: number;
   editPlan: EditPlan;
   preset: AccountPreset;
+  contentType?: ContentType;
 }
 
 export interface GenerateCoverSuccess {
@@ -49,7 +52,7 @@ export async function generateAutoProductionCover(
   input: GenerateCoverInput,
   outputDir: string,
 ): Promise<CoverResult> {
-  const { sourceVideoPath, sourceWidth, sourceHeight, editPlan, preset } = input;
+  const { sourceVideoPath, sourceWidth, sourceHeight, editPlan, preset, contentType = "default" } = input;
 
   fs.mkdirSync(outputDir, { recursive: true });
 
@@ -66,7 +69,7 @@ export async function generateAutoProductionCover(
 
   // 3. Compose final cover: scale/pad + headline overlay
   const coverPath = path.join(outputDir, `cover_${Date.now()}.jpg`);
-  const composeResult = await composeCover(rawFramePath, coverPath, editPlan, preset);
+  const composeResult = await composeCover(rawFramePath, coverPath, editPlan, preset, sourceWidth, sourceHeight, contentType);
   cleanupFile(rawFramePath);
 
   if (!composeResult.success) {
@@ -140,25 +143,39 @@ function extractFrame(
   });
 }
 
+export function buildAutoProductionCoverFilter(
+  editPlan: EditPlan,
+  preset: AccountPreset,
+  sourceWidth = 0,
+  sourceHeight = 0,
+  contentType: ContentType = "default",
+): string {
+  const { width: targetW, height: targetH } = preset;
+  const layout = getBakomLayout(preset);
+  const headlineLayout = fitAutoProductionHeadline(editPlan.headline, preset);
+  let filter = buildSourceTransformFilter("[0:v]", "[v_cover]", layout, targetW, targetH, "default", sourceWidth, sourceHeight, contentType) +
+    `;[v_cover]drawbox=x=0:y=${layout.headlineTop - 12}:w=${targetW}:h=${layout.headlineAreaHeight}:color=black@0.7:t=fill` +
+    `,drawbox=x=${layout.safeMarginX}:y=${layout.headlineTop}:w=${HEADLINE_ACCENT_BAR_WIDTH}:h=${layout.headlineAreaHeight - 24}:color=${layout.headlineAccentColor}:t=fill`;
+  headlineLayout.lines.forEach((line, index) => {
+    const headlineY = layout.headlineTop + index * (headlineLayout.fontSizePx + headlineLayout.lineSpacingPx);
+    filter += `,drawtext=text='${escapeDrawText(line)}':` +
+      `fontsize=${headlineLayout.fontSizePx}:fontcolor=${preset.headlineStyle.color}:` +
+      `x=${layout.safeMarginX + HEADLINE_ACCENT_BAR_WIDTH + HEADLINE_ACCENT_BAR_GAP}:y=${headlineY}:box=0`;
+  });
+  return filter;
+}
+
 function composeCover(
   rawFramePath: string,
   outputPath: string,
   editPlan: EditPlan,
   preset: AccountPreset,
+  sourceWidth: number,
+  sourceHeight: number,
+  contentType: ContentType,
 ): Promise<Result<void>> {
   return new Promise((resolve) => {
-    const { width: targetW, height: targetH } = preset;
-    const headlineText = escapeDrawText(editPlan.headline);
-    const headlineFontSize = preset.headlineStyle.fontSizePx;
-    const headlineY = preset.safeZone.topPx;
-
-    const filterComplex =
-      `[0:v]scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,` +
-      `pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:black,` +
-      `drawtext=text='${headlineText}':` +
-      `fontsize=${headlineFontSize}:fontcolor=${preset.headlineStyle.color}:` +
-      `x=(w-text_w)/2:y=${headlineY}:` +
-      `box=1:boxcolor=black@0.7:boxborderw=12`;
+    const filterComplex = buildAutoProductionCoverFilter(editPlan, preset, sourceWidth, sourceHeight, contentType);
 
     const proc = spawn("ffmpeg", [
       "-y",

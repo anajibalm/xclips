@@ -176,17 +176,33 @@ be proven E2E; never widen a story for adjacent problems.
   re-rendering; headline safe-fit, watermark, copy pack, final E2E.
 - Dependency: S2 (sensitivity field); S4 closed.
 
-### S6 — Headline safe-fit (must precede final gate) (NEXT)
-- Why required: decision 9. Evidence unchanged from S1: centered drawtext
-  (`x=(w-text_w)/2`, 56px) with no max-width/wrap clips long headlines in
-  video (`auto-production-renderer.ts`) and cover (`auto-production-cover.ts`);
-  S1 frames show "emerintah … Krakata".
-- Acceptance: headline fully inside safe zone on 1080px canvas for long
-  inputs; pixel-verified on real render + cover; existing tests green.
-- Non-goals: template redesign, per-job styling.
+### S6 — BAKOM Deterministic Portrait Visual System (PASS / CLOSED)
+- C1 PASS: spoken subtitles use canonical `captionTop = 1476` with ASS
+  `\\an8\\pos(540,1476)`; BROLL bottom remains 1440. Position independent of
+  source orientation, content type, and zoom.
+- C2 PASS: headline uses white 48px text, 10px line spacing, permanent red
+  left accent bar, fixed 300ms fade + subtle slide-up, max 3 lines, balanced
+  deterministic wrapping, orphan-final-line penalty, and weak connector
+  (`dan`, `atau`, `yang`, `untuk`, `dari`, `dengan`) line-end penalty.
+- C3 PASS: human accepted real Metro `news_talking_head` framing at locked
+  zoom `1.20`. Output remains 1080x1920; BROLL geometry and footer anchoring
+  unchanged. Video visual system closed.
+- Human visual acceptance completed using real Metro artifacts, including
+  subtitle frames, headline frames, and zoom frame. Latest C3 artifact:
+  `/tmp/opencode/s6-c3-zoom120/final_1788877450157.mp4` with frame
+  `/tmp/opencode/s6-c3-zoom120/frame.png`.
+- Canonical constants and transform rules live in
+  `src/lib/xclips/auto-production-bakom-layout.ts`; renderer and cover share
+  deterministic geometry. Future invariant preserved: source → transcript →
+  N EditPlans, each independently renderable. No batch orchestration added.
+- S6-T NEXT: AI-generated editorial thumbnail remains separate from final
+  video; deterministic text overlay and source-reference safety remain the
+  contract. Provider image generation stays unverified and deferred.
+- Non-goals: S7 official logo/watermark, S8 copy pack, S9 final real E2E, S10
+  engineering gate, provider redesign, batch/queue/workers.
 - Dependency: none.
 
-### S7 — Fixed Bakom watermark overlay (operator-provided asset)
+### S7 — Fixed Bakom watermark overlay (operator-provided asset) (NEXT)
 - Why required: decision 5. Nothing exists; nothing may be invented.
 - Acceptance: operator-supplied fixed logo asset stored in repo, deterministic
   overlay in render (+ cover if decided), pixel-verified, tests; no per-job

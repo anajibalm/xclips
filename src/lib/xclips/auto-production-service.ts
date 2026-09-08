@@ -22,6 +22,7 @@ import type {
 	ProductionBrief,
 } from "@/lib/xclips/auto-production-types";
 import type { WordTimestamp } from "@/lib/xclips/types";
+import type { ContentType } from "@/lib/xclips/auto-production-bakom-layout";
 import * as path from "path";
 
 // Re-export pure helper from client-safe module
@@ -86,6 +87,7 @@ export interface RerenderJobContext {
 	sourceVideoPath: string;
 	sourceWidth: number;
 	sourceHeight: number;
+	contentType?: ContentType;
 }
 
 export interface RunAutoProductionJobInput {
@@ -105,6 +107,7 @@ export interface RunAutoProductionJobInput {
 				sourceHeight: number;
 				editPlan: EditPlan;
 				preset: AccountPreset;
+				contentType?: ContentType;
 			},
 			outputDir: string,
 		) => Promise<CoverResult>;
@@ -215,6 +218,7 @@ interface ExecuteInput {
 			sourceVideoPath: string;
 			sourceWidth: number;
 			sourceHeight: number;
+			contentType?: ContentType;
 			editPlan: EditPlan;
 			preset: AccountPreset;
 		},
@@ -238,7 +242,7 @@ async function executeRenderCoverQc(
 ): Promise<AutoProductionJobResult> {
 	const { rerenderContext, outputDir, onProgress, doRender, doCover, doQc } =
 		input;
-	const { brief, preset, editPlan, transcriptWords, sourceVideoPath, sourceWidth, sourceHeight } =
+	const { brief, preset, editPlan, transcriptWords, sourceVideoPath, sourceWidth, sourceHeight, contentType } =
 		rerenderContext;
 	// Mirror the renderer's default so cover never receives an empty dir
 	// when callers (e.g. Hono routes) omit outputDir.
@@ -257,6 +261,7 @@ async function executeRenderCoverQc(
 		sourceVideoPath,
 		sourceWidth,
 		sourceHeight,
+		contentType,
 	};
 
 	const renderResult = await doRender(renderInput, { outputDir });
@@ -273,9 +278,10 @@ async function executeRenderCoverQc(
 		{
 			sourceVideoPath,
 			sourceWidth,
-			sourceHeight,
-			editPlan,
-			preset,
+			 sourceHeight,
+			 contentType,
+			 editPlan,
+			 preset,
 		},
 		coverOutputDir,
 	);

@@ -8,6 +8,7 @@ import {
 import { Result } from "@/lib/xclips/types";
 import { WordTimestamp } from "@/lib/xclips/types";
 import { segmentPhrases } from "@/lib/xclips/phrase-segmentation";
+import { fitAutoProductionHeadline } from "@/lib/xclips/auto-production-headline";
 
 // ============================================================
 // Auto Production QC — Slice 4
@@ -250,6 +251,16 @@ function runReviewGates(
       category: "editorial",
       status: "REVIEW",
       message: "Sensitive content attested — human review required",
+    });
+  }
+
+  const headlineLayout = fitAutoProductionHeadline(input.editPlan.headline, input.preset);
+  if (headlineLayout.truncated) {
+    checks.push({
+      id: "editorial_headline_truncated",
+      category: "editorial",
+      status: "REVIEW",
+      message: "Headline exceeded fixed slot capacity and was deterministically truncated — human review required",
     });
   }
 

@@ -16,6 +16,9 @@ import {
   ACCOUNT_PRESETS,
 } from "@/lib/xclips/auto-production-types";
 import { WordTimestamp } from "@/lib/xclips/types";
+import { fitAutoProductionHeadline } from "@/lib/xclips/auto-production-headline";
+import { buildAutoProductionCoverFilter } from "@/lib/xclips/auto-production-cover";
+import { BAKOM_LAYOUT, buildSourceTransformFilter, getBakomLayout, resolveSourceOrientation, resolveSourceTransform } from "@/lib/xclips/auto-production-bakom-layout";
 
 // ============================================================
 // Test Helpers
@@ -75,6 +78,89 @@ function makeWords(): WordTimestamp[] {
 // ============================================================
 
 describe("xclips - Auto Production Renderer (Slice 3)", () => {
+  it("fits headlines deterministically and preserves every word", () => {
+    const preset = ACCOUNT_PRESETS.get("shadow")!;
+    const short = fitAutoProductionHeadline("Berita Terkini", preset);
+    const headline = "Pemerintah Pantau Erupsi Anak Krakatau dan Dampaknya Bagi Warga Sekitar";
+    const long = fitAutoProductionHeadline(headline, preset);
+    expect(short.lines).toEqual(["Berita Terkini"]);
+    expect(short.fontSizePx).toBe(48);
+    expect(long.lines.join(" ")).toBe(headline);
+    expect(long.fontSizePx).toBeGreaterThanOrEqual(28);
+    expect(long.maxWidthPx).toBe(preset.width - preset.safeZone.leftPx - preset.safeZone.rightPx);
+    expect(long.lines.at(-1)).not.toBe("Sekitar");
+    expect(long.lines.slice(0, -1).every((line) => !line.toLowerCase().endsWith(" dan"))).toBe(true);
+    expect(long.lines.every((line) => line.length > 0)).toBe(true);
+  });
+
+  it("keeps short and normal two-line headlines stable while balancing three lines", () => {
+    const preset = ACCOUNT_PRESETS.get("shadow")!;
+    expect(fitAutoProductionHeadline("Berita Terkini", preset).lines).toEqual(["Berita Terkini"]);
+    const two = fitAutoProductionHeadline("Pemerintah pantau perkembangan terbaru", preset);
+    expect(two.lines.length).toBeLessThanOrEqual(2);
+    const three = fitAutoProductionHeadline("Satu dua tiga empat lima enam tujuh delapan sembilan", preset);
+    expect(three.lines.length).toBeLessThanOrEqual(3);
+    expect(three.lines.every((line) => line.length > 0)).toBe(true);
+  });
+
+  it("uses fitted headline values in renderer command", () => {
+    const preset = ACCOUNT_PRESETS.get("shadow")!;
+    const headline = "Pemerintah Pantau Erupsi Anak Krakatau dan Dampaknya Bagi Warga Sekitar";
+    const layout = fitAutoProductionHeadline(headline, preset);
+    const command = buildAutoProductionFfmpegCommand({
+      sourceVideoPath: "/tmp/test.mp4", sourceWidth: 1920, sourceHeight: 1080,
+      clipStart: 5, clipEnd: 35, preset, editPlan: makeEditPlan({ headline }),
+      brief: makeBrief(), assSubtitlePath: "/tmp/test.ass",
+    }, "/tmp/out.mp4", "cpu");
+    expect(command.filterComplex).toContain(`fontsize=${layout.fontSizePx}`);
+    expect(command.filterComplex).toContain(`y='${preset.safeZone.topPx + layout.fontSizePx + layout.lineSpacingPx}`);
+    expect(command.filterComplex).toContain(layout.lines[0]);
+    expect(command.filterComplex).toContain("x=48:y=120");
+    expect(command.filterComplex.match(/drawtext=text='/g)?.length).toBeGreaterThanOrEqual(layout.lines.length + 2);
+    expect(command.filterComplex).not.toContain("\\\\n");
+    const coverFilter = buildAutoProductionCoverFilter(makeEditPlan({ headline }), preset);
+    expect(coverFilter).toContain(`fontsize=${layout.fontSizePx}`);
+    expect(coverFilter).toContain(`y=${preset.safeZone.topPx + layout.fontSizePx + layout.lineSpacingPx}`);
+    expect(coverFilter).toContain("x=48:y=120");
+  });
+
+  it("contains landscape and portrait source inside BAKOM media zone", () => {
+    const preset = ACCOUNT_PRESETS.get("shadow")!;
+    for (const [sourceWidth, sourceHeight] of [[1920, 1080], [1080, 1920]] as const) {
+      const command = buildAutoProductionFfmpegCommand({
+        sourceVideoPath: "/tmp/test.mp4", sourceWidth, sourceHeight,
+        clipStart: 5, clipEnd: 35, preset, editPlan: makeEditPlan(),
+        brief: makeBrief(), assSubtitlePath: "/tmp/test.ass",
+      }, "/tmp/out.mp4", "cpu");
+      expect(command.filterComplex).toContain(sourceWidth > sourceHeight ? "scale=1080:1080:force_original_aspect_ratio=increase" : "scale=1080:1080:force_original_aspect_ratio=increase");
+      expect(command.filterComplex).toContain("pad=1080:1920:0:360:black");
+    }
+  });
+
+  it("uses fixed portrait slot constants for every source orientation", () => {
+    const portrait = getBakomLayout(ACCOUNT_PRESETS.get("shadow")!);
+    expect(portrait.canvasWidth).toBe(1080); expect(portrait.canvasHeight).toBe(1920);
+    expect(portrait.mediaTop).toBe(BAKOM_LAYOUT.mediaTop);
+    expect(resolveSourceOrientation(1920, 1080)).toBe("landscape");
+    expect(resolveSourceOrientation(1080, 1920)).toBe("portrait");
+    expect(resolveSourceOrientation(1080, 1080)).toBe("square");
+    expect(portrait.mediaTop + portrait.mediaHeight).toBeLessThanOrEqual(portrait.canvasHeight);
+    expect(portrait.headlineTop + portrait.headlineAreaHeight).toBeLessThanOrEqual(portrait.mediaTop);
+    expect(portrait.brandingSlot.x + portrait.brandingSlot.width).toBeLessThanOrEqual(portrait.canvasWidth);
+    expect(portrait.brandingSlot.y + portrait.brandingSlot.height).toBeLessThanOrEqual(portrait.canvasHeight);
+  });
+
+  it("keeps output canvas independent from source orientation and transform strategy", () => {
+    const portraitPreset = ACCOUNT_PRESETS.get("shadow")!;
+    const portrait = getBakomLayout(portraitPreset);
+    expect(portrait.mediaTop).toBe(BAKOM_LAYOUT.mediaTop);
+    expect(resolveSourceTransform("default", "landscape").zoomLevel).toBe(1);
+    expect(resolveSourceTransform("default", "portrait").zoomLevel).toBe(1);
+    expect(resolveSourceTransform("wawancara_1_frame_utuh", "landscape").fitMode).toBe("contain");
+    expect(buildSourceTransformFilter("[0:v]", "[out]", portrait, 1080, 1920)).toContain("force_original_aspect_ratio=increase");
+    expect(buildSourceTransformFilter("[0:v]", "[out]", portrait, 1080, 1920, "wawancara_1_frame_utuh")).toContain("force_original_aspect_ratio=decrease");
+    expect(buildSourceTransformFilter("[0:v]", "[out]", portrait, 1080, 1920, "default", 1920, 1080, "news_talking_head")).toContain("scale=1296:1296");
+  });
   describe("escapeDrawText", () => {
     it("escapes colons", () => {
       expect(escapeDrawText("Sumber: TVRI")).toBe("Sumber\\: TVRI");
@@ -102,6 +188,28 @@ describe("xclips - Auto Production Renderer (Slice 3)", () => {
   });
 
   describe("buildAutoProductionAss", () => {
+    it("anchors spoken subtitle below fixed BROLL bottom", async () => {
+      const assPath = path.join("/tmp", "s6-c1-subtitle.ass");
+      const result = buildAutoProductionAss(makeWords(), 0, 35, ACCOUNT_PRESETS.get("shadow")!, assPath);
+      expect(result.success).toBe(true);
+      const content = fs.readFileSync(assPath, "utf8");
+      expect(content).toContain("\\an8\\pos(540,1476)");
+      expect(1476).toBeGreaterThan(1440);
+    });
+
+    it("keeps spoken subtitle Y independent of source orientation and content type", () => {
+      const preset = ACCOUNT_PRESETS.get("shadow")!;
+      const positions: string[] = [];
+      for (const contentType of ["default", "news_talking_head"] as const) {
+        for (const orientation of [[1920, 1080], [1080, 1920]]) {
+          const assPath = path.join("/tmp", `s6-c1-${contentType}-${orientation[0]}.ass`);
+          const result = buildAutoProductionAss(makeWords(), 0, 35, preset, assPath);
+          expect(result.success).toBe(true);
+          positions.push(fs.readFileSync(assPath, "utf8").match(/\\pos\(\d+,(\d+)\)/)?.[1] || "");
+        }
+      }
+      expect(new Set(positions)).toEqual(new Set(["1476"]));
+    });
     const preset = ACCOUNT_PRESETS.get("shadow")!;
     const tmpDir = path.resolve(process.cwd(), "tmp", "test-ass");
 
@@ -219,7 +327,8 @@ describe("xclips - Auto Production Renderer (Slice 3)", () => {
         "/tmp/out.mp4",
         "cpu",
       );
-      expect(cmd.filterComplex).toContain("scale=1080:1920");
+      expect(cmd.filterComplex).toContain("scale=1080:1080:force_original_aspect_ratio=increase");
+      expect(cmd.filterComplex).toContain("pad=1080:1920:0:360:black");
       expect(cmd.filterComplex).toContain("pad=1080:1920");
     });
 
