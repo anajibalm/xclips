@@ -22,6 +22,7 @@ import type {
 	ProductionBrief,
 } from "@/lib/xclips/auto-production-types";
 import type { WordTimestamp } from "@/lib/xclips/types";
+import * as path from "path";
 
 // Re-export pure helper from client-safe module
 export { detectSourceType } from "@/lib/xclips/auto-production-helpers";
@@ -237,6 +238,10 @@ async function executeRenderCoverQc(
 		input;
 	const { brief, preset, editPlan, transcriptWords, sourceVideoPath, sourceWidth, sourceHeight } =
 		rerenderContext;
+	// Mirror the renderer's default so cover never receives an empty dir
+	// when callers (e.g. Hono routes) omit outputDir.
+	const coverOutputDir =
+		outputDir ?? path.resolve(process.cwd(), "output", "xclips", "auto-production");
 
 	// 2. Rendering
 	onProgress?.("preparing_graphics");
@@ -270,7 +275,7 @@ async function executeRenderCoverQc(
 			editPlan,
 			preset,
 		},
-		outputDir ?? "",
+		coverOutputDir,
 	);
 	if (!coverResult.success) {
 		return {

@@ -116,7 +116,7 @@ export function buildAutoProductionAss(
     }
 
     const header = buildAssHeader(playResX, playResY, capStyle);
-    const content = header + events.join("\n") + "\n";
+    const content = header + "\n" + events.join("\n") + "\n";
     fs.writeFileSync(outputPath, content, "utf-8");
     return { success: true, data: outputPath };
   } catch (err: unknown) {

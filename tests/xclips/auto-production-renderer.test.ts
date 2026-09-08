@@ -176,6 +176,25 @@ describe("xclips - Auto Production Renderer (Slice 3)", () => {
       expect(content).toContain("[Script Info]");
       expect(content).not.toContain("Dialogue:");
     });
+
+    it("places every Dialogue event on its own line (no glued Format line)", () => {
+      const words: WordTimestamp[] = [
+        { word: "Warga", start: 0, end: 0.9, confidence: 1, isFiller: false, excluded: false },
+        { word: "di", start: 1, end: 1.4, confidence: 1, isFiller: false, excluded: false },
+        { word: "sana", start: 1.6, end: 2.0, confidence: 1, isFiller: false, excluded: false },
+      ];
+      const assPath = path.join(tmpDir, "test_dialogue_lines.ass");
+      const result = buildAutoProductionAss(words, 0, 5, preset, assPath);
+
+      expect(result.success).toBe(true);
+      const content = fs.readFileSync(assPath, "utf-8");
+      // Regression: header + events.join() previously glued the first
+      // Dialogue onto the [Events] Format line ("TextDialogue:"), which
+      // made libass drop the whole Events section → zero burned subtitles.
+      expect(content).not.toContain("TextDialogue:");
+      const dialogueLines = content.split("\n").filter((l) => l.startsWith("Dialogue:"));
+      expect(dialogueLines.length).toBeGreaterThan(0);
+    });
   });
 
   describe("buildAutoProductionFfmpegCommand", () => {
