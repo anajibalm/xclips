@@ -97,6 +97,7 @@ function makeMockDeps(overrides?: Partial<AutoProductionDeps>): AutoProductionDe
   return {
     ingestLocalFile: async () => ({ success: true, data: mockProject }),
     ingestYouTubeUrl: async () => ({ success: true, data: mockProject }),
+    getExistingTranscript: async () => ({ success: true, data: null }),
     transcribeProject: async () => ({ success: true, data: mockTranscript }),
     discoverHighlights: async () => ({ success: true, data: [mockHighlight] }),
     ...overrides,
@@ -472,6 +473,24 @@ describe("xclips - Auto Production Orchestrator (Slice 2)", () => {
       if (!result.success) {
         expect(result.stage).toBe("transcribe");
         expect(result.error).toContain("no usable words");
+      }
+    });
+
+    it("reuses existing transcript with words without calling transcribeProject", async () => {
+      let transcribeCalled = false;
+      const deps = makeMockDeps({
+        getExistingTranscript: async () => ({ success: true, data: mockTranscript }),
+        transcribeProject: async () => {
+          transcribeCalled = true;
+          return { success: true, data: mockTranscript };
+        },
+      });
+
+      const result = await runAutoProductionPlanning(makeValidBrief(), deps);
+      expect(result.success).toBe(true);
+      expect(transcribeCalled).toBe(false);
+      if (result.success) {
+        expect(result.transcript.id).toBe("tr_test_001");
       }
     });
   });

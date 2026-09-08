@@ -124,6 +124,10 @@ function makeE2EDeps(): AutoProductionDeps {
 	return {
 		ingestLocalFile: async () => ({ success: true, data: e2eProject }),
 		ingestYouTubeUrl: async () => ({ success: true, data: e2eProject }),
+		getExistingTranscript: async () => ({
+			success: true,
+			data: null,
+		}),
 		transcribeProject: async () => ({ success: true, data: e2eTranscript }),
 		discoverHighlights: async () => ({ success: true, data: [e2eHighlight] }),
 	};

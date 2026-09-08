@@ -133,6 +133,7 @@ function makeMockDeps(overrides?: Partial<AutoProductionDeps>): AutoProductionDe
 	return {
 		ingestLocalFile: async () => ({ success: true, data: mockProject }),
 		ingestYouTubeUrl: async () => ({ success: true, data: mockProject }),
+		getExistingTranscript: async () => ({ success: true, data: null }),
 		transcribeProject: async () => ({ success: true, data: mockTranscript }),
 		discoverHighlights: async () => ({ success: true, data: [mockHighlight] }),
 		...overrides,

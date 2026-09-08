@@ -7,6 +7,7 @@ import type {
 	XclipsTranscript,
 } from "@/lib/xclips/types";
 import { xclipsService } from "@/lib/xclips.service";
+import { xclipsDb } from "@/lib/xclips/xclips-db";
 
 // ============================================================
 // Auto Production DI Adapter — Slice 5
@@ -51,6 +52,17 @@ export function getAutoProductionDeps(): AutoProductionDeps {
 				onProgress as (progress: DownloadProgress) => void,
 			);
 			return result;
+		},
+
+		async getExistingTranscript(
+			projectId: string,
+		): Promise<Result<XclipsTranscript | null>> {
+			try {
+				const existing = xclipsDb.getTranscript(projectId);
+				return { success: true, data: existing };
+			} catch {
+				return { success: true, data: null };
+			}
 		},
 
 		async transcribeProject(

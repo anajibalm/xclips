@@ -27,6 +27,8 @@ export interface AutoProductionDeps {
     options?: { quality?: string; customName?: string; downloadSubtitles?: boolean },
     onProgress?: (p: unknown) => void,
   ): Promise<Result<XclipsProject>>;
+  /** Get an existing transcript for a project (e.g. YouTube CC), returns null if none */
+  getExistingTranscript(projectId: string): Promise<Result<XclipsTranscript | null>>;
   /** Transcribe an existing project (returns existing transcript if valid) */
   transcribeProject(
     projectId: string,
@@ -188,6 +190,14 @@ async function obtainTranscript(
   deps: AutoProductionDeps,
 ): Promise<Result<XclipsTranscript>> {
   try {
+    // First check for existing transcript (e.g. YouTube CC subtitles)
+    const existing = await deps.getExistingTranscript(project.id);
+    if (existing.success && existing.data) {
+      if (existing.data.words && existing.data.words.length > 0) {
+        return existing as Result<XclipsTranscript>;
+      }
+    }
+    // Fall back to AI transcription
     const result = await deps.transcribeProject(project.id);
     if (!result.success) {
       return { success: false, error: result.error || "Transcription failed" };
