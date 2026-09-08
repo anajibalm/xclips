@@ -286,7 +286,7 @@ describe("xclips - Auto Production Orchestrator (Slice 2)", () => {
   });
 
   describe("Statement selection", () => {
-    it("selected statement under 30s is rejected", async () => {
+    it("selected statement under 30s proceeds with review signal (no filler added)", async () => {
       const tooShort: XclipsClip = {
         ...mockHighlight,
         startSec: 10,
@@ -297,10 +297,32 @@ describe("xclips - Auto Production Orchestrator (Slice 2)", () => {
       });
 
       const result = await runAutoProductionPlanning(makeValidBrief(), deps);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        // Exact statement bounds preserved — nothing stretched to reach 30s
+        expect(result.editPlan.statementStart).toBe(10);
+        expect(result.editPlan.statementEnd).toBe(35);
+        expect(result.editPlan.statementSignal.confidence).toBe("review");
+        expect(result.editPlan.statementSignal.warnings.join(" ")).toContain("25.0s");
+        expect(result.editPlan.statementSignal.warnings.join(" ")).toContain("no filler added");
+      }
+    });
+
+    it("malformed zero-span statement still fails technically", async () => {
+      const zeroSpan: XclipsClip = {
+        ...mockHighlight,
+        startSec: 10,
+        endSec: 10,
+      };
+      const deps = makeMockDeps({
+        discoverHighlights: async () => ({ success: true, data: [zeroSpan] }),
+      });
+
+      const result = await runAutoProductionPlanning(makeValidBrief(), deps);
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.stage).toBe("select_statement");
-        expect(result.error).toContain("outside target range");
+        expect(result.error).toContain("malformed bounds");
       }
     });
 

@@ -121,7 +121,7 @@ const e2eBrief: ProductionBrief = {
 	brollPool: [],
 };
 
-function makeE2EDeps(): AutoProductionDeps {
+function makeE2EDeps(overrides?: Partial<AutoProductionDeps>): AutoProductionDeps {
 	return {
 		ingestLocalFile: async () => ({ success: true, data: e2eProject }),
 		ingestYouTubeUrl: async () => ({ success: true, data: e2eProject }),
@@ -131,6 +131,7 @@ function makeE2EDeps(): AutoProductionDeps {
 		}),
 		transcribeProject: async () => ({ success: true, data: e2eTranscript }),
 		discoverHighlights: async () => ({ success: true, data: [e2eHighlight] }),
+		...overrides,
 	};
 }
 
@@ -205,6 +206,36 @@ describe("real service E2E smoke", () => {
 		if (result.status === "READY") {
 			expect(result.bundle.videoPath).toMatch(/\/final_\d+\.mp4$/);
 			expect(result.bundle.coverPath).toMatch(/\/cover_\d+\.jpg$/);
+		}
+	});
+
+	it("should route sub-30s statement to NEEDS_REVIEW with duration reason (no filler)", async () => {
+		const shortHighlight: XclipsClip = {
+			...e2eHighlight,
+			id: "clip_e2e_short",
+			startSec: 10,
+			endSec: 35, // 25s < 30s review threshold
+		};
+		const deps = makeE2EDeps({
+			discoverHighlights: async () => ({ success: true, data: [shortHighlight] }),
+		});
+		const result = await runAutoProductionJob({
+			brief: e2eBrief,
+			deps,
+			outputDir: OUTPUT_DIR,
+		});
+
+		// Must NOT be a technical failure — the short statement still renders
+		expect(result.status).toBe("NEEDS_REVIEW");
+		if (result.status === "NEEDS_REVIEW") {
+			// Exact statement bounds preserved — nothing stretched to reach 30s
+			expect(result.bundle.editPlan.statementStart).toBe(10);
+			expect(result.bundle.editPlan.statementEnd).toBe(35);
+			// Machine-readable duration cause present
+			expect(result.reasons.join(" ")).toContain("25.0s");
+			// Real output still produced
+			expect(fs.existsSync(result.bundle.videoPath)).toBe(true);
+			expect(fs.existsSync(result.bundle.coverPath)).toBe(true);
 		}
 	});
 });

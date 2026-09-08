@@ -141,18 +141,16 @@ describe("xclips - Auto Production QC (Slice 4)", () => {
     expect(fileCheck!.status).toBe("FAIL");
   });
 
-  // Test 2: duration <30 fails
-  it("duration below 30s fails media QC", async () => {
-    const input = makeQcInput({ renderDurationSec: 25 });
-    // Mock: write a dummy file to pass file-exists check, but ffprobe won't find it
-    // Instead, test the contract check directly by checking duration logic
+  // Test 2: duration <30 routes to REVIEW (range policy, minimum side)
+  it("duration below 30s routes to human review, not failure", async () => {
+    const editPlan = makeEditPlan({ statementStart: 10, statementEnd: 35 });
+    const input = makeQcInput({ editPlan });
     const result = await runAutoProductionQc(input);
-    // With nonexistent file, media checks FAIL early, but contract checks still run
     const durationCheck = result.checks.find((c) => c.id === "contract_statement_duration");
     expect(durationCheck).toBeDefined();
-    // statementStart=5, statementEnd=35 → 30s, which is valid for contract
-    // The renderDurationSec doesn't affect contract checks, only media checks
-    // We need to test media duration via actual ffprobe — tested in smoke below
+    expect(durationCheck!.status).toBe("REVIEW");
+    expect(durationCheck!.message).toContain("25.0s");
+    expect(durationCheck!.message).toContain("review threshold");
   });
 
   // Test 3: duration >60 fails

@@ -379,6 +379,26 @@ describe("auto-production-service", () => {
 			expect(stages).toContain("rendering");
 			expect(stages).toContain("running_qc");
 		});
+
+		it("should propagate review signal (not FAILED) for sub-30s statement", async () => {
+			const shortHighlight = { ...mockHighlight, startSec: 10, endSec: 35 };
+			const result = await runAutoProductionJob({
+				brief: mockBrief,
+				deps: makeMockDeps({
+					discoverHighlights: async () => ({ success: true, data: [shortHighlight] }),
+				}),
+				outputDir: "/tmp/svc-test-short",
+				_overrides: makeOverrides(),
+			});
+
+			// Planning must not fail technically on short statements
+			expect(result.status).not.toBe("FAILED");
+			if (result.status === "READY") {
+				expect(result.bundle.editPlan.statementSignal.confidence).toBe("review");
+				expect(result.bundle.editPlan.statementStart).toBe(10);
+				expect(result.bundle.editPlan.statementEnd).toBe(35);
+			}
+		});
 	});
 
 	// ============================================================

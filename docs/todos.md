@@ -87,20 +87,25 @@ be proven E2E; never widen a story for adjacent problems.
   changes; planning-logic redesign.
 - Dependency: none. Unblocks S4 (real AI planning uses this brief).
 
-### S3 — Duration range policy (corrects hard-FAIL conflict) (NEXT)
+### S3 — Duration range policy (corrects hard-FAIL conflict) (PASS)
 - Why required: decision 1 + recorded conflict. Minimum-side behavior only:
-  a semantically complete but short statement must route to NEEDS_REVIEW
-  naming the cause (PRD FR-6), never FAIL; no filler/padding/looping may be
-  added to reach a target (assert current trim-only behavior:
-  renderer `-ss`/`-t` to statement bounds). Maximum side (60s) unchanged.
-- Acceptance: sub-range statement → NEEDS_REVIEW with duration reason (unit +
-  service-level tests); e2e fixture still renders exact statement bounds
-  (no duration stretching); no new numeric bound invented.
-- Non-goals: recalibrating 30s/60s themselves (leadership calibration, OQ-1);
-  changing the 60s ceiling.
-- Dependency: none (orchestrator + QC mapping only).
+  a semantically complete but short statement routes to NEEDS_REVIEW naming
+  the cause (PRD FR-6), never FAIL; no filler/padding/looping added to reach
+  a target (trim-only render asserted); maximum side (60s) unchanged.
+- Implemented: orchestrator `selectStatement` — over-60s still technical
+  FAILED (message unchanged), zero/negative span fails as malformed bounds,
+  positive sub-30s proceeds with `statementSignal` review + machine-readable
+  warning (`25.0s below 30s review threshold … no filler added`); QC
+  `media_duration` + `contract_statement_duration` map sub-30s to REVIEW
+  (same numbers in message), over-60s stays FAIL. No new numeric bound.
+- Verification: tsc clean; focused orchestrator+service+QC 81/81; e2e-smoke
+  3/3 incl. new real-render proof (25s statement → exact 10–35s bounds,
+  NEEDS_REVIEW with duration reason, real files produced); full suite
+  255/255 (+3). No filler/padding/looping code exists or was added.
+- Non-goals (held): recalibrating 30s/60s (OQ-1); changing the 60s ceiling.
+- Dependency: none. Unblocks correct NEEDS_REVIEW routing for S4 outputs.
 
-### S4 — Real AI planning proof (blocked on operator BYOK credential)
+### S4 — Real AI planning proof (blocked on operator BYOK credential) (NEXT)
 - Why required: H2/H4 planning leg still unproven on the real path.
 - Acceptance: with a valid provider key in existing AI Settings (no
   provider-code change expected), real `POST /jobs` full path on the Metro TV

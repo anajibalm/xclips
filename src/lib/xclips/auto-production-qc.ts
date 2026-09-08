@@ -143,9 +143,11 @@ async function runMediaChecks(
     }
   }
 
-  // Duration
+  // Duration is a range policy (minimum side): sub-30s output routes to
+  // human review, never FAIL — semantic completeness wins over padding.
+  // The 60s ceiling is unchanged (FAIL).
   if (durationSec < DURATION_MIN_SEC) {
-    checks.push({ id: "media_duration", category: "media", status: "FAIL", message: `Duration ${durationSec.toFixed(1)}s is below minimum ${DURATION_MIN_SEC}s` });
+    checks.push({ id: "media_duration", category: "media", status: "REVIEW", message: `Duration ${durationSec.toFixed(1)}s below ${DURATION_MIN_SEC}s review threshold — short output kept as-is for human review` });
   } else if (durationSec > DURATION_MAX_SEC) {
     checks.push({ id: "media_duration", category: "media", status: "FAIL", message: `Duration ${durationSec.toFixed(1)}s exceeds maximum ${DURATION_MAX_SEC}s` });
   } else {
@@ -180,9 +182,12 @@ function runContractChecks(
     checks.push({ id: "contract_account_handle", category: "contract", status: "PASS", message: `accountHandle present: "${input.brief.accountHandle}"` });
   }
 
-  // Statement duration
+  // Statement duration follows the same range policy: sub-30s is REVIEW
+  // (machine-readable cause), over-60s stays FAIL (ceiling unchanged).
   const statementDuration = input.editPlan.statementEnd - input.editPlan.statementStart;
-  if (statementDuration < DURATION_MIN_SEC || statementDuration > DURATION_MAX_SEC) {
+  if (statementDuration < DURATION_MIN_SEC) {
+    checks.push({ id: "contract_statement_duration", category: "contract", status: "REVIEW", message: `Statement duration ${statementDuration.toFixed(1)}s below ${DURATION_MIN_SEC}s review threshold — short statement kept as-is for human review` });
+  } else if (statementDuration > DURATION_MAX_SEC) {
     checks.push({ id: "contract_statement_duration", category: "contract", status: "FAIL", message: `Statement duration ${statementDuration.toFixed(1)}s outside ${DURATION_MIN_SEC}-${DURATION_MAX_SEC}s range` });
   } else {
     checks.push({ id: "contract_statement_duration", category: "contract", status: "PASS", message: `Statement duration ${statementDuration.toFixed(1)}s within range` });

@@ -249,17 +249,37 @@ async function selectStatement(
       (curr.viralScore || 0) > (prev.viralScore || 0) ? curr : prev,
     );
 
-    // Validate duration constraint (30-60s)
+    // Duration policy (minimum side is a review threshold, not a hard reject):
+    // - above the 60s ceiling → technical failure (unchanged ceiling)
+    // - zero/negative span → malformed bounds, technical failure (not a policy bound)
+    // - below the 30s floor but positive → semantically complete short
+    //   statement still proceeds; flagged for human review (PRD FR-6).
+    //   No filler/padding is ever added to reach a target.
     const duration = best.endSec - best.startSec;
-    if (duration < STATEMENT_MIN_SEC || duration > STATEMENT_MAX_SEC) {
+    if (duration > STATEMENT_MAX_SEC) {
       return {
         success: false,
         error: `Selected statement duration ${duration.toFixed(1)}s outside target range ${STATEMENT_MIN_SEC}-${STATEMENT_MAX_SEC}s`,
       };
     }
+    if (!(duration > 0)) {
+      return {
+        success: false,
+        error: `Selected statement has malformed bounds (startSec=${best.startSec}, endSec=${best.endSec})`,
+      };
+    }
 
-    // Valid 30-60s statement selected → strong (no numeric calibration yet)
-    const signal: EditorialSignal = { confidence: "strong", warnings: [] };
+    // Valid 30-60s statement selected → strong (no numeric calibration yet).
+    // Sub-30s positive statement → review signal with machine-readable cause.
+    const signal: EditorialSignal =
+      duration < STATEMENT_MIN_SEC
+        ? {
+            confidence: "review",
+            warnings: [
+              `Statement duration ${duration.toFixed(1)}s below ${STATEMENT_MIN_SEC}s review threshold — short statement kept as-is for human review, no filler added`,
+            ],
+          }
+        : { confidence: "strong", warnings: [] };
 
     const data: { candidate: typeof best; signal: EditorialSignal } = {
       candidate: best,
