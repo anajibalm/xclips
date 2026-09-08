@@ -1,3 +1,5 @@
+import * as fs from "fs";
+import * as path from "path";
 import type { AutoProductionDeps } from "@/lib/xclips/auto-production-orchestrator";
 import type {
 	DownloadProgress,
@@ -17,6 +19,35 @@ import { xclipsDb } from "@/lib/xclips/xclips-db";
 
 export function getAutoProductionDeps(): AutoProductionDeps {
 	return {
+		/**
+		 * Resolve an already-persisted project for an exact source identity.
+		 * Prefers the oldest project whose media still exists on disk and
+		 * which already carries a usable transcript (words > 0), so repeat
+		 * Generate/Regenerate runs replan on the same project + transcript
+		 * instead of duplicating ingest/transcription. Returns null when
+		 * nothing reusable exists (orchestrator falls through to ingest).
+		 */
+		async findExistingProjectBySourcePath(
+			sourcePath: string,
+		): Promise<Result<XclipsProject | null>> {
+			try {
+				const candidates = xclipsDb
+					.getAllProjects()
+					.filter((p) => isSameSourceIdentity(p.sourcePath, sourcePath))
+					.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+				for (const candidate of candidates) {
+					const mediaPath = candidate.normalizedPath || candidate.sourcePath;
+					if (!mediaPath || !fs.existsSync(mediaPath)) continue;
+					const transcript = xclipsDb.getTranscript(candidate.id);
+					if (transcript && transcript.words && transcript.words.length > 0) {
+						return { success: true, data: candidate };
+					}
+				}
+				return { success: true, data: null };
+			} catch {
+				return { success: true, data: null };
+			}
+		},
 		async ingestLocalFile(
 			sourcePath: string,
 			customName?: string,
@@ -88,4 +119,21 @@ export function getAutoProductionDeps(): AutoProductionDeps {
 			return result;
 		},
 	};
+}
+
+/**
+ * Exact persisted-source identity: identical strings match; local
+ * filesystem paths also match when they resolve to the same absolute
+ * path (covers relative-vs-absolute spellings). URLs match exactly only.
+ */
+function isSameSourceIdentity(a: string, b: string): boolean {
+	if (!a || !b) return false;
+	if (a === b) return true;
+	const looksUrl = (s: string) => /^https?:\/\//i.test(s);
+	if (looksUrl(a) || looksUrl(b)) return false;
+	try {
+		return path.resolve(a) === path.resolve(b);
+	} catch {
+		return false;
+	}
 }

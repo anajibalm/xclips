@@ -548,6 +548,78 @@ describe("xclips - Auto Production Orchestrator (Slice 2)", () => {
     });
   });
 
+  describe("Existing source/project reuse", () => {
+    const existingProject: XclipsProject = {
+      ...mockProject,
+      id: "proj_existing_001",
+      name: "Metro TV",
+    };
+
+    it("reuses the persisted project + transcript without ingesting or transcribing", async () => {
+      let localIngestCalled = false;
+      let ytIngestCalled = false;
+      let transcribeCalled = false;
+      let planningCalled = false;
+      const deps = makeMockDeps({
+        findExistingProjectBySourcePath: async () => ({ success: true, data: existingProject }),
+        ingestLocalFile: async () => { localIngestCalled = true; return { success: true, data: mockProject }; },
+        ingestYouTubeUrl: async () => { ytIngestCalled = true; return { success: true, data: mockProject }; },
+        getExistingTranscript: async () => ({ success: true, data: mockTranscript }),
+        transcribeProject: async () => { transcribeCalled = true; return { success: true, data: mockTranscript }; },
+        discoverHighlights: async () => { planningCalled = true; return { success: true, data: [mockHighlight] }; },
+      });
+
+      const result = await runAutoProductionPlanning(makeValidBrief(), deps);
+      expect(result.success).toBe(true);
+      expect(localIngestCalled).toBe(false);
+      expect(ytIngestCalled).toBe(false);
+      expect(transcribeCalled).toBe(false);
+      expect(planningCalled).toBe(true);
+      if (result.success) {
+        expect(result.project.id).toBe("proj_existing_001");
+        expect(result.transcript.id).toBe("tr_test_001");
+        expect(result.editPlan.statementStart).toBe(10);
+        expect(result.editPlan.statementEnd).toBe(45);
+      }
+    });
+
+    it("falls through to ingest when no existing project matches", async () => {
+      let localIngestCalled = false;
+      const deps = makeMockDeps({
+        findExistingProjectBySourcePath: async () => ({ success: true, data: null }),
+        ingestLocalFile: async () => { localIngestCalled = true; return { success: true, data: mockProject }; },
+      });
+
+      const result = await runAutoProductionPlanning(makeValidBrief(), deps);
+      expect(result.success).toBe(true);
+      expect(localIngestCalled).toBe(true);
+    });
+
+    it("falls through to ingest when the finder reports failure", async () => {
+      let localIngestCalled = false;
+      const deps = makeMockDeps({
+        findExistingProjectBySourcePath: async () => ({ success: false, error: "db unavailable" }),
+        ingestLocalFile: async () => { localIngestCalled = true; return { success: true, data: mockProject }; },
+      });
+
+      const result = await runAutoProductionPlanning(makeValidBrief(), deps);
+      expect(result.success).toBe(true);
+      expect(localIngestCalled).toBe(true);
+    });
+
+    it("falls through to ingest when the finder throws", async () => {
+      let localIngestCalled = false;
+      const deps = makeMockDeps({
+        findExistingProjectBySourcePath: async () => { throw new Error("db boom"); },
+        ingestLocalFile: async () => { localIngestCalled = true; return { success: true, data: mockProject }; },
+      });
+
+      const result = await runAutoProductionPlanning(makeValidBrief(), deps);
+      expect(result.success).toBe(true);
+      expect(localIngestCalled).toBe(true);
+    });
+  });
+
   describe("Backward compatibility", () => {
     it("does not call ingestYouTubeUrl for local sources", async () => {
       let ytCalled = false;

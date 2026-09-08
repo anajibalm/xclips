@@ -105,17 +105,43 @@ be proven E2E; never widen a story for adjacent problems.
 - Non-goals (held): recalibrating 30s/60s (OQ-1); changing the 60s ceiling.
 - Dependency: none. Unblocks correct NEEDS_REVIEW routing for S4 outputs.
 
-### S4 — Real AI planning proof (blocked on operator BYOK credential) (NEXT)
-- Why required: H2/H4 planning leg still unproven on the real path.
-- Acceptance: with a valid provider key in existing AI Settings (no
-  provider-code change expected), real `POST /jobs` full path on the Metro TV
-  source using the S2 brief (manual editorialFunction) → AI statement
-  selection → READY/NEEDS_REVIEW; then real `/regenerate` (full planning
-  again).
-- Non-goals: provider marketplace, model discovery, keychain work.
-- Dependency: S2 + operator BYOK credential (see Operator dependencies).
+### S4 — Real AI planning proof (PASS)
+- Real Gemini planning remains proven, but original runs exposed a semantic
+  blocker: `/jobs` and `/regenerate` called ingest every time. Each call
+  minted a new project, so persisted project `proj_1788801264816_1ogi` and
+  transcript `tr_yt_1788801272342` were not reused. `/regenerate` also
+  retranscribed, violating same source/project + same transcript semantics.
+- Existing real-provider evidence retained: direct Gemini
+  (`https://generativelanguage.googleapis.com/v1beta`, model
+  `gemini-3.7-flash` after correcting stale `gemini-3-7-flash` 404); prior
+  successful runs returned `NEEDS_REVIEW`, rendered video + cover, and QC
+  15 PASS / 1 REVIEW / 0 FAIL. Transient Gemini 503 overloads remain noted;
+  no retry infrastructure added.
+- Smallest repair: `getAutoProductionDeps()` now resolves oldest persisted
+  project with exact local source identity, existing media, and usable
+  transcript; orchestrator reuses it before ingest. Miss/error falls through
+  to existing ingest path. No provider or API redesign.
+- Real repaired `/jobs` (`s4-reuse-jobs-003`): project remained
+  `proj_1788801264816_1ogi`; transcript remained
+  `tr_yt_1788801272342` (194 words); no transcription dispatch; Gemini
+  Map-Reduce planning executed; EditPlan 44–87s, headline
+  "Panduan Warga Hadapi Abu Vulkanik"; render
+  `output/xclips/auto-production/final_1788846108205.mp4` + cover
+  `cover_1788846120478.jpg`; QC 15 PASS / 1 REVIEW / 0 FAIL.
+- Real repaired `/regenerate` (`s4-reuse-regen-001`): same project ID and
+  same transcript ID/word count; no transcription dispatch; Gemini planning
+  executed again; EditPlan 42–85s, headline "Panduan Menghadapi Abu
+  Vulkanik"; render `output/xclips/auto-production/final_1788846143122.mp4`
+  + cover `cover_1788846155136.jpg`; QC 15 PASS / 1 REVIEW / 0 FAIL.
+- Focused orchestrator tests: 32 PASS. `tsc --noEmit` clean. Full suite
+  not a gate: 256 PASS, 3 pre-existing real-render timeout failures in
+  `auto-production-e2e-smoke.test.ts` (5s test timeout); no S5 work started.
+- Semantic blocker closed: both real calls now record stable project and
+  transcript identities, planning twice, and zero transcription dispatches.
+- Non-goals held: provider marketplace, model discovery, keychain work;
+  no watermark, headline-fit, copy-pack, or later QC story changes.
 
-### S5 — QC review gates: Context Integrity + SUBTITLE CONTRACT + sensitivity flag
+### S5 — QC review gates: Context Integrity + SUBTITLE CONTRACT + sensitivity flag (NEXT)
 - Why required: decisions 3 + 4 (gate half) + 6 (verification half).
 - Acceptance: new REVIEW-only checks (never FAIL, never auto-repair):
   Context Integrity gate, SUBTITLE CONTRACT checks (existence, uppercase,
@@ -123,7 +149,7 @@ be proven E2E; never widen a story for adjacent problems.
   gate wired to the S2 attestation; unit tests on `runAutoProductionQc`;
   every REVIEW carries a machine-readable reason.
 - Non-goals: AI-driven sensitivity detection (backlog); caption re-rendering.
-- Dependency: S2 (sensitivity field); best verified against S4 outputs.
+- Dependency: S2 (sensitivity field); S4 closed.
 
 ### S6 — Headline safe-fit (must precede final gate)
 - Why required: decision 9. Evidence unchanged from S1: centered drawtext

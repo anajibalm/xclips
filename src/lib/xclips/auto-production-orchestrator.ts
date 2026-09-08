@@ -19,6 +19,15 @@ import { XclipsProject, XclipsTranscript, XclipsClip, Result } from "@/lib/xclip
  * In production, wire from XclipsService; in tests, mock.
  */
 export interface AutoProductionDeps {
+  /**
+   * Resolve an already-persisted project for an exact source identity.
+   * Lets Generate/Regenerate reuse the same source/project + transcript
+   * instead of minting a duplicate project per run. Optional so existing
+   * callers/mocks without it keep the legacy ingest-always behavior.
+   * Returns null when no reusable project exists (callers fall through
+   * to ingest). Never throws — failures resolve as null.
+   */
+  findExistingProjectBySourcePath?(sourcePath: string): Promise<Result<XclipsProject | null>>;
   /** Ingest a local file → project */
   ingestLocalFile(sourcePath: string, customName?: string): Promise<Result<XclipsProject>>;
   /** Ingest a YouTube/URL → project */
@@ -175,6 +184,19 @@ async function prepareSource(
   deps: AutoProductionDeps,
 ): Promise<Result<XclipsProject>> {
   try {
+    // Reuse the persisted source/project when the exact source identity
+    // already exists (keeps project + transcript stable across
+    // Generate/Regenerate). Falls through to ingest on miss/error.
+    if (deps.findExistingProjectBySourcePath) {
+      try {
+        const existing = await deps.findExistingProjectBySourcePath(brief.source.sourcePath);
+        if (existing.success && existing.data) {
+          return { success: true, data: existing.data };
+        }
+      } catch {
+        // fail open to ingest below
+      }
+    }
     if (brief.source.sourceType === "local") {
       return await deps.ingestLocalFile(brief.source.sourcePath, brief.sourceName);
     } else {
