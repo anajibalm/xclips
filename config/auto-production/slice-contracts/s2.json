@@ -1,0 +1,28 @@
+{
+  "slice": "S2",
+  "deliverable": "One Properly Edited Clip",
+  "projectId": "proj_1788933823612_gftf",
+  "sourceVideoId": "vXFdaRBI9ls",
+  "statementStart": 149.56,
+  "statementEnd": 197.0,
+  "headline": "Reaksi terhadap Kebakaran Hutan Cukup Masif",
+  "publisher": "METRO TV",
+  "visualSpine": "S1 frozen: red vertical headline bar, neutral canvas, 52px/12px headline, raised footer",
+  "immutableDimensions": ["projectId", "sourceVideoId", "statementStart", "statementEnd", "headline", "publisher", "visualSpine"],
+  "mutableDimensions": ["audioAlignment", "keepIntervals", "subtitleTiming", "audioCleanup", "audioJoinTreatment"],
+  "forbiddenCapabilities": ["momentRediscovery", "headlineRegeneration", "sourceReplacement", "broll", "bgm", "sfx", "hyperframes", "thumbnailRedesign", "visualRedesign", "nextSliceWork"],
+  "hardInvariants": {
+    "ccTimingMayDrivePhysicalCuts": false,
+    "fillerFlagsMayDrivePhysicalCutsWithoutTrustedAlignment": false,
+    "momentRediscoveryCalls": 0,
+    "headlineGenerationCalls": 0,
+    "sourceMayChange": false,
+    "nextSliceMayStartBeforeClosure": false
+  },
+  "evidenceVocabulary": ["PASS", "FAIL", "BLOCKED", "NOT_APPLICABLE"],
+  "closure": {
+    "machineGateRequired": true,
+    "humanGateRequired": true,
+    "blockedRequiredEvidenceMayClose": false
+  }
+}

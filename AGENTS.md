@@ -138,3 +138,18 @@ type(scope): concise description in imperative mood
 ---
 
 *xClips AGENTS Master Guide v1.0.0 — Updated 2026-08-29*
+
+## Auto Production Slice Rules
+
+1. Active machine-readable slice contract is authoritative.
+2. Immutable fields MUST NOT change within a slice.
+3. Never rerun an upstream decision stage to replace a frozen artifact.
+4. YouTube CC timestamps are alignment hints, never physical speech truth.
+5. Filler semantics never authorize physical cuts without trusted timing.
+6. AI decides editorial WHAT; trusted audio timing determines physical WHEN.
+7. Donor repositories never override BAKOM source of truth.
+8. BLOCKED evidence must never be reported as PASS.
+9. Human-review-ready is not the same as slice closed.
+10. Hard invariant failure means STOP; do not compensate around it.
+11. Never start next slice before current slice closure gate passes.
+12. Unrelated dirty work may never be modified to make a slice pass.
