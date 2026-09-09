@@ -201,6 +201,14 @@ export interface RenderJob {
 
 export const AiProviderTypeSchema = z.enum(["kieai", "gemini", "openai", "anthropic"]);
 export type AiProviderType = z.infer<typeof AiProviderTypeSchema>;
+export const CustomProviderProtocolSchema = z.enum(["openai-compatible", "claude-compatible"]);
+export type CustomProviderProtocol = z.infer<typeof CustomProviderProtocolSchema>;
+export const CustomProviderSchema = z.object({
+  id: z.string().min(1), name: z.string().min(1), protocol: CustomProviderProtocolSchema,
+  baseUrl: z.string().url(), apiKey: z.string().min(1), plannerModel: z.string().min(1),
+  visionModel: z.string().optional(), imageModel: z.string().optional(),
+});
+export type CustomProvider = z.infer<typeof CustomProviderSchema>;
 
 export const HOOK_FORMULAS = [
   { id: "auto", name: "Auto (AI Best Fit)", sub: "Smart Virality & Retention Engine", emotion: "Optimal for All Topics" },
@@ -302,6 +310,8 @@ export const XclipsAiSettingsSchema = z.object({
     }),
   transcribeModel: z.string().default("gemini-3-7-flash"),
   highlightModel: z.string().default("gemini-3-7-flash"),
+  customProviders: z.array(CustomProviderSchema).default([]),
+  activeCustomProviderId: z.string().nullable().default(null),
   lightModel: z.string().default("muse-glimmer-30b"), // Built-in Requesty helper model
   // Autoclip Narrative Options
   topicPrompt: z.string().optional().default(""),

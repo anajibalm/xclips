@@ -171,6 +171,11 @@ export function AiSettingsModal() {
   const [testingApiKey, setTestingApiKey] = useState(false);
   const [testKeyStatus, setTestKeyStatus] = useState<"idle" | "success" | "error">("idle");
   const [testKeyMessage, setTestKeyMessage] = useState<string | null>(null);
+  const [customName, setCustomName] = useState("");
+  const [customProtocol, setCustomProtocol] = useState<"openai-compatible" | "claude-compatible">("openai-compatible");
+  const [customBaseUrl, setCustomBaseUrl] = useState("");
+  const [customApiKey, setCustomApiKey] = useState("");
+  const [customPlannerModel, setCustomPlannerModel] = useState("");
 
   if (!aiSettings) return null;
 
@@ -221,12 +226,28 @@ export function AiSettingsModal() {
     >
       {/* Header */}
       <DialogTitle sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", p: 2.5, pb: 1.8, borderBottom: "1px solid #1f1f26" }}>
-        <Box>
+          <Box>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.3 }}>
             <TuneIcon sx={{ color: "#3b82f6", fontSize: "1.25rem" }} />
             <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "#fafafa", fontSize: "1rem", letterSpacing: "-0.01em" }}>
               AI Provider &amp; Model Credentials
             </Typography>
+          </Box>
+
+          <Box sx={{ mt: 2, p: 1.5, border: "1px solid #27272a", borderRadius: 1 }}>
+            <Typography variant="caption" sx={{ color: "#a1a1aa", display: "block", mb: 1 }}>Custom planner provider</Typography>
+            <TextField size="small" fullWidth label="Name" value={customName} onChange={(e) => setCustomName(e.target.value)} sx={{ mb: 1 }} />
+            <Select size="small" fullWidth value={customProtocol} onChange={(e) => setCustomProtocol(e.target.value as typeof customProtocol)} sx={{ mb: 1 }}>
+              <MenuItem value="openai-compatible">OpenAI-compatible</MenuItem>
+              <MenuItem value="claude-compatible">Claude-compatible</MenuItem>
+            </Select>
+            <TextField size="small" fullWidth label="Base URL" value={customBaseUrl} onChange={(e) => setCustomBaseUrl(e.target.value)} sx={{ mb: 1 }} />
+            <TextField size="small" fullWidth label="API key" type="password" value={customApiKey} onChange={(e) => setCustomApiKey(e.target.value)} sx={{ mb: 1 }} />
+            <TextField size="small" fullWidth label="Planner model" value={customPlannerModel} onChange={(e) => setCustomPlannerModel(e.target.value)} sx={{ mb: 1 }} />
+            <Button size="small" variant="outlined" onClick={() => {
+              const id = customName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
+              setAiSettings({ ...aiSettings, customProviders: [...(aiSettings.customProviders || []).filter((p) => p.id !== id), { id, name: customName.trim(), protocol: customProtocol, baseUrl: customBaseUrl.trim(), apiKey: customApiKey, plannerModel: customPlannerModel.trim() }], activeCustomProviderId: id });
+            }}>Add and activate</Button>
           </Box>
           <Typography variant="caption" sx={{ color: "#71717a", fontSize: "0.75rem", display: "block" }}>
             Configure AI providers (KIE AI, Gemini, OpenAI, Claude), validate API Keys, and setup model routing.

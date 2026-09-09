@@ -663,11 +663,21 @@ export class XclipsService {
       timeoutMs = 120000,
     } = params;
 
+    const isCustomClaude = provider === "anthropic" && !baseUrl.includes("anthropic.com");
+
     const isKieAi = provider === "kieai" || baseUrl.includes("kie.ai");
     const isGeminiDirect = (provider === "gemini" || baseUrl.includes("generativelanguage.googleapis.com")) && !isKieAi;
     const isGeminiModel = model.toLowerCase().startsWith("gemini") || model.toLowerCase().includes("flash") || model.toLowerCase().includes("pro");
 
     try {
+      if (isCustomClaude) {
+        const targetUrl = baseUrl.endsWith("/messages") ? baseUrl : `${baseUrl.replace(/\/+$/, "")}/messages`;
+        const response = await fetch(targetUrl, { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model, max_tokens: 8192, messages: [{ role: "user", content: userPrompt }] }), signal: AbortSignal.timeout(timeoutMs) });
+        if (!response.ok) return { success: false, error: `AI API Error (${response.status})` };
+        const json = await response.json() as { content?: Array<{ text?: string }> };
+        const text = json.content?.map((part) => part.text || "").join("").trim() || "";
+        return text ? { success: true, data: text } : { success: false, error: `Model ${model} mengembalikan respons teks kosong.` };
+      }
       if (isGeminiDirect && isGeminiModel) {
         // Native Google AI Studio Gemini REST format
         const cleanBase = baseUrl.replace(/\/models.*$/, "").replace(/\/+$/, "");
@@ -1917,13 +1927,15 @@ Format output WAJIB HANYA berupa JSON valid:
     }
 
     const settings = this.getAiSettings();
-    const providerToUse = options?.provider || settings.provider;
+    const custom = settings.activeCustomProviderId ? settings.customProviders.find((provider) => provider.id === settings.activeCustomProviderId) : undefined;
+    const customOptions = custom ? { provider: custom.protocol === "claude-compatible" ? "anthropic" as const : "openai" as const, baseUrl: custom.baseUrl, apiKey: custom.apiKey, model: custom.plannerModel } : undefined;
+    const providerToUse = customOptions?.provider || options?.provider || settings.provider;
     const effectiveBaseUrl =
-      providerToUse === settings.provider
+      customOptions?.baseUrl || (providerToUse === settings.provider
         ? settings.baseUrl
-        : this.getDefaultBaseUrlForProvider(providerToUse);
+        : this.getDefaultBaseUrlForProvider(providerToUse));
     const apiKey =
-      options?.apiKey ||
+      customOptions?.apiKey || options?.apiKey ||
       settings.apiKeys?.[providerToUse] ||
       (providerToUse === settings.provider ? settings.apiKey : "") ||
       (providerToUse === "kieai" ? process.env.KIE_AI_API_KEY : "");
@@ -1963,7 +1975,7 @@ Format output WAJIB HANYA berupa JSON valid:
           },
         });
         try {
-          const modelToUse = options?.model || (providerToUse === "kieai"
+          const modelToUse = customOptions?.model || options?.model || (providerToUse === "kieai"
             ? (settings.highlightModel || settings.transcribeModel || "gemini-3-7-flash")
             : (settings.highlightModel || "gemini-3-7-flash"));
 
