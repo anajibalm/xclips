@@ -148,9 +148,17 @@ export class XclipsService {
         updatedApiKeys[targetProvider] = settings.apiKeys[targetProvider];
       }
 
+      const customProviders = settings.customProviders?.map((provider) => {
+        const previous = current.customProviders.find((item) => item.id === provider.id);
+        return {
+          ...provider,
+          apiKey: provider.apiKey || previous?.apiKey || "",
+        };
+      });
       const merged: XclipsAiSettings = {
         ...current,
         ...settings,
+        ...(customProviders ? { customProviders } : {}),
         apiKeys: updatedApiKeys,
         apiKey: updatedApiKeys[targetProvider] || "",
       };
@@ -168,6 +176,20 @@ export class XclipsService {
       aiLogger.error({ err }, "Failed to save AI configuration");
       return { success: false, error: msg };
     }
+  }
+
+  getClientSafeAiSettings(): Omit<XclipsAiSettings, "customProviders"> & {
+    customProviders: Array<Omit<XclipsAiSettings["customProviders"][number], "apiKey"> & { apiKey: ""; apiKeyConfigured: boolean }>;
+  } {
+    const settings = this.getAiSettings();
+    return {
+      ...settings,
+      customProviders: settings.customProviders.map((provider) => ({
+        ...provider,
+        apiKey: "",
+        apiKeyConfigured: Boolean(provider.apiKey),
+      })),
+    };
   }
 
   /**
@@ -662,7 +684,6 @@ export class XclipsService {
       audioFormat = "mp3",
       timeoutMs = 120000,
     } = params;
-
     const isCustomClaude = provider === "anthropic" && !baseUrl.includes("anthropic.com");
 
     const isKieAi = provider === "kieai" || baseUrl.includes("kie.ai");
@@ -672,7 +693,12 @@ export class XclipsService {
     try {
       if (isCustomClaude) {
         const targetUrl = baseUrl.endsWith("/messages") ? baseUrl : `${baseUrl.replace(/\/+$/, "")}/messages`;
-        const response = await fetch(targetUrl, { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model, max_tokens: 8192, messages: [{ role: "user", content: userPrompt }] }), signal: AbortSignal.timeout(timeoutMs) });
+        const response = await fetch(targetUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+          body: JSON.stringify({ model, max_tokens: 8192, messages: [{ role: "user", content: userPrompt }] }),
+          signal: AbortSignal.timeout(timeoutMs),
+        });
         if (!response.ok) return { success: false, error: `AI API Error (${response.status})` };
         const json = await response.json() as { content?: Array<{ text?: string }> };
         const text = json.content?.map((part) => part.text || "").join("").trim() || "";
@@ -1927,8 +1953,15 @@ Format output WAJIB HANYA berupa JSON valid:
     }
 
     const settings = this.getAiSettings();
-    const custom = settings.activeCustomProviderId ? settings.customProviders.find((provider) => provider.id === settings.activeCustomProviderId) : undefined;
-    const customOptions = custom ? { provider: custom.protocol === "claude-compatible" ? "anthropic" as const : "openai" as const, baseUrl: custom.baseUrl, apiKey: custom.apiKey, model: custom.plannerModel } : undefined;
+    const custom = settings.activeCustomProviderId
+      ? settings.customProviders.find((provider) => provider.id === settings.activeCustomProviderId)
+      : undefined;
+    const customOptions = custom ? {
+      provider: custom.protocol === "claude-compatible" ? "anthropic" as const : "openai" as const,
+      baseUrl: custom.baseUrl,
+      apiKey: custom.apiKey,
+      model: custom.plannerModel,
+    } : undefined;
     const providerToUse = customOptions?.provider || options?.provider || settings.provider;
     const effectiveBaseUrl =
       customOptions?.baseUrl || (providerToUse === settings.provider

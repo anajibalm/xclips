@@ -207,6 +207,7 @@ export const CustomProviderSchema = z.object({
   id: z.string().min(1), name: z.string().min(1), protocol: CustomProviderProtocolSchema,
   baseUrl: z.string().url(), apiKey: z.string().min(1), plannerModel: z.string().min(1),
   visionModel: z.string().optional(), imageModel: z.string().optional(),
+  apiKeyConfigured: z.boolean().optional(),
 });
 export type CustomProvider = z.infer<typeof CustomProviderSchema>;
 

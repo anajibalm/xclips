@@ -1685,7 +1685,7 @@ app.delete("/api/xclips/projects/:id", (c) => {
 
 // --- xclips AI Settings & Models Routes ---
 app.get("/api/xclips/settings", (c) => {
-  const settings = xclipsService.getAiSettings();
+  const settings = xclipsService.getClientSafeAiSettings();
   return c.json({ ok: true, settings });
 });
 
@@ -1696,7 +1696,7 @@ app.post("/api/xclips/settings", async (c) => {
     if (!res.success) {
       return c.json({ ok: false, message: res.error }, 400);
     }
-    return c.json({ ok: true, settings: res.data });
+    return c.json({ ok: true, settings: xclipsService.getClientSafeAiSettings() });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to save configuration";
     return c.json({ ok: false, message }, 500);
