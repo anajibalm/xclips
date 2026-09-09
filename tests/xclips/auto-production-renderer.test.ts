@@ -240,6 +240,23 @@ describe("xclips - Auto Production Renderer (Slice 3)", () => {
       }
       expect(new Set(positions)).toEqual(new Set(["1476"]));
     });
+
+    it("clamps overlapping subtitle events without dropping words", () => {
+      const assPath = path.join("/tmp", "s9-overlap.ass");
+      const words = [
+        { word: "Satu", start: 0, end: 2, confidence: 1, isFiller: false, excluded: false },
+        { word: "Dua", start: 1, end: 3, confidence: 1, isFiller: false, excluded: false },
+        { word: "Tiga", start: 2.5, end: 4, confidence: 1, isFiller: false, excluded: false },
+      ];
+      const result = buildAutoProductionAss(words, 0, 5, ACCOUNT_PRESETS.get("shadow")!, assPath);
+      expect(result.success).toBe(true);
+      const events = fs.readFileSync(assPath, "utf8").split("\n").filter((line) => line.startsWith("Dialogue:"));
+      const times = events.map((line) => line.split(",").slice(1, 3));
+      for (let i = 1; i < times.length; i += 1) expect(times[i - 1][1] <= times[i][0]).toBe(true);
+      expect(events.join(" ")).toContain("SATU");
+      expect(events.join(" ")).toContain("DUA");
+      expect(events.join(" ")).toContain("TIGA");
+    });
     const preset = ACCOUNT_PRESETS.get("shadow")!;
     const tmpDir = path.resolve(process.cwd(), "tmp", "test-ass");
 

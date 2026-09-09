@@ -308,6 +308,20 @@ describe("xclips - Auto Production Orchestrator (Slice 2)", () => {
       }
     });
 
+    it("extends endpoint to nearest transcript sentence closure within ceiling", async () => {
+      const deps = makeMockDeps({
+        getExistingTranscript: async () => ({ success: true, data: { ...mockTranscript, words: [
+          { word: "Awal", start: 0, end: 10 },
+          { word: "lanjut", start: 10, end: 35 },
+          { word: "selesai.", start: 35, end: 43 },
+        ] } }),
+        discoverHighlights: async () => ({ success: true, data: [{ ...mockHighlight, startSec: 0, endSec: 35 }] }),
+      });
+      const result = await runAutoProductionPlanning(makeValidBrief(), deps);
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.editPlan.statementEnd).toBe(43);
+    });
+
     it("malformed zero-span statement still fails technically", async () => {
       const zeroSpan: XclipsClip = {
         ...mockHighlight,
@@ -434,6 +448,83 @@ describe("xclips - Auto Production Orchestrator (Slice 2)", () => {
         expect(result.stage).toBe("select_statement");
         expect(result.error).toBe("AI provider timeout");
       }
+    });
+
+    it("start guard moves raw AI start backward to sentence boundary", async () => {
+      // Transcript: sentence 1 ends at "selesai." (end 20), sentence 2 runs 20-50.
+      // AI selects startSec=30 (mid-sentence 2). Guard must move it to 20 (end of sentence 1).
+      const wordsWithBoundary = [
+        { word: "Pembukaan", start: 0, end: 5 },
+        { word: "pidato", start: 5, end: 8 },
+        { word: "selesai.", start: 8, end: 20 },
+        { word: "Kita", start: 20, end: 22 },
+        { word: "harus", start: 22, end: 24 },
+        { word: "siap", start: 24, end: 26 },
+        { word: "menghadapi", start: 26, end: 28 },
+        { word: "situasi", start: 28, end: 30 },
+        { word: "darurat.", start: 30, end: 35 },
+      ];
+      const clipWithMidStart: XclipsClip = {
+        ...mockHighlight,
+        startSec: 30, // raw AI start — inside sentence 2
+        endSec: 35,
+      };
+      const deps = makeMockDeps({
+        getExistingTranscript: async () => ({
+          success: true,
+          data: { ...mockTranscript, words: wordsWithBoundary },
+        }),
+        discoverHighlights: async () => ({ success: true, data: [clipWithMidStart] }),
+      });
+
+      const result = await runAutoProductionPlanning(makeValidBrief(), deps);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        // Guard must have moved start backward to the sentence boundary (end of "selesai." = 20)
+        expect(result.editPlan.statementStart).toBe(20);
+        expect(result.editPlan.statementStart).toBeLessThan(30);
+        // End guard still works
+        expect(result.editPlan.statementEnd).toBe(35);
+        // Headline unchanged
+        expect(result.editPlan.headline).toBe("Dampak Erupsi Anak Krakatau");
+      }
+    });
+
+    it("start guard does not move start forward", async () => {
+      // AI start is already at a sentence boundary — guard must not advance it.
+      const wordsAtBoundary = [
+        { word: "Awal.", start: 0, end: 10 },
+        { word: "Mulai", start: 10, end: 12 },
+        { word: "sekarang.", start: 12, end: 20 },
+      ];
+      const clipAtBoundary: XclipsClip = {
+        ...mockHighlight,
+        startSec: 10, // already at sentence boundary
+        endSec: 20,
+      };
+      const deps = makeMockDeps({
+        getExistingTranscript: async () => ({
+          success: true,
+          data: { ...mockTranscript, words: wordsAtBoundary },
+        }),
+        discoverHighlights: async () => ({ success: true, data: [clipAtBoundary] }),
+      });
+
+      const result = await runAutoProductionPlanning(makeValidBrief(), deps);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.editPlan.statementStart).toBe(10);
+      }
+    });
+
+    it("start guard does not add an additional AI call", async () => {
+      let aiCallCount = 0;
+      const deps = makeMockDeps({
+        discoverHighlights: async () => { aiCallCount++; return { success: true, data: [mockHighlight] }; },
+      });
+
+      await runAutoProductionPlanning(makeValidBrief(), deps);
+      expect(aiCallCount).toBe(1);
     });
   });
 

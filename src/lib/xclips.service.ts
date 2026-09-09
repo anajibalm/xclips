@@ -120,6 +120,9 @@ export class XclipsService {
       apiKeys: defaultApiKeys,
       transcribeModel: "gemini-3-7-flash",
       highlightModel: "gemini-3-7-flash",
+      thumbnailImageModel: "gemini-3.1-flash-image",
+      customProviders: [],
+      activeCustomProviderId: null,
       lightModel: "muse-glimmer-30b",
       topicPrompt: "",
       hookFormula: "auto",
@@ -459,9 +462,9 @@ export class XclipsService {
                   createdAt: new Date().toISOString(),
                   updatedAt: new Date().toISOString(),
                 };
-                xclipsDb.saveTranscript(transcript);
 
-                // Initialize stub project if not created yet so UI can immediately show transcript & autoclip
+                // FK ordering: transcripts.projectId must reference a project
+                // before eager subtitle persistence runs.
                 const existingProj = xclipsDb.getProject(projectId);
                 if (!existingProj) {
                   const stubProject: XclipsProject = {
@@ -478,6 +481,7 @@ export class XclipsService {
                     updatedAt: new Date().toISOString(),
                   };
                   xclipsDb.saveProject(stubProject);
+                  xclipsDb.saveTranscript(transcript);
                   if (onEagerProjectReady) onEagerProjectReady(stubProject);
                 }
                 aiLogger.info(

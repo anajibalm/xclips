@@ -7,6 +7,7 @@ import {
   EditorialSignal,
 } from "@/lib/xclips/auto-production-types";
 import { XclipsProject, XclipsTranscript, XclipsClip, Result } from "@/lib/xclips/types";
+import { findStartBoundary } from "@/lib/xclips/auto-production-renderer";
 
 // ============================================================
 // Auto Production Orchestrator — Slice 2
@@ -136,7 +137,7 @@ export async function runAutoProductionPlanning(
   const resolvedTranscript = transcript.data;
 
   // 5. Select statement (30-60s, guided by editorialAngle + editorialFunction)
-  const statement = await selectStatement(resolvedProject, validBrief.editorialAngle, validBrief.editorialFunction, deps);
+  const statement = await selectStatement(resolvedProject, resolvedTranscript, validBrief.editorialAngle, validBrief.editorialFunction, deps);
   if (!statement.success) {
     return { success: false, error: statement.error, stage: "select_statement" };
   }
@@ -239,6 +240,7 @@ async function obtainTranscript(
 
 async function selectStatement(
   project: XclipsProject,
+  transcript: XclipsTranscript,
   editorialAngle: string,
   editorialFunction: string,
   deps: AutoProductionDeps,
@@ -277,7 +279,10 @@ async function selectStatement(
     // - below the 30s floor but positive → semantically complete short
     //   statement still proceeds; flagged for human review (PRD FR-6).
     //   No filler/padding is ever added to reach a target.
-    const duration = best.endSec - best.startSec;
+    const closure = findSemanticEndClosure(best.endSec, transcript.words, best.startSec);
+    const adjustedEnd = closure.endSec;
+    const guardedStart = findStartBoundary(transcript.words, best.startSec);
+    const duration = adjustedEnd - guardedStart;
     if (duration > STATEMENT_MAX_SEC) {
       return {
         success: false,
@@ -301,10 +306,13 @@ async function selectStatement(
               `Statement duration ${duration.toFixed(1)}s below ${STATEMENT_MIN_SEC}s review threshold — short statement kept as-is for human review, no filler added`,
             ],
           }
-        : { confidence: "strong", warnings: [] };
+        : {
+            confidence: closure.warning ? "review" : "strong",
+            warnings: closure.warning ? [closure.warning] : [],
+          };
 
     const data: { candidate: typeof best; signal: EditorialSignal } = {
-      candidate: best,
+      candidate: { ...best, startSec: guardedStart, endSec: adjustedEnd },
       signal,
     };
     return { success: true, data };
@@ -312,4 +320,25 @@ async function selectStatement(
     const msg = err instanceof Error ? err.message : String(err);
     return { success: false, error: `Statement selection failed: ${msg}` };
   }
+}
+
+function findSemanticEndClosure(
+  selectedEndSec: number,
+  words: XclipsTranscript["words"],
+  startSec: number,
+): { endSec: number; warning?: string } {
+  const closure = words
+    .filter((word) => word.end > selectedEndSec && word.end - startSec <= STATEMENT_MAX_SEC)
+    .find((word) => /[.!?]$/.test(word.word.trim()));
+  if (closure) return { endSec: closure.end };
+
+  const finalWord = words.find((word) => word.end >= selectedEndSec);
+  if (finalWord && /[.!?]$/.test(finalWord.word.trim())) return { endSec: finalWord.end };
+  if (finalWord) {
+    return {
+      endSec: selectedEndSec,
+      warning: "Statement endpoint has no verified sentence closure within the 60s ceiling — human review required",
+    };
+  }
+  return { endSec: selectedEndSec };
 }

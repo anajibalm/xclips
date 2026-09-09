@@ -60,7 +60,84 @@ export type RenderStage =
 
 const DEFAULT_FPS = 30;
 
+/** Minimum on-screen time for a caption cue, capped by the clip end. */
+const MIN_CUE_DURATION_SEC = 0.5;
+
 // --- Helpers ---------------------------------------------------------------
+
+/**
+ * Order-aware clip window. Walks the transcript in sequence and returns
+ * words from the first one ending after `clipStart` up to and including the
+ * first one reaching `clipEnd`. Selecting purely by timestamp overlap is
+ * unsafe: CC tracks emit non-monotonic timings, so a word occurring later in
+ * the transcript can carry an earlier timestamp and leak past the boundary.
+ */
+export function selectClipWords(
+  words: WordTimestamp[],
+  clipStart: number,
+  clipEnd: number,
+): WordTimestamp[] {
+  const startIndex = words.findIndex((w) => w.end > clipStart);
+  if (startIndex === -1) return [];
+  for (let i = startIndex; i < words.length; i++) {
+    if (words[i].end >= clipEnd) return words.slice(startIndex, i + 1);
+  }
+  return words.slice(startIndex);
+}
+
+/**
+ * Deterministic start boundary guard. Walks backward from `rawStart` in
+ * TIMESTAMP ORDER (not transcript order — CC tracks are non-monotonic) and
+ * returns a corrected start time that begins on a sentence boundary. The
+ * guard moves the start BACKWARD only — it never advances past rawStart.
+ *
+ * Preferred boundary: a word ending with `.`, `?`, or `!`.
+ * Fallback boundary: a timing gap > `gapThresholdSec` between consecutive
+ * words, indicating a natural pause.
+ *
+ * If neither boundary is found within `maxLookbackSec`, returns rawStart.
+ */
+export function findStartBoundary(
+  words: WordTimestamp[],
+  rawStart: number,
+  maxLookbackSec = 10,
+  gapThresholdSec = 1.2,
+): number {
+  if (words.length === 0) return rawStart;
+
+  // Sort by timestamp to get the physical speaking order.
+  const sorted = [...words].sort((a, b) => a.start - b.start);
+
+  // Find the first word whose start >= rawStart.
+  const anchorIdx = sorted.findIndex((w) => w.start >= rawStart);
+  if (anchorIdx <= 0) return rawStart;
+
+  // Walk backward from anchorIdx-1 toward the beginning.
+  const minIdx = Math.max(0, anchorIdx - 40); // word-count guard
+  const earliestAllowed = Math.max(0, rawStart - maxLookbackSec);
+
+  for (let i = anchorIdx - 1; i >= minIdx; i--) {
+    // Sentence boundary: word ends with . ? !
+    const text = sorted[i].word.trim();
+    if (/[.?!]$/.test(text)) {
+      // Use the word's END time, not the next word's START (which may
+      // overlap backward due to CC timestamp non-monotonicity).
+      return sorted[i].end;
+    }
+
+    // Gap boundary: a pause between this word and the next one.
+    const gap = sorted[i + 1].start - sorted[i].end;
+    if (gap >= gapThresholdSec) {
+      return sorted[i].end;
+    }
+
+    // Stop if we would exceed the time bound (checked AFTER gap/sentence
+    // checks so that a real boundary at the time-bound edge is still found).
+    if (sorted[i].start < earliestAllowed) break;
+  }
+
+  return rawStart;
+}
 
 /** Escape a string for use inside FFmpeg drawtext text= field */
 export function escapeDrawText(s: string): string {
@@ -85,9 +162,13 @@ export function buildAutoProductionAss(
     const { width: playResX, height: playResY } = { width: preset.width, height: preset.height };
     const capStyle = preset.captionStyle;
 
-    // Filter words to clip bounds, exclude fillers
-    const clipWords = words.filter(
-      (w) => !w.excluded && !w.isFiller && w.start >= clipStart && w.end <= clipEnd,
+    // Select words by TRANSCRIPT ORDER, not by timestamp overlap: YouTube CC
+    // timings are not guaranteed monotonic, so a later word can carry an
+    // earlier timestamp and leak past the statement boundary. The window runs
+    // from the first word ending after clipStart to the first word (in order)
+    // reaching clipEnd, inclusive.
+    const clipWords = selectClipWords(words, clipStart, clipEnd).filter(
+      (w) => !w.excluded && !w.isFiller,
     );
 
     if (clipWords.length === 0) {
@@ -107,15 +188,25 @@ export function buildAutoProductionAss(
     const posY = getBakomLayout(preset).captionTop;
     const transformTag = `{\\an8\\pos(${posX},${posY})}`;
 
+    // Hard invariant for every emitted event: 0 <= start < end <= clipDuration.
+    // The minimum display duration may never extend a cue past the clip end.
+    const clipDuration = clipEnd - clipStart;
     const events: string[] = [];
+    let previousEndSec = 0;
     for (const phrase of phrases) {
       if (phrase.words.length === 0) continue;
-      const phraseStart = Math.max(0, phrase.startSec - clipStart);
-      const phraseEnd = Math.max(phraseStart + 0.5, phrase.endSec - clipStart);
+      const phraseStart = Math.max(previousEndSec, Math.max(0, phrase.startSec - clipStart));
+      if (phraseStart >= clipDuration) continue;
+      const phraseEnd = Math.min(
+        clipDuration,
+        Math.max(phraseStart + MIN_CUE_DURATION_SEC, phrase.endSec - clipStart),
+      );
+      if (phraseEnd <= phraseStart) continue;
       const displayText = capStyle.uppercase ? phrase.text.toUpperCase() : phrase.text;
       events.push(
         `Dialogue: 0,${formatAssTime(phraseStart)},${formatAssTime(phraseEnd)},Default,,0,0,0,,${transformTag}${escapeDrawText(displayText)}`,
       );
+      previousEndSec = phraseEnd;
     }
 
     const header = buildAssHeader(playResX, playResY, capStyle);
