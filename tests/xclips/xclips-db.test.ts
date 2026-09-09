@@ -515,5 +515,71 @@ describe("xclips - Persistent SQLite Database Engine (bun:sqlite)", () => {
     expect(deleted).toBe(true);
     expect(db.getDownloadRecordById("dl_test_2")).toBeNull();
   });
+
+  describe("FK ordering: project must exist before transcript", () => {
+    const makeProject = (id: string): XclipsProject => ({
+      id,
+      name: `Project ${id}`,
+      sourceType: "youtube",
+      sourcePath: "",
+      durationSec: 100,
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      isVfr: false,
+      createdAt: "2026-09-09T00:00:00.000Z",
+      updatedAt: "2026-09-09T00:00:00.000Z",
+    });
+
+    const makeTranscript = (projectId: string, id: string): XclipsTranscript => ({
+      id,
+      projectId,
+      label: "CC",
+      sourceType: "youtube_cc",
+      isActive: true,
+      language: "id",
+      rawText: "test",
+      srtContent: "",
+      words: [{ word: "test", start: 0, end: 1, confidence: 1 }],
+      createdAt: "2026-09-09T00:00:00.000Z",
+    });
+
+    it("A. project absent: project saved before transcript", () => {
+      const proj = makeProject("proj_fk_1");
+      const tr = makeTranscript("proj_fk_1", "tr_fk_1");
+
+      // Save project first (simulates stub creation)
+      db.saveProject(proj);
+      // Then save transcript (FK satisfied)
+      db.saveTranscript(tr);
+
+      const retrieved = db.getTranscript("proj_fk_1", "tr_fk_1");
+      expect(retrieved).not.toBeNull();
+      expect(retrieved?.projectId).toBe("proj_fk_1");
+    });
+
+    it("B. project already exists: transcript still saved", () => {
+      const proj = makeProject("proj_fk_2");
+      db.saveProject(proj);
+
+      const tr1 = makeTranscript("proj_fk_2", "tr_fk_2a");
+      const tr2 = makeTranscript("proj_fk_2", "tr_fk_2b");
+
+      // First transcript saved
+      db.saveTranscript(tr1);
+      // Second transcript also saved — project is NOT recreated
+      db.saveTranscript(tr2);
+
+      expect(db.getTranscript("proj_fk_2", "tr_fk_2a")).not.toBeNull();
+      expect(db.getTranscript("proj_fk_2", "tr_fk_2b")).not.toBeNull();
+    });
+
+    it("transcript without project violates FK integrity", () => {
+      const tr = makeTranscript("proj_nonexistent", "tr_orphan");
+      // SQLite FK enforcement: inserting a transcript referencing a non-existent
+      // project should throw or violate constraint.
+      expect(() => db.saveTranscript(tr)).toThrow();
+    });
+  });
 });
 

@@ -120,7 +120,6 @@ export class XclipsService {
       apiKeys: defaultApiKeys,
       transcribeModel: "gemini-3-7-flash",
       highlightModel: "gemini-3-7-flash",
-      thumbnailImageModel: "gemini-3.1-flash-image",
       customProviders: [],
       activeCustomProviderId: null,
       lightModel: "muse-glimmer-30b",
@@ -481,9 +480,9 @@ export class XclipsService {
                     updatedAt: new Date().toISOString(),
                   };
                   xclipsDb.saveProject(stubProject);
-                  xclipsDb.saveTranscript(transcript);
                   if (onEagerProjectReady) onEagerProjectReady(stubProject);
                 }
+                xclipsDb.saveTranscript(transcript);
                 aiLogger.info(
                   { projectId, wordsCount: words.length },
                   "P2 Eager Subtitles stored in SQLite ahead of media download"
