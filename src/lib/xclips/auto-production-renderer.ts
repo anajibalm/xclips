@@ -10,8 +10,8 @@ import { WordTimestamp, Result } from "@/lib/xclips/types";
 import { hexToAssColor, formatAssTime } from "@/lib/xclips/ffmpeg-builder";
 import { segmentPhrases } from "@/lib/xclips/phrase-segmentation";
 import { detectHardwareAcceleration, HardwareEncoder } from "@/lib/xclips/queue";
-import { fitAutoProductionHeadline } from "@/lib/xclips/auto-production-headline";
-import { buildSourceTransformFilter, getBakomLayout, HEADLINE_ACCENT_BAR_GAP, HEADLINE_ACCENT_BAR_WIDTH, HEADLINE_ENTER_DURATION_SEC, HEADLINE_ENTER_OFFSET_Y, type ContentType } from "@/lib/xclips/auto-production-bakom-layout";
+import { fitAutoProductionHeadline, estimateLineWidth } from "@/lib/xclips/auto-production-headline";
+import { buildSourceTransformFilter, getBakomLayout, BACKGROUND_TEXTURE_ASSET, BACKGROUND_TEXTURE_BOTTOM_COLOR, BACKGROUND_TEXTURE_OVERLAY_OPACITY, BACKGROUND_TEXTURE_TOP_COLOR, HEADLINE_ACCENT_BAR_WIDTH, HEADLINE_ENTER_DURATION_SEC, HEADLINE_ENTER_OFFSET_Y, HEADLINE_GOLD_LINE_COLOR, HEADLINE_GOLD_LINE_OFFSET_PX, HEADLINE_GOLD_LINE_THICKNESS_PX, type ContentType } from "@/lib/xclips/auto-production-bakom-layout";
 
 // ============================================================
 // Auto Production Renderer — Slice 3
@@ -286,21 +286,41 @@ export function buildAutoProductionFfmpegCommand(
 
   // --- Video Pipeline ---
 
-  // 1. Contain source inside deterministic BAKOM media zone.
-  //    force_original_aspect_ratio=decrease preserves complete source frame.
+  // 1. Deterministic BAKOM_VIDEO_V1 background: soft editorial surface from
+  //    fixed gradient + vignette. No grid, noise, randomness, or per-pixel
+  //    expressions; identical pixels every render.
   const layout = getBakomLayout(preset);
-  filterChains.push(buildSourceTransformFilter("[0:v]", "[v_padded]", layout, targetW, targetH, "default", sourceWidth, sourceHeight, contentType));
+  filterChains.push(
+    `gradients=s=${targetW}x${targetH}:c0=${BACKGROUND_TEXTURE_BOTTOM_COLOR}:c1=${BACKGROUND_TEXTURE_TOP_COLOR}:c2=0x211817:c3=0x0D0C0D:x0=540:y0=800:x1=1080:y1=1800:nb_colors=4:type=radial:speed=0:r=${targetFps}:d=${duration.toFixed(3)},` +
+    `vignette=angle=PI/5:mode=forward,` +
+    `format=yuv420p[v_bg]`,
+  );
+  const texturePath = path.resolve(process.cwd(), BACKGROUND_TEXTURE_ASSET).replace(/\\/g, "/").replace(/:/g, "\\:");
+  filterChains.push(`movie=filename='${texturePath}':loop=1,scale=${targetW}:${targetH},format=rgba[texture]`);
+  filterChains.push(buildSourceTransformFilter("[0:v]", "[v_broll]", layout, targetW, targetH, "default", sourceWidth, sourceHeight, contentType, false));
+  filterChains.push(`[v_bg][texture]blend=all_mode=addition:all_opacity=0.18[ v_surface]`.replace("[ v_surface]", "[v_surface]"));
+  filterChains.push(`[v_surface][v_broll]overlay=0:${layout.mediaTop}:shortest=1[v_composited]`);
 
   // 2. Headline overlay (top safe zone)
   const headlineLayout = fitAutoProductionHeadline(editPlan.headline, preset);
-  let headlineInput = "[v_padded]";
+  let headlineInput = "[v_composited]";
   const headlineOverlay = `[v_headline_overlay]`;
   filterChains.push(
-    `${headlineInput}drawbox=x=0:y=${layout.headlineTop - 12}:w=${targetW}:h=${layout.headlineAreaHeight}:color=black@0.7:t=fill${headlineOverlay}`,
+    `${headlineInput}drawbox=x=0:y=${layout.headlineTop - 12}:w=${targetW}:h=${layout.headlineAreaHeight}:color=black@${BACKGROUND_TEXTURE_OVERLAY_OPACITY}:t=fill${headlineOverlay}`,
   );
+  // BAKOM_VIDEO_V1: horizontal gold accent line below the headline block.
+  // Permanent for the whole clip; width follows the longest rendered line.
+  const headlineTextLeft = layout.safeMarginX + HEADLINE_ACCENT_BAR_WIDTH + 12;
+  const longestLineWidth = Math.max(
+    ...headlineLayout.lines.map((line) => estimateLineWidth(line, headlineLayout.fontSizePx)),
+  );
+  const goldLineY = layout.headlineTop +
+    (headlineLayout.lines.length - 1) * (headlineLayout.fontSizePx + headlineLayout.lineSpacingPx) +
+    headlineLayout.fontSizePx +
+    HEADLINE_GOLD_LINE_OFFSET_PX;
   const accentOutput = "[v_headline_accent]";
   filterChains.push(
-    `${headlineOverlay}drawbox=x=${layout.safeMarginX}:y=${layout.headlineTop}:w=${HEADLINE_ACCENT_BAR_WIDTH}:h=${layout.headlineAreaHeight - 24}:color=${layout.headlineAccentColor}:t=fill${accentOutput}`,
+    `${headlineOverlay}drawbox=x=${headlineTextLeft}:y=${goldLineY}:w=${Math.round(longestLineWidth)}:h=${HEADLINE_GOLD_LINE_THICKNESS_PX}:color=${HEADLINE_GOLD_LINE_COLOR}:t=fill${accentOutput}`,
   );
   headlineInput = accentOutput;
   headlineLayout.lines.forEach((line, index) => {
@@ -309,7 +329,7 @@ export function buildAutoProductionFfmpegCommand(
     filterChains.push(
       `${headlineInput}drawtext=text='${escapeDrawText(line)}':` +
       `fontsize=${headlineLayout.fontSizePx}:fontcolor=${preset.headlineStyle.color}:` +
-      `x=${layout.safeMarginX + HEADLINE_ACCENT_BAR_WIDTH + HEADLINE_ACCENT_BAR_GAP}:y='${headlineY}+${HEADLINE_ENTER_OFFSET_Y}*(1-min(t/${HEADLINE_ENTER_DURATION_SEC},1))':alpha='if(lt(t,${HEADLINE_ENTER_DURATION_SEC}),t/${HEADLINE_ENTER_DURATION_SEC},1)':box=0${output}`,
+      `x=${headlineTextLeft}:y='${headlineY}+${HEADLINE_ENTER_OFFSET_Y}*(1-min(t/${HEADLINE_ENTER_DURATION_SEC},1))':alpha='if(lt(t,${HEADLINE_ENTER_DURATION_SEC}),t/${HEADLINE_ENTER_DURATION_SEC},1)':box=0${output}`,
     );
     headlineInput = output;
   });

@@ -15,7 +15,7 @@ const HEADLINE_GLYPH_WIDTH = 0.62;
 const HEADLINE_LINE_SPACING = 8;
 const WEAK_LINE_END_WORDS = new Set(["dan", "atau", "yang", "untuk", "dari", "dengan"]);
 
-function estimateLineWidth(text: string, fontSizePx: number): number {
+export function estimateLineWidth(text: string, fontSizePx: number): number {
   return [...text].reduce((width, char) => {
     const factor = char === " " ? 0.32 : /[ilI.,'():]/.test(char) ? 0.3 : HEADLINE_GLYPH_WIDTH;
     return width + factor * fontSizePx;

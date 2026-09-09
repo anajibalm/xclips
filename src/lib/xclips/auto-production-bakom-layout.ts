@@ -24,10 +24,22 @@ export interface BakomLayout {
 export type SourceOrientation = "landscape" | "portrait" | "square" | "other";
 export type SourceTransformStrategy = "default" | "wawancara_1_frame_utuh";
 export const SUBTITLE_BOTTOM_MARGIN_IN_BROLL = 90;
+/** @deprecated BAKOM_VIDEO_V1: replaced by horizontal gold accent line in the video renderer. Still imported by cover renderer. */
 export const HEADLINE_ACCENT_BAR_WIDTH = 12;
+/** @deprecated BAKOM_VIDEO_V1: replaced by horizontal gold accent line in the video renderer. Still imported by cover renderer. */
 export const HEADLINE_ACCENT_BAR_GAP = 12;
 export const HEADLINE_ENTER_DURATION_SEC = 0.3;
 export const HEADLINE_ENTER_OFFSET_Y = 12;
+/** BAKOM_VIDEO_V1 gold accent line (GSM 2026: #E6BF70 = RGB 230,191,112). */
+export const HEADLINE_GOLD_LINE_COLOR = "#E6BF70";
+export const HEADLINE_GOLD_LINE_THICKNESS_PX = 5;
+export const HEADLINE_GOLD_LINE_OFFSET_PX = 8;
+/** BAKOM_VIDEO_V1 subtle deterministic background treatment (static, no noise source). */
+export const BACKGROUND_TEXTURE_TOP_COLOR = "0x151112";
+export const BACKGROUND_TEXTURE_BOTTOM_COLOR = "0x3A2A20";
+export const BACKGROUND_TEXTURE_OVERLAY_OPACITY = 0.35;
+export const BACKGROUND_TEXTURE_ASSET = "src/lib/xclips/assets/bakom-paper-texture.svg";
+export const BACKGROUND_TEXTURE_CELL_PX = 64;
 
 export interface SourceTransformConfig {
   fitMode: "cover" | "contain";
@@ -38,7 +50,7 @@ export interface SourceTransformConfig {
 export const BAKOM_LAYOUT: Omit<BakomLayout, "headlineFontSize" | "headlineColor"> = {
   canvasWidth: 1080, canvasHeight: 1920, safeMarginX: 48,
   headlineTop: 120, headlineMaxWidth: 984, headlineMaxLines: 3,
-  headlineAreaHeight: 220, headlineAccentColor: "#D71920", headlineLineSpacing: 10,
+  headlineAreaHeight: 220, headlineAccentColor: HEADLINE_GOLD_LINE_COLOR, headlineLineSpacing: 10,
   mediaTop: 360, mediaWidth: 1080, mediaHeight: 1080,
   captionTop: 1476, sourceBottomOffset: 150, sourceFontSize: 28,
   brandingSlot: { x: 872, y: 120, width: 160, height: 72 },
@@ -88,6 +100,7 @@ export function buildSourceTransformFilter(
   sourceWidth?: number,
   sourceHeight?: number,
   contentType: ContentType = "default",
+  includeCanvasPad = true,
 ): string {
   const sourceOrientation = resolveSourceOrientation(sourceWidth || 0, sourceHeight || 0);
   const transform = resolveSourceTransform(strategy, sourceOrientation, contentType);
@@ -98,5 +111,7 @@ export function buildSourceTransformFilter(
   const fit = transform.fitMode === "contain"
     ? `pad=${layout.mediaWidth}:${layout.mediaHeight}:(ow-iw)/2:(oh-ih)/2:black`
     : `crop=${layout.mediaWidth}:${layout.mediaHeight}:(iw-ow)/2:(ih-oh)/2`;
-  return `${source},${fit},pad=${targetWidth}:${targetHeight}:0:${layout.mediaTop}:black${outputLabel}`;
+  return includeCanvasPad
+    ? `${source},${fit},pad=${targetWidth}:${targetHeight}:0:${layout.mediaTop}:black${outputLabel}`
+    : `${source},${fit}${outputLabel}`;
 }

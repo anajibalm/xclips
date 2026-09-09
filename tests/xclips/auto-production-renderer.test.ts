@@ -16,9 +16,9 @@ import {
   ACCOUNT_PRESETS,
 } from "@/lib/xclips/auto-production-types";
 import { WordTimestamp } from "@/lib/xclips/types";
-import { fitAutoProductionHeadline } from "@/lib/xclips/auto-production-headline";
+import { fitAutoProductionHeadline, estimateLineWidth } from "@/lib/xclips/auto-production-headline";
 import { buildAutoProductionCoverFilter } from "@/lib/xclips/auto-production-cover";
-import { BAKOM_LAYOUT, buildSourceTransformFilter, getBakomLayout, resolveSourceOrientation, resolveSourceTransform } from "@/lib/xclips/auto-production-bakom-layout";
+import { BAKOM_LAYOUT, buildSourceTransformFilter, getBakomLayout, HEADLINE_GOLD_LINE_OFFSET_PX, HEADLINE_GOLD_LINE_THICKNESS_PX, resolveSourceOrientation, resolveSourceTransform } from "@/lib/xclips/auto-production-bakom-layout";
 
 // ============================================================
 // Test Helpers
@@ -115,13 +115,41 @@ describe("xclips - Auto Production Renderer (Slice 3)", () => {
     expect(command.filterComplex).toContain(`fontsize=${layout.fontSizePx}`);
     expect(command.filterComplex).toContain(`y='${preset.safeZone.topPx + layout.fontSizePx + layout.lineSpacingPx}`);
     expect(command.filterComplex).toContain(layout.lines[0]);
-    expect(command.filterComplex).toContain("x=48:y=120");
+    expect(command.filterComplex).toContain("x=72:y='120");
     expect(command.filterComplex.match(/drawtext=text='/g)?.length).toBeGreaterThanOrEqual(layout.lines.length + 2);
     expect(command.filterComplex).not.toContain("\\\\n");
     const coverFilter = buildAutoProductionCoverFilter(makeEditPlan({ headline }), preset);
     expect(coverFilter).toContain(`fontsize=${layout.fontSizePx}`);
     expect(coverFilter).toContain(`y=${preset.safeZone.topPx + layout.fontSizePx + layout.lineSpacingPx}`);
     expect(coverFilter).toContain("x=48:y=120");
+  });
+
+  it("BAKOM_VIDEO_V1 uses permanent gold accent line and no red accent", () => {
+    const preset = ACCOUNT_PRESETS.get("shadow")!;
+    const headline = "Pemerintah Pantau Erupsi Anak Krakatau dan Dampaknya Bagi Warga Sekitar";
+    const layout = fitAutoProductionHeadline(headline, preset);
+    const command = buildAutoProductionFfmpegCommand({
+      sourceVideoPath: "/tmp/test.mp4", sourceWidth: 1920, sourceHeight: 1080,
+      clipStart: 5, clipEnd: 35, preset, editPlan: makeEditPlan({ headline }),
+      brief: makeBrief(), assSubtitlePath: "/tmp/test.ass",
+    }, "/tmp/out.mp4", "cpu");
+    // Gold line: exact GSM 2026 color, 5px thick, at headline text left edge,
+    // width = longest rendered line, static (no enable window).
+    const longest = Math.max(...layout.lines.map((line) => estimateLineWidth(line, layout.fontSizePx)));
+    const goldLineY = preset.safeZone.topPx +
+      (layout.lines.length - 1) * (layout.fontSizePx + layout.lineSpacingPx) +
+      layout.fontSizePx + HEADLINE_GOLD_LINE_OFFSET_PX;
+    expect(command.filterComplex).toContain(`color=#E6BF70:t=fill`);
+    expect(command.filterComplex).toContain(`h=${HEADLINE_GOLD_LINE_THICKNESS_PX}`);
+    expect(command.filterComplex).toContain(`x=72:y=${goldLineY}:w=${Math.round(longest)}`);
+    expect(command.filterComplex).not.toContain("between(t,0,0.3)");
+    // No red accent remains in the video path.
+    expect(command.filterComplex).not.toContain("#D71920");
+    // Deterministic soft editorial background present (gradient + vignette).
+    expect(command.filterComplex).toContain("gradients=s=1080x1920");
+    expect(command.filterComplex).toContain("vignette=angle=PI/5:mode=forward");
+    expect(command.filterComplex).toContain("c0=0x3A2A20:c1=0x151112");
+    expect(command.filterComplex).toContain("color=black@0.35");
   });
 
   it("contains landscape and portrait source inside BAKOM media zone", () => {
@@ -133,7 +161,9 @@ describe("xclips - Auto Production Renderer (Slice 3)", () => {
         brief: makeBrief(), assSubtitlePath: "/tmp/test.ass",
       }, "/tmp/out.mp4", "cpu");
       expect(command.filterComplex).toContain(sourceWidth > sourceHeight ? "scale=1080:1080:force_original_aspect_ratio=increase" : "scale=1080:1080:force_original_aspect_ratio=increase");
-      expect(command.filterComplex).toContain("pad=1080:1920:0:360:black");
+      expect(command.filterComplex).toContain("scale=1080:1080:force_original_aspect_ratio=increase");
+      expect(command.filterComplex).toContain("overlay=0:360");
+      expect(command.filterComplex).toContain("gradients=s=1080x1920");
     }
   });
 
@@ -328,8 +358,9 @@ describe("xclips - Auto Production Renderer (Slice 3)", () => {
         "cpu",
       );
       expect(cmd.filterComplex).toContain("scale=1080:1080:force_original_aspect_ratio=increase");
-      expect(cmd.filterComplex).toContain("pad=1080:1920:0:360:black");
-      expect(cmd.filterComplex).toContain("pad=1080:1920");
+      expect(cmd.filterComplex).toContain("scale=1080:1080:force_original_aspect_ratio=increase");
+      expect(cmd.filterComplex).toContain("overlay=0:360");
+      expect(cmd.filterComplex).toContain("gradients=s=1080x1920");
     });
 
     it("output fps resolves to 30", () => {
