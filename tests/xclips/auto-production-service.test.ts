@@ -137,6 +137,7 @@ function makeMockDeps(overrides?: Partial<AutoProductionDeps>): AutoProductionDe
 		getExistingTranscript: async () => ({ success: true, data: null }),
 		transcribeProject: async () => ({ success: true, data: mockTranscript }),
 		discoverHighlights: async () => ({ success: true, data: [mockHighlight] }),
+		generateHeadline: async () => ({ success: true, data: { headline: "Judul Khusus Jalur Layanan Terpisah" } }),
 		...overrides,
 	};
 }
@@ -637,14 +638,31 @@ describe("auto-production-service", () => {
 		});
 
 		it("should include editPlan with headline and statement range", async () => {
+			// S1.3: headline needs a non-empty final slice — extend fixture
+			// words across the clip bounds (guard-neutral, closure at 45.0).
+			const extendedWords = [
+				...mockTranscript.words,
+				...Array.from({ length: 43 }, (_, i) => ({
+					word: `kata${i}`,
+					start: 5.0 + i * 0.9,
+					end: 5.8 + i * 0.9,
+				})),
+				{ word: "tutup.", start: 44.1, end: 45.0 },
+			];
 			const result = await runAutoProductionJob({
 				brief: mockBrief,
-				deps: makeMockDeps(),
+				deps: makeMockDeps({
+					getExistingTranscript: async () => ({
+						success: true,
+						data: { ...mockTranscript, words: extendedWords },
+					}),
+					generateHeadline: async () => ({ success: true, data: { headline: "Kata20 Kata21 Kata22" } }),
+				}),
 				_overrides: makeOverrides(),
 			});
 			expect(result.status).toBe("READY");
 			if (result.status === "READY") {
-				expect(result.bundle.editPlan.headline).toBe("Dampak Erupsi Gunung Kelud");
+				expect(result.bundle.editPlan.headline).toBe("Kata20 Kata21 Kata22");
 				expect(result.bundle.editPlan.statementStart).toBe(10);
 				expect(result.bundle.editPlan.statementEnd).toBe(45);
 			}

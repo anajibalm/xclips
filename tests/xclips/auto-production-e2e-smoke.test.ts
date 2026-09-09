@@ -131,6 +131,7 @@ function makeE2EDeps(overrides?: Partial<AutoProductionDeps>): AutoProductionDep
 		}),
 		transcribeProject: async () => ({ success: true, data: e2eTranscript }),
 		discoverHighlights: async () => ({ success: true, data: [e2eHighlight] }),
+		generateHeadline: async () => ({ success: true, data: { headline: "word10 word11 word12" } }),
 		...overrides,
 	};
 }

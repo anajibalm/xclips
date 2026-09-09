@@ -7,7 +7,11 @@ import {
   EditorialSignal,
 } from "@/lib/xclips/auto-production-types";
 import { XclipsProject, XclipsTranscript, XclipsClip, Result } from "@/lib/xclips/types";
-import { findStartBoundary } from "@/lib/xclips/auto-production-renderer";
+import { findStartBoundary, selectClipWords } from "@/lib/xclips/auto-production-renderer";
+import {
+  validateHeadlineGrounding,
+  fallbackHeadlineFromTranscript,
+} from "@/lib/xclips/transcript-chunker";
 
 // ============================================================
 // Auto Production Orchestrator — Slice 2
@@ -62,6 +66,17 @@ export interface AutoProductionDeps {
       transcriptId?: string;
     },
   ): Promise<Result<XclipsClip[]>>;
+  /**
+   * S1.3: ONE dedicated headline call over the FINAL guarded selected
+   * transcript. Implementations must not receive full-transcript context.
+   */
+  generateHeadline(
+    input: {
+      selectedText: string;
+      speaker?: string;
+      publisher?: string;
+    },
+  ): Promise<Result<{ headline: string }>>;
 }
 
 // --- Result Types ---------------------------------------------------------
@@ -143,12 +158,15 @@ export async function runAutoProductionPlanning(
   }
   const { candidate, signal: statementSignal } = statement.data;
 
-  // 6. Produce headline from candidate title
-  const headline = candidate.title || "Berita Terkini";
-  const headlineSignal: EditorialSignal = {
-    confidence: "strong",
-    warnings: [],
-  };
+  // 6. Dedicated grounded headline (S1.3): generated AFTER guards finalize
+  //    bounds, from the FINAL selected transcript only + verified identity.
+  const { headline, headlineSignal } = await produceGroundedHeadline(
+    resolvedProject,
+    resolvedTranscript,
+    candidate.startSec,
+    candidate.endSec,
+    deps,
+  );
 
   // 7. B-roll: deferred to later slice — empty placements
   const brollSignal: EditorialSignal = {
@@ -320,6 +338,85 @@ async function selectStatement(
     const msg = err instanceof Error ? err.message : String(err);
     return { success: false, error: `Statement selection failed: ${msg}` };
   }
+}
+
+/**
+ * S1.3: dedicated grounded headline step. Runs AFTER deterministic guards
+ * finalize bounds. Slices words strictly inside [startSec, endSec] and asks
+ * for ONE headline over that slice only (+ verified publisher label).
+ * Never fails the video: AI failure falls back to a deterministic
+ * transcript fragment with a review signal; empty selection routes to
+ * NEEDS_REVIEW via the headline signal (never invented content).
+ */
+async function produceGroundedHeadline(
+  project: XclipsProject,
+  transcript: XclipsTranscript,
+  startSec: number,
+  endSec: number,
+  deps: AutoProductionDeps,
+): Promise<{ headline: string; headlineSignal: EditorialSignal }> {
+  const selectedWords = selectClipWords(transcript.words, startSec, endSec);
+  const selectedText = selectedWords
+    .map((w) => w.word)
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const publisher =
+    project.sourceMeta?.channel?.trim() ||
+    project.sourceMeta?.uploader?.trim() ||
+    undefined;
+
+  if (!selectedText) {
+    return {
+      headline: "",
+      headlineSignal: {
+        confidence: "review",
+        warnings: ["Empty final selected transcript — headline unresolved, human review required"],
+      },
+    };
+  }
+
+  let generated: Result<{ headline: string }>;
+  try {
+    generated = await deps.generateHeadline({ selectedText, publisher });
+  } catch {
+    generated = { success: false, error: "Headline generation failed" };
+  }
+  if (generated.success && generated.data.headline.trim()) {
+    const headline = generated.data.headline.trim();
+    const check = validateHeadlineGrounding(headline, selectedText);
+    if (check.grounded) {
+      return { headline, headlineSignal: { confidence: "strong", warnings: [] } };
+    }
+    return {
+      headline,
+      headlineSignal: {
+        confidence: "review",
+        warnings: [
+          `Headline contains words absent from the selected clip: ${check.suspicious.join(", ")} — human review required`,
+        ],
+      },
+    };
+  }
+
+  const fallback = fallbackHeadlineFromTranscript(selectedText);
+  if (fallback) {
+    return {
+      headline: fallback,
+      headlineSignal: {
+        confidence: "review",
+        warnings: ["Headline generation failed — deterministic transcript fallback used, human review required"],
+      },
+    };
+  }
+  return {
+    headline: "",
+    headlineSignal: {
+      confidence: "review",
+      warnings: ["Headline generation failed with no safe fallback — human review required"],
+    },
+  };
 }
 
 function findSemanticEndClosure(

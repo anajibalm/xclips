@@ -10,8 +10,8 @@ import { WordTimestamp, Result } from "@/lib/xclips/types";
 import { hexToAssColor, formatAssTime } from "@/lib/xclips/ffmpeg-builder";
 import { segmentPhrases } from "@/lib/xclips/phrase-segmentation";
 import { detectHardwareAcceleration, HardwareEncoder } from "@/lib/xclips/queue";
-import { fitAutoProductionHeadline, estimateLineWidth } from "@/lib/xclips/auto-production-headline";
-import { buildSourceTransformFilter, getBakomLayout, BACKGROUND_TEXTURE_ASSET, BACKGROUND_TEXTURE_BOTTOM_COLOR, BACKGROUND_TEXTURE_OVERLAY_OPACITY, BACKGROUND_TEXTURE_TOP_COLOR, HEADLINE_ACCENT_BAR_WIDTH, HEADLINE_ENTER_DURATION_SEC, HEADLINE_ENTER_OFFSET_Y, HEADLINE_GOLD_LINE_COLOR, HEADLINE_GOLD_LINE_OFFSET_PX, HEADLINE_GOLD_LINE_THICKNESS_PX, type ContentType } from "@/lib/xclips/auto-production-bakom-layout";
+import { fitAutoProductionHeadline, resolveAutoProductionFooter } from "@/lib/xclips/auto-production-headline";
+import { buildSourceTransformFilter, getBakomLayout, BACKGROUND_GRADIENT_END_COLOR, BACKGROUND_GRADIENT_MID_COLOR, BACKGROUND_TEXTURE_BOTTOM_COLOR, BACKGROUND_TEXTURE_OVERLAY_OPACITY, BACKGROUND_TEXTURE_TOP_COLOR, HEADLINE_ACCENT_BAR_GAP, HEADLINE_ACCENT_BAR_WIDTH, HEADLINE_ENTER_DURATION_SEC, HEADLINE_ENTER_OFFSET_Y, HEADLINE_RED_BAR_COLOR, type ContentType } from "@/lib/xclips/auto-production-bakom-layout";
 
 // ============================================================
 // Auto Production Renderer — Slice 3
@@ -377,20 +377,17 @@ export function buildAutoProductionFfmpegCommand(
 
   // --- Video Pipeline ---
 
-  // 1. Deterministic BAKOM_VIDEO_V1 background: soft editorial surface from
-  //    fixed gradient + vignette. No grid, noise, randomness, or per-pixel
-  //    expressions; identical pixels every render.
+  // 1. Deterministic neutral editorial canvas (S1 visual spine): fixed
+  //    achromatic radial gradient + vignette. No grid, noise, randomness,
+  //    per-pixel expressions, or tinted texture; identical pixels every render.
   const layout = getBakomLayout(preset);
   filterChains.push(
-    `gradients=s=${targetW}x${targetH}:c0=${BACKGROUND_TEXTURE_BOTTOM_COLOR}:c1=${BACKGROUND_TEXTURE_TOP_COLOR}:c2=0x211817:c3=0x0D0C0D:x0=540:y0=800:x1=1080:y1=1800:nb_colors=4:type=radial:speed=0:r=${targetFps}:d=${duration.toFixed(3)},` +
+    `gradients=s=${targetW}x${targetH}:c0=${BACKGROUND_TEXTURE_BOTTOM_COLOR}:c1=${BACKGROUND_TEXTURE_TOP_COLOR}:c2=${BACKGROUND_GRADIENT_MID_COLOR}:c3=${BACKGROUND_GRADIENT_END_COLOR}:x0=540:y0=800:x1=1080:y1=1800:nb_colors=4:type=radial:speed=0:r=${targetFps}:d=${duration.toFixed(3)},` +
     `vignette=angle=PI/5:mode=forward,` +
     `format=yuv420p[v_bg]`,
   );
-  const texturePath = path.resolve(process.cwd(), BACKGROUND_TEXTURE_ASSET).replace(/\\/g, "/").replace(/:/g, "\\:");
-  filterChains.push(`movie=filename='${texturePath}':loop=1,scale=${targetW}:${targetH},format=rgba[texture]`);
   filterChains.push(buildSourceTransformFilter("[0:v]", "[v_broll]", layout, targetW, targetH, "default", sourceWidth, sourceHeight, contentType, false));
-  filterChains.push(`[v_bg][texture]blend=all_mode=addition:all_opacity=0.18[ v_surface]`.replace("[ v_surface]", "[v_surface]"));
-  filterChains.push(`[v_surface][v_broll]overlay=0:${layout.mediaTop}:shortest=1[v_composited]`);
+  filterChains.push(`[v_bg][v_broll]overlay=0:${layout.mediaTop}:shortest=1[v_composited]`);
 
   // 2. Headline overlay (top safe zone)
   const headlineLayout = fitAutoProductionHeadline(editPlan.headline, preset);
@@ -399,19 +396,12 @@ export function buildAutoProductionFfmpegCommand(
   filterChains.push(
     `${headlineInput}drawbox=x=0:y=${layout.headlineTop - 12}:w=${targetW}:h=${layout.headlineAreaHeight}:color=black@${BACKGROUND_TEXTURE_OVERLAY_OPACITY}:t=fill${headlineOverlay}`,
   );
-  // BAKOM_VIDEO_V1: horizontal gold accent line below the headline block.
-  // Permanent for the whole clip; width follows the longest rendered line.
-  const headlineTextLeft = layout.safeMarginX + HEADLINE_ACCENT_BAR_WIDTH + 12;
-  const longestLineWidth = Math.max(
-    ...headlineLayout.lines.map((line) => estimateLineWidth(line, headlineLayout.fontSizePx)),
-  );
-  const goldLineY = layout.headlineTop +
-    (headlineLayout.lines.length - 1) * (headlineLayout.fontSizePx + headlineLayout.lineSpacingPx) +
-    headlineLayout.fontSizePx +
-    HEADLINE_GOLD_LINE_OFFSET_PX;
+  // Netflix-style vertical red accent bar LEFT of the headline (restored
+  // lineage). Permanent for the whole clip; spans the headline area.
+  const headlineTextLeft = layout.safeMarginX + HEADLINE_ACCENT_BAR_WIDTH + HEADLINE_ACCENT_BAR_GAP;
   const accentOutput = "[v_headline_accent]";
   filterChains.push(
-    `${headlineOverlay}drawbox=x=${headlineTextLeft}:y=${goldLineY}:w=${Math.round(longestLineWidth)}:h=${HEADLINE_GOLD_LINE_THICKNESS_PX}:color=${HEADLINE_GOLD_LINE_COLOR}:t=fill${accentOutput}`,
+    `${headlineOverlay}drawbox=x=${layout.safeMarginX}:y=${layout.headlineTop}:w=${HEADLINE_ACCENT_BAR_WIDTH}:h=${layout.headlineAreaHeight - 24}:color=${HEADLINE_RED_BAR_COLOR}:t=fill${accentOutput}`,
   );
   headlineInput = accentOutput;
   headlineLayout.lines.forEach((line, index) => {
@@ -425,11 +415,14 @@ export function buildAutoProductionFfmpegCommand(
     headlineInput = output;
   });
 
-  // 3. Source credit overlay (bottom-left)
-  const creditText = brief.sourceDate
-    ? `Sumber: ${brief.sourceName} (${brief.sourceDate})`
-    : `Sumber: ${brief.sourceName}`;
-  const creditEscaped = escapeDrawText(creditText);
+  // 3. Footer (single baseline): source left-anchored, handle right-anchored.
+  //    resolveAutoProductionFooter guarantees sourceRight + gap <= handleLeft.
+  const footerLayout = resolveAutoProductionFooter(
+    brief.sourceDate ? `Sumber: ${brief.sourceName} (${brief.sourceDate})` : `Sumber: ${brief.sourceName}`,
+    brief.accountHandle,
+    { canvasWidth: targetW, safeMarginX: layout.safeMarginX, fontSizePx: layout.sourceFontSize },
+  );
+  const creditEscaped = escapeDrawText(footerLayout.sourceText);
   const creditY = targetH - layout.sourceBottomOffset;
 
   filterChains.push(
@@ -441,7 +434,7 @@ export function buildAutoProductionFfmpegCommand(
   );
 
   // 4. Handle overlay (bottom-right)
-  const handleEscaped = escapeDrawText(brief.accountHandle);
+  const handleEscaped = escapeDrawText(footerLayout.handleText);
   const handleY = targetH - layout.sourceBottomOffset;
 
   filterChains.push(

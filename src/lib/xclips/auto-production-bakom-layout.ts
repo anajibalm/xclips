@@ -24,19 +24,27 @@ export interface BakomLayout {
 export type SourceOrientation = "landscape" | "portrait" | "square" | "other";
 export type SourceTransformStrategy = "default" | "wawancara_1_frame_utuh";
 export const SUBTITLE_BOTTOM_MARGIN_IN_BROLL = 90;
-/** @deprecated BAKOM_VIDEO_V1: replaced by horizontal gold accent line in the video renderer. Still imported by cover renderer. */
+/** S1 visual spine: vertical red-bar geometry (shared by video + cover). */
 export const HEADLINE_ACCENT_BAR_WIDTH = 12;
-/** @deprecated BAKOM_VIDEO_V1: replaced by horizontal gold accent line in the video renderer. Still imported by cover renderer. */
+/** S1 visual spine: gap between red bar and headline text. */
 export const HEADLINE_ACCENT_BAR_GAP = 12;
 export const HEADLINE_ENTER_DURATION_SEC = 0.3;
 export const HEADLINE_ENTER_OFFSET_Y = 12;
-/** BAKOM_VIDEO_V1 gold accent line (GSM 2026: #E6BF70 = RGB 230,191,112). */
+/** Netflix-style vertical red accent bar (restored lineage, S1 visual spine). */
+export const HEADLINE_RED_BAR_COLOR = "#D71920";
+/** @deprecated S1 visual spine: gold underline removed from video path. Kept exported for compatibility. */
 export const HEADLINE_GOLD_LINE_COLOR = "#E6BF70";
+/** @deprecated S1 visual spine: gold underline removed from video path. Kept exported for compatibility. */
 export const HEADLINE_GOLD_LINE_THICKNESS_PX = 5;
+/** @deprecated S1 visual spine: gold underline removed from video path. Kept exported for compatibility. */
 export const HEADLINE_GOLD_LINE_OFFSET_PX = 8;
-/** BAKOM_VIDEO_V1 subtle deterministic background treatment (static, no noise source). */
-export const BACKGROUND_TEXTURE_TOP_COLOR = "0x151112";
-export const BACKGROUND_TEXTURE_BOTTOM_COLOR = "0x3A2A20";
+/** S1 visual spine: neutral editorial charcoal (strictly achromatic). */
+export const BACKGROUND_TEXTURE_TOP_COLOR = "0x1C1C1C";
+/** S1 visual spine: neutral near-black (achromatic). */
+export const BACKGROUND_TEXTURE_BOTTOM_COLOR = "0x0B0B0C";
+/** S1 visual spine: neutral mid gradient stops (strictly achromatic). */
+export const BACKGROUND_GRADIENT_MID_COLOR = "0x141414";
+export const BACKGROUND_GRADIENT_END_COLOR = "0x000000";
 export const BACKGROUND_TEXTURE_OVERLAY_OPACITY = 0.35;
 export const BACKGROUND_TEXTURE_ASSET = "src/lib/xclips/assets/bakom-paper-texture.svg";
 export const BACKGROUND_TEXTURE_CELL_PX = 64;
@@ -50,9 +58,9 @@ export interface SourceTransformConfig {
 export const BAKOM_LAYOUT: Omit<BakomLayout, "headlineFontSize" | "headlineColor"> = {
   canvasWidth: 1080, canvasHeight: 1920, safeMarginX: 48,
   headlineTop: 120, headlineMaxWidth: 984, headlineMaxLines: 3,
-  headlineAreaHeight: 220, headlineAccentColor: HEADLINE_GOLD_LINE_COLOR, headlineLineSpacing: 10,
+  headlineAreaHeight: 220, headlineAccentColor: HEADLINE_RED_BAR_COLOR, headlineLineSpacing: 12,
   mediaTop: 360, mediaWidth: 1080, mediaHeight: 1080,
-  captionTop: 1476, sourceBottomOffset: 150, sourceFontSize: 28,
+  captionTop: 1476, sourceBottomOffset: 210, sourceFontSize: 28, // S1.1: footer baseline y=1710 — clears the 120px bottom safe zone + player chrome
   brandingSlot: { x: 872, y: 120, width: 160, height: 72 },
 };
 

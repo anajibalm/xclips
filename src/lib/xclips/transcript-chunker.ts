@@ -190,7 +190,7 @@ OUTPUT RULES:
 {
   "highlights": [
     {
-      "title": "Short Catchy Title in Target Language (Max 5 Words)",
+      "title": "Editorial headline in Target Language (5-10 words): concrete actor + action + consequence/stakes from THIS clip only",
       "hookText": "Opening 3-second hook in Target Language that sparks instant curiosity",
       "viralScore": 92, // Integer 0-100
       "startSec": 124.5, // Absolute start time in seconds
@@ -200,7 +200,12 @@ OUTPUT RULES:
   ]
 }
 3. Ensure startSec and endSec stay strictly within [${chunk.startSec.toFixed(0)}, ${chunk.endSec.toFixed(0)}] with clip duration between ${minSec} and ${maxSec} seconds.
-4. Ensure "title", "hookText", and "summary" strictly adhere to the LANGUAGE REQUIREMENT above.`;
+4. Ensure "title", "hookText", and "summary" strictly adhere to the LANGUAGE REQUIREMENT above.
+5. HEADLINE CONTRACT (the "title" doubles as the on-video editorial headline — never a generic topic label):
+- Name the concrete actor/action and the consequence or stakes stated in THIS clip's transcript.
+- Prefer the specific subject of the selected statement over category nouns (never output vague labels like "preparation", "disaster", or their equivalents).
+- Ground every claim in the TRANSCRIPT above; invent nothing, add no sensational clickbait.
+- Correctness beats word count, but aim for roughly 5-10 words.`;
 }
 
 /**
@@ -237,4 +242,185 @@ export function reduceAndRankHighlights(
   }
 
   return deduplicated.slice(0, maxResults);
+}
+
+// ============================================================
+// S1.3 — Dedicated grounded headline generation
+// ============================================================
+// The headline model sees ONLY the final guarded selected transcript
+// plus verified identity labels. It never sees the full transcript,
+// neighboring chunks, video titles, or descriptions.
+
+export interface HeadlineGenerationInput {
+  /** Spoken text sliced strictly inside the FINAL guarded statement bounds. */
+  selectedText: string;
+  /** Verified speaker identity, only when already available (else omit). */
+  speaker?: string;
+  /** Verified publisher/source identity (else omit). */
+  publisher?: string;
+  /** BCP-47-ish language hint ("auto" follows the selected text). */
+  outputLanguage?: string;
+}
+
+/**
+ * Builds the dedicated headline prompt. Claim-bearing context is limited
+ * to selectedText; speaker/publisher are identity labels only and must
+ * not supply actions, objects, consequences, or stakes.
+ */
+export function buildHeadlinePrompt(input: HeadlineGenerationInput): string {
+  // Identity labels are uploader-controlled strings: flatten newlines and cap
+  // length so they cannot forge extra "verified" prompt lines.
+  const flatLabel = (s: string): string => s.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+  const identityLines: string[] = [];
+  const speaker = flatLabel(input.speaker || "");
+  const publisher = flatLabel(input.publisher || "");
+  if (speaker) {
+    identityLines.push(`- Speaker (verified identity label only): ${speaker}`);
+  }
+  if (publisher) {
+    identityLines.push(`- Publisher/source (verified identity label only): ${publisher}`);
+  }
+  const identityBlock = identityLines.length > 0
+    ? `\nVERIFIED IDENTITY (labels only — never a source of actions, objects, or stakes):\n${identityLines.join("\n")}\n`
+    : "";
+  const lang = (input.outputLanguage || "auto").trim() || "auto";
+  const languageLine = lang === "auto"
+    ? "Write the headline in the same language as the SELECTED TRANSCRIPT above."
+    : `Write the headline strictly in ${lang}.`;
+  // Neutralize the transcript fence so ASR text cannot break out of it.
+  const fencedTranscript = input.selectedText.replace(/"""/g, '"');
+
+  return `You are an editorial headline writer for short-form news video.
+Write ONE headline for the selected clip below.
+
+SELECTED TRANSCRIPT (the ONLY source of claim content — nothing outside it exists):
+"""
+${fencedTranscript}
+"""
+${identityBlock}
+HEADLINE RULES:
+1. Ground EVERY claim (actor, action, object, consequence) ONLY in the SELECTED TRANSCRIPT above.
+2. Verified identity labels above may supply a speaker/publisher NAME and nothing else.
+3. Prefer concrete actor/action when the transcript supports them; otherwise stay conservative.
+4. Concise and useful as an on-video editorial headline, roughly 5-10 words (correctness beats count).
+5. No generic topic/category labels, no invented objects/actions/stakes, no clickbait.
+6. No unsupported causal framing. No quotes unless the exact quoted words appear in the SELECTED TRANSCRIPT.
+7. ${languageLine}
+
+OUTPUT RULES:
+1. Respond ONLY with a valid JSON object (no preamble, no markdown).
+2. JSON Schema: { "headline": "Headline text here" }`;
+}
+
+/**
+ * Strict parser for the dedicated headline response.
+ * Mirrors the highlight JSON convention (fences stripped, object extracted).
+ */
+export function parseHeadlineResponse(raw: string): Result<{ headline: string }> {
+  if (!raw || typeof raw !== "string") {
+    return { success: false, error: "Empty headline response" };
+  }
+  try {
+    const clean = raw.replace(/```json/gi, "").replace(/```/g, "").trim();
+    const match = clean.match(/\{[\s\S]*\}/);
+    if (!match) return { success: false, error: "Headline response contains no JSON object" };
+    const parsed = JSON.parse(match[0]) as { headline?: unknown };
+    const headline = typeof parsed.headline === "string" ? parsed.headline.trim() : "";
+    if (!headline) return { success: false, error: "Headline response has empty headline" };
+    return { success: true, data: { headline } };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { success: false, error: `Invalid headline JSON: ${msg}` };
+  }
+}
+
+// Small Indonesian + English stopword set for the grounding validator.
+// Content-word check only — never a semantic judge.
+const HEADLINE_STOPWORDS = new Set([
+  "yang", "dan", "di", "ke", "dari", "untuk", "dengan", "pada", "adalah", "ialah",
+  "ini", "itu", "tersebut", "para", "sang", "sebuah", "seorang", "akan", "telah",
+  "sudah", "belum", "tidak", "tak", "jangan", "bukan", "atau", "serta", "karena",
+  "jika", "kalau", "agar", "supaya", "namun", "tetapi", "tapi", "sedangkan",
+  "sementara", "saat", "ketika", "setelah", "sebelum", "oleh", "kepada", "dalam",
+  "antara", "tentang", "bagai", "seperti", "sangat", "lebih", "paling", "cukup",
+  "hanya", "saja", "juga", "lagi", "masih", "semakin", "the", "and", "for",
+  "with", "from", "that", "this", "nya",
+]);
+
+const IDENTITY_NOISE = /\b(tv|news|channel|official|media|resmi|berita|network|group)\b/gi;
+const IDENTITY_MAX_TOKENS = 3;
+
+const tokenizeWords = (text: string): string[] =>
+  text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+/**
+ * Minimal deterministic grounding validator (S1.3).
+ *
+ * Flags headline content words (length >= 5, non-stopword) that appear
+ * neither in the selected transcript nor in verified identity name tokens.
+ * Morphology-tolerant matching applies to transcript words only.
+ * Paraphrase-safe by design: it only catches clearly imported nouns/entities.
+ * Never throws; never rejects — callers map flags to NEEDS_REVIEW.
+ */
+export function validateHeadlineGrounding(
+  headline: string,
+  selectedText: string,
+  verifiedIdentity?: { speaker?: string },
+): { grounded: boolean; suspicious: string[] } {
+  const transcriptTokens = new Set(tokenizeWords(selectedText));
+  const identityTokens = new Set(
+    tokenizeWords((verifiedIdentity?.speaker || "").replace(IDENTITY_NOISE, "")).slice(0, IDENTITY_MAX_TOKENS),
+  );
+  const suspicious: string[] = [];
+
+  const headlineTokens = tokenizeWords(headline);
+  if (headline.trim() && headlineTokens.length === 0) {
+    return { grounded: false, suspicious: ["<unverifiable-script>"] };
+  }
+
+  for (const token of headlineTokens) {
+    if (token.length < 5) continue;
+    if (HEADLINE_STOPWORDS.has(token)) continue;
+    if (identityTokens.has(token)) continue;
+    if (transcriptTokens.has(token)) continue;
+    let supported = false;
+    for (const ref of transcriptTokens) {
+      if (ref.length < 4 || token.length < 4) continue;
+      if (ref.includes(token) || token.includes(ref)) {
+        supported = true;
+        break;
+      }
+    }
+    if (!supported) suspicious.push(token);
+  }
+
+  return { grounded: suspicious.length === 0, suspicious };
+}
+
+/**
+ * Deterministic grounded fallback (S1.3 Mission D): first complete
+ * meaningful sentence fragment from the selected transcript, capped at
+ * 12 words. No LLM, no invented content. Empty string when the selected
+ * transcript carries no usable sentence (caller routes to NEEDS_REVIEW).
+ */
+export function fallbackHeadlineFromTranscript(selectedText: string): string {
+  if (!selectedText || !selectedText.trim()) return "";
+  const sentences = selectedText
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?…])\s+/)
+    .map((s) => s.replace(/^[.,!?;:"'“”‘’\s]+/, "").trim())
+    .filter(Boolean);
+  for (const sentence of sentences) {
+    const words = sentence.split(/\s+/).filter(Boolean);
+    if (words.length >= 3) {
+      return words.slice(0, 12).join(" ").replace(/[.!?…]+$/, "");
+    }
+  }
+  const words = selectedText.replace(/\s+/g, " ").trim().split(/\s+/).filter(Boolean);
+  if (words.length >= 3) return words.slice(0, 12).join(" ").replace(/[.!?…]+$/, "");
+  return "";
 }

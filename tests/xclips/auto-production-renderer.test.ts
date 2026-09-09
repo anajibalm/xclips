@@ -16,9 +16,9 @@ import {
   ACCOUNT_PRESETS,
 } from "@/lib/xclips/auto-production-types";
 import { WordTimestamp } from "@/lib/xclips/types";
-import { fitAutoProductionHeadline, estimateLineWidth } from "@/lib/xclips/auto-production-headline";
+import { fitAutoProductionHeadline } from "@/lib/xclips/auto-production-headline";
 import { buildAutoProductionCoverFilter } from "@/lib/xclips/auto-production-cover";
-import { BAKOM_LAYOUT, buildSourceTransformFilter, getBakomLayout, HEADLINE_GOLD_LINE_OFFSET_PX, HEADLINE_GOLD_LINE_THICKNESS_PX, resolveSourceOrientation, resolveSourceTransform } from "@/lib/xclips/auto-production-bakom-layout";
+import { BAKOM_LAYOUT, buildSourceTransformFilter, getBakomLayout, HEADLINE_ACCENT_BAR_GAP, HEADLINE_ACCENT_BAR_WIDTH, HEADLINE_RED_BAR_COLOR, resolveSourceOrientation, resolveSourceTransform } from "@/lib/xclips/auto-production-bakom-layout";
 
 // ============================================================
 // Test Helpers
@@ -84,7 +84,7 @@ describe("xclips - Auto Production Renderer (Slice 3)", () => {
     const headline = "Pemerintah Pantau Erupsi Anak Krakatau dan Dampaknya Bagi Warga Sekitar";
     const long = fitAutoProductionHeadline(headline, preset);
     expect(short.lines).toEqual(["Berita Terkini"]);
-    expect(short.fontSizePx).toBe(48);
+    expect(short.fontSizePx).toBe(52);
     expect(long.lines.join(" ")).toBe(headline);
     expect(long.fontSizePx).toBeGreaterThanOrEqual(28);
     expect(long.maxWidthPx).toBe(preset.width - preset.safeZone.leftPx - preset.safeZone.rightPx);
@@ -124,32 +124,34 @@ describe("xclips - Auto Production Renderer (Slice 3)", () => {
     expect(coverFilter).toContain("x=48:y=120");
   });
 
-  it("BAKOM_VIDEO_V1 uses permanent gold accent line and no red accent", () => {
+  it("S1 visual spine uses vertical red bar and no gold underline", () => {
     const preset = ACCOUNT_PRESETS.get("shadow")!;
     const headline = "Pemerintah Pantau Erupsi Anak Krakatau dan Dampaknya Bagi Warga Sekitar";
-    const layout = fitAutoProductionHeadline(headline, preset);
     const command = buildAutoProductionFfmpegCommand({
       sourceVideoPath: "/tmp/test.mp4", sourceWidth: 1920, sourceHeight: 1080,
       clipStart: 5, clipEnd: 35, preset, editPlan: makeEditPlan({ headline }),
       brief: makeBrief(), assSubtitlePath: "/tmp/test.ass",
     }, "/tmp/out.mp4", "cpu");
-    // Gold line: exact GSM 2026 color, 5px thick, at headline text left edge,
-    // width = longest rendered line, static (no enable window).
-    const longest = Math.max(...layout.lines.map((line) => estimateLineWidth(line, layout.fontSizePx)));
-    const goldLineY = preset.safeZone.topPx +
-      (layout.lines.length - 1) * (layout.fontSizePx + layout.lineSpacingPx) +
-      layout.fontSizePx + HEADLINE_GOLD_LINE_OFFSET_PX;
-    expect(command.filterComplex).toContain(`color=#E6BF70:t=fill`);
-    expect(command.filterComplex).toContain(`h=${HEADLINE_GOLD_LINE_THICKNESS_PX}`);
-    expect(command.filterComplex).toContain(`x=72:y=${goldLineY}:w=${Math.round(longest)}`);
+    // Red bar: exact restored lineage color, 12px wide, LEFT of headline text.
+    expect(command.filterComplex).toContain(`color=${HEADLINE_RED_BAR_COLOR}:t=fill`);
+    expect(command.filterComplex).toContain(`x=48:y=120:w=${HEADLINE_ACCENT_BAR_WIDTH}`);
+    expect(command.filterComplex).toContain(`x=72:y='120`);
+    // No horizontal gold underline remains in the video path.
+    expect(command.filterComplex).not.toContain("#E6BF70");
     expect(command.filterComplex).not.toContain("between(t,0,0.3)");
-    // No red accent remains in the video path.
-    expect(command.filterComplex).not.toContain("#D71920");
-    // Deterministic soft editorial background present (gradient + vignette).
+    // Headline entry animation preserved.
+    expect(command.filterComplex).toContain("min(t/0.3,1)");
+    // Deterministic neutral editorial background (achromatic gradient + vignette).
     expect(command.filterComplex).toContain("gradients=s=1080x1920");
     expect(command.filterComplex).toContain("vignette=angle=PI/5:mode=forward");
-    expect(command.filterComplex).toContain("c0=0x3A2A20:c1=0x151112");
+    expect(command.filterComplex).toContain("c0=0x0B0B0C:c1=0x1C1C1C");
+    expect(command.filterComplex).not.toContain("0x3A2A20");
+    expect(command.filterComplex).not.toContain("0x151112");
+    expect(command.filterComplex).not.toContain("0x211817");
+    expect(command.filterComplex).not.toContain("movie=filename=");
+    expect(command.filterComplex).not.toContain("blend=all_mode=addition");
     expect(command.filterComplex).toContain("color=black@0.35");
+    expect(HEADLINE_ACCENT_BAR_GAP).toBe(12);
   });
 
   it("contains landscape and portrait source inside BAKOM media zone", () => {

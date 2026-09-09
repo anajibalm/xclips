@@ -104,21 +104,28 @@ export function getAutoProductionDeps(): AutoProductionDeps {
 			return result;
 		},
 
-		async discoverHighlights(
-			projectId: string,
-			options?: {
-				topicPrompt?: string;
-				editorialFunction?: string;
-				hookFormula?: string;
-				targetDuration?: "short" | "standard" | "long" | "extended";
-				maxClipsCount?: number;
-				transcriptId?: string;
-			},
-		): Promise<Result<XclipsClip[]>> {
-			const result = await xclipsService.discoverHighlights(projectId, options);
-			return result;
+	async discoverHighlights(
+		projectId: string,
+		options?: {
+			topicPrompt?: string;
+			editorialFunction?: string;
+			hookFormula?: string;
+			targetDuration?: "short" | "standard" | "long" | "extended";
+			maxClipsCount?: number;
+			transcriptId?: string;
 		},
-	};
+	): Promise<Result<XclipsClip[]>> {
+		const result = await xclipsService.discoverHighlights(projectId, options);
+		return result;
+	},
+
+	async generateHeadline(
+		input: { selectedText: string; speaker?: string; publisher?: string },
+	): Promise<Result<{ headline: string }>> {
+		const result = await xclipsService.generateHeadline(input);
+		return result;
+	},
+};
 }
 
 /**

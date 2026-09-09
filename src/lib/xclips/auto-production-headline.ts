@@ -112,3 +112,117 @@ export function fitAutoProductionHeadline(
     truncated,
   };
 }
+
+/** Minimum enforced gap between source credit and handle, in pixels. */
+export const FOOTER_MIN_GAP_PX = 24;
+
+export interface FooterLayoutOptions {
+  canvasWidth?: number;
+  safeMarginX?: number;
+  fontSizePx?: number;
+  minGapPx?: number;
+}
+
+export interface FooterLayout {
+  sourceText: string;
+  handleText: string;
+  /** Left edge of the source credit (always the left safe margin). */
+  sourceX: number;
+  /** Estimated left edge of the right-anchored handle. */
+  handleX: number;
+  /** Estimated right edge of the source credit. */
+  sourceRight: number;
+  /** Estimated gap between sourceRight and handleX. Invariant: >= minGapPx. */
+  gap: number;
+  truncated: boolean;
+}
+
+/**
+ * Deterministic single-baseline footer fit contract (S1 visual spine).
+ *
+ * Reuses the headline glyph-width estimator so footer measurement never
+ * drifts from headline measurement. Priority: keep the handle intact,
+ * fit the source into the remaining width, truncate the source with an
+ * ellipsis when necessary. Guarantees (by estimator — actual pixels depend
+ * on FFmpeg font metrics) `sourceRight + minGapPx <= handleX` and both
+ * strings stay inside the horizontal safe margins.
+ *
+ * Pure function — unit testable without FFmpeg.
+ */
+export function resolveAutoProductionFooter(
+  sourceText: string,
+  handleText: string,
+  options?: FooterLayoutOptions,
+): FooterLayout {
+  const canvasWidth = options?.canvasWidth ?? 1080;
+  const safeMarginX = options?.safeMarginX ?? 48;
+  const fontSizePx = options?.fontSizePx ?? 28;
+  const minGapPx = options?.minGapPx ?? FOOTER_MIN_GAP_PX;
+
+  // drawtext text='...' cannot span lines: normalize operator input first so
+  // measurement and rendering agree (escapeDrawText does not cover newlines).
+  const clean = (s: string): string => s.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
+  sourceText = clean(sourceText);
+  handleText = clean(handleText);
+
+  const rightEdge = canvasWidth - safeMarginX;
+  const maxLineWidth = rightEdge - safeMarginX;
+  const ellipsisWidth = estimateLineWidth("...", fontSizePx);
+
+  const truncateChars = (text: string, maxWidth: number): string => {
+    if (estimateLineWidth(text, fontSizePx) <= maxWidth) return text;
+    let stem = text;
+    while (stem.length > 0 && estimateLineWidth(`${stem}...`, fontSizePx) > maxWidth) {
+      stem = stem.slice(0, -1).trimEnd();
+    }
+    return stem ? `${stem}...` : "...";
+  };
+
+  // 1. Keep the handle intact when it fits; truncate with ellipsis otherwise.
+  let fittedHandle = truncateChars(handleText, maxLineWidth);
+  let handleX = Math.round(rightEdge - estimateLineWidth(fittedHandle, fontSizePx));
+
+  // 2. Guarantee room for at least an ellipsis source + gap, stealing from
+  //    the handle in the pathological case of an extremely long handle.
+  while (handleX - minGapPx - safeMarginX < ellipsisWidth && fittedHandle.length > 3) {
+    const stem = fittedHandle.replace(/\.\.\.$/, "").slice(0, -1).trimEnd();
+    fittedHandle = stem ? `${stem}...` : "...";
+    handleX = Math.round(rightEdge - estimateLineWidth(fittedHandle, fontSizePx));
+  }
+  const maxSourceWidth = Math.max(ellipsisWidth, handleX - minGapPx - safeMarginX);
+
+  // 3. Fit the source on word boundaries; fall back to a bare ellipsis.
+  //    Empty source stays empty (renders nothing, keeps the gap).
+  if (!sourceText) {
+    return {
+      sourceText: "",
+      handleText: fittedHandle,
+      sourceX: safeMarginX,
+      handleX,
+      sourceRight: safeMarginX,
+      gap: handleX - safeMarginX,
+      truncated: fittedHandle !== handleText,
+    };
+  }
+  let fittedSource = sourceText;
+  if (estimateLineWidth(fittedSource, fontSizePx) > maxSourceWidth) {
+    fittedSource = "";
+    for (const word of sourceText.split(/\s+/).filter(Boolean)) {
+      const candidate = fittedSource ? `${fittedSource} ${word}` : word;
+      if (estimateLineWidth(`${candidate}...`, fontSizePx) > maxSourceWidth) break;
+      fittedSource = candidate;
+    }
+    fittedSource = fittedSource ? `${fittedSource}...` : "...";
+  }
+
+  const sourceRight = Math.round(safeMarginX + estimateLineWidth(fittedSource, fontSizePx));
+  return {
+    sourceText: fittedSource,
+    handleText: fittedHandle,
+    sourceX: safeMarginX,
+    handleX,
+    sourceRight,
+    gap: handleX - sourceRight,
+    truncated: fittedSource !== sourceText || fittedHandle !== handleText,
+  };
+}

@@ -100,6 +100,7 @@ function makeMockDeps(overrides?: Partial<AutoProductionDeps>): AutoProductionDe
     getExistingTranscript: async () => ({ success: true, data: null }),
     transcribeProject: async () => ({ success: true, data: mockTranscript }),
     discoverHighlights: async () => ({ success: true, data: [mockHighlight] }),
+    generateHeadline: async () => ({ success: true, data: { headline: "Judul Khusus Dari Headline Terpisah" } }),
     ...overrides,
   };
 }
@@ -124,7 +125,26 @@ function makeValidBrief(overrides?: Partial<ProductionBrief>): ProductionBrief {
 describe("xclips - Auto Production Orchestrator (Slice 2)", () => {
   describe("Happy path", () => {
     it("valid brief produces structured planning result", async () => {
-      const deps = makeMockDeps();
+      // S1.3: headline needs a non-empty final slice — extend the fixture
+      // transcript across the clip bounds (guard-neutral: no punct/gaps,
+      // closure word ends exactly at 45.0 so bounds+signals stay intact).
+      const extendedWords = [
+        ...mockTranscript.words,
+        ...Array.from({ length: 41 }, (_, i) => ({
+          word: `kata${i}`,
+          start: 7.0 + i * 0.9,
+          end: 7.8 + i * 0.9,
+        })),
+        { word: "tutup.", start: 44.1, end: 45.0 },
+      ];
+      const deps = makeMockDeps({
+        getExistingTranscript: async () => ({
+          success: true,
+          data: { ...mockTranscript, words: extendedWords },
+        }),
+        // In-slice headline so the grounding validator stays strong.
+        generateHeadline: async () => ({ success: true, data: { headline: "Kata20 Kata21 Kata22" } }),
+      });
       const result = await runAutoProductionPlanning(makeValidBrief(), deps);
 
       expect(result.success).toBe(true);
@@ -137,7 +157,7 @@ describe("xclips - Auto Production Orchestrator (Slice 2)", () => {
         expect(result.editPlan).toBeDefined();
         expect(result.editPlan.statementStart).toBe(10);
         expect(result.editPlan.statementEnd).toBe(45);
-        expect(result.editPlan.headline).toBe("Dampak Erupsi Anak Krakatau");
+        expect(result.editPlan.headline).toBe("Kata20 Kata21 Kata22");
         expect(result.editPlan.brollPlacements).toEqual([]);
         expect(result.editPlan.statementSignal.confidence).toBe("strong");
         expect(result.editPlan.brollSignal.confidence).toBe("strong");
@@ -485,8 +505,8 @@ describe("xclips - Auto Production Orchestrator (Slice 2)", () => {
         expect(result.editPlan.statementStart).toBeLessThan(30);
         // End guard still works
         expect(result.editPlan.statementEnd).toBe(35);
-        // Headline unchanged
-        expect(result.editPlan.headline).toBe("Dampak Erupsi Anak Krakatau");
+        // Headline comes from the dedicated call, not the moment title
+        expect(result.editPlan.headline).toBe("Judul Khusus Dari Headline Terpisah");
       }
     });
 

@@ -28,6 +28,8 @@ import { detectTokenFillers } from "@/lib/xclips/filler-detector";
 import {
   chunkTranscript,
   buildHighlightPrompt,
+  buildHeadlinePrompt,
+  parseHeadlineResponse,
   reduceAndRankHighlights,
   CandidateHighlight,
 } from "@/lib/xclips/transcript-chunker";
@@ -2127,6 +2129,62 @@ Format output WAJIB HANYA berupa JSON valid:
     xclipsDb.saveClipsBatch(createdClips);
 
     return { success: true, data: createdClips };
+  }
+
+  /**
+   * S1.3: ONE dedicated grounded-headline call over the FINAL guarded
+   * selected transcript. Reuses the standard provider/key/model resolution
+   * and dispatchAiContent — no second provider system. selectedText is the
+   * only claim-bearing input; speaker/publisher are identity labels.
+   */
+  async generateHeadline(
+    input: { selectedText: string; speaker?: string; publisher?: string },
+    optionsOverride?: { apiKey?: string; provider?: AiProviderType; model?: string }
+  ): Promise<Result<{ headline: string }>> {
+    const settings = this.getAiSettings();
+    const custom = settings.activeCustomProviderId
+      ? settings.customProviders.find((provider) => provider.id === settings.activeCustomProviderId)
+      : undefined;
+    const customOptions = custom ? {
+      provider: custom.protocol === "claude-compatible" ? "anthropic" as const : "openai" as const,
+      baseUrl: custom.baseUrl,
+      apiKey: custom.apiKey,
+      model: custom.plannerModel,
+    } : undefined;
+    const providerToUse = customOptions?.provider || optionsOverride?.provider || settings.provider;
+    const effectiveBaseUrl =
+      customOptions?.baseUrl || (providerToUse === settings.provider
+        ? settings.baseUrl
+        : this.getDefaultBaseUrlForProvider(providerToUse));
+    const apiKey =
+      customOptions?.apiKey || optionsOverride?.apiKey ||
+      settings.apiKeys?.[providerToUse] ||
+      (providerToUse === settings.provider ? settings.apiKey : "") ||
+      (providerToUse === "kieai" ? process.env.KIE_AI_API_KEY : "");
+    if (!apiKey) {
+      return { success: false, error: `API Key untuk provider ${providerToUse.toUpperCase()} belum dikonfigurasi.` };
+    }
+    const modelToUse = customOptions?.model || optionsOverride?.model || settings.highlightModel || "gemini-3-7-flash";
+
+    const prompt = buildHeadlinePrompt({
+      selectedText: input.selectedText,
+      speaker: input.speaker,
+      publisher: input.publisher,
+      outputLanguage: settings.outputLanguage || "auto",
+    });
+
+    const dispatchRes = await this.dispatchAiContent({
+      provider: providerToUse,
+      baseUrl: effectiveBaseUrl,
+      apiKey,
+      model: modelToUse,
+      userPrompt: prompt,
+      timeoutMs: 30000,
+    });
+    if (!dispatchRes.success) {
+      return { success: false, error: dispatchRes.error };
+    }
+    return parseHeadlineResponse(dispatchRes.data);
   }
 
   /**

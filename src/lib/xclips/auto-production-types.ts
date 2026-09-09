@@ -164,7 +164,7 @@ const SHADOW: AccountPreset = {
   },
   headlineStyle: {
     fontFamily: "Inter",
-    fontSizePx: 48,
+    fontSizePx: 52,
     color: "#FFFFFF",
     position: "top",
   },
@@ -193,7 +193,7 @@ const KABAKOM: AccountPreset = {
   },
   headlineStyle: {
     fontFamily: "Inter",
-    fontSizePx: 48,
+    fontSizePx: 52,
     color: "#FFFFFF",
     position: "top",
   },
