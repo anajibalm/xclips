@@ -167,6 +167,13 @@ export async function runAutoProductionPlanning(
     candidate.endSec,
     deps,
   );
+  // CC/YouTube timings are alignment hints, not physical cut truth. Keep
+  // frozen S1 clip continuous until audio-derived alignment supplies cuts.
+  const keepIntervals = [{
+    start: 0,
+    end: candidate.endSec - candidate.startSec,
+    duration: candidate.endSec - candidate.startSec,
+  }];
 
   // 7. B-roll: deferred to later slice — empty placements
   const brollSignal: EditorialSignal = {
@@ -178,6 +185,7 @@ export async function runAutoProductionPlanning(
   const editPlan: EditPlan = {
     statementStart: candidate.startSec,
     statementEnd: candidate.endSec,
+    keepIntervals,
     headline,
     brollPlacements: [],
     thumbnailSourceFrame: undefined,

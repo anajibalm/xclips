@@ -8,7 +8,7 @@ import {
 } from "@/lib/xclips/auto-production-types";
 import { WordTimestamp, Result } from "@/lib/xclips/types";
 import { hexToAssColor, formatAssTime } from "@/lib/xclips/ffmpeg-builder";
-import { segmentPhrases } from "@/lib/xclips/phrase-segmentation";
+import { segmentPhrases, isNonSpeechCaptionCue, remapWordsToKeepTimeline } from "@/lib/xclips/phrase-segmentation";
 import { detectHardwareAcceleration, HardwareEncoder } from "@/lib/xclips/queue";
 import { fitAutoProductionHeadline, resolveAutoProductionFooter } from "@/lib/xclips/auto-production-headline";
 import { buildSourceTransformFilter, getBakomLayout, BACKGROUND_GRADIENT_END_COLOR, BACKGROUND_GRADIENT_MID_COLOR, BACKGROUND_TEXTURE_BOTTOM_COLOR, BACKGROUND_TEXTURE_OVERLAY_OPACITY, BACKGROUND_TEXTURE_TOP_COLOR, HEADLINE_ACCENT_BAR_GAP, HEADLINE_ACCENT_BAR_WIDTH, HEADLINE_ENTER_DURATION_SEC, HEADLINE_ENTER_OFFSET_Y, HEADLINE_RED_BAR_COLOR, type ContentType } from "@/lib/xclips/auto-production-bakom-layout";
@@ -168,7 +168,7 @@ export function buildAutoProductionAss(
     // from the first word ending after clipStart to the first word (in order)
     // reaching clipEnd, inclusive.
     const clipWords = selectClipWords(words, clipStart, clipEnd).filter(
-      (w) => !w.excluded && !w.isFiller,
+      (w) => !w.excluded && !w.isFiller && !isNonSpeechCaptionCue(w.word),
     );
 
     if (clipWords.length === 0) {
@@ -262,10 +262,13 @@ export async function renderAutoProduction(
 
   // 2. Generate ASS subtitles
   const assPath = path.join(outputDir, `captions_${Date.now()}.ass`);
+  const keepIntervals = editPlan.keepIntervals ?? [{ start: 0, end: editPlan.statementEnd - editPlan.statementStart, duration: editPlan.statementEnd - editPlan.statementStart }];
+  const remappedWords = remapWordsToKeepTimeline(transcriptWords, keepIntervals, editPlan.statementStart);
+  const renderedDuration = keepIntervals.reduce((sum, interval) => sum + interval.duration, 0);
   const assResult = buildAutoProductionAss(
-    transcriptWords,
-    editPlan.statementStart,
-    editPlan.statementEnd,
+    remappedWords,
+    0,
+    renderedDuration,
     preset,
     assPath,
   );
@@ -285,6 +288,7 @@ export async function renderAutoProduction(
       sourceHeight,
       clipStart: editPlan.statementStart,
       clipEnd: editPlan.statementEnd,
+      keepIntervals,
       preset,
       editPlan,
       brief,
@@ -355,6 +359,7 @@ interface AutoProductionFfmpegOptions {
   editPlan: EditPlan;
   brief: ProductionBrief;
   assSubtitlePath: string;
+  keepIntervals?: Array<{ start: number; end: number; duration: number }>;
   contentType?: ContentType;
 }
 
@@ -371,9 +376,27 @@ export function buildAutoProductionFfmpegCommand(
   const { sourceVideoPath, sourceWidth, sourceHeight, clipStart, clipEnd, preset, editPlan, brief, assSubtitlePath, contentType = "default" } = opts;
   const { width: targetW, height: targetH } = { width: preset.width, height: preset.height };
   const targetFps = preset.fps || DEFAULT_FPS;
-  const duration = clipEnd - clipStart;
+  const keepIntervals = opts.keepIntervals ?? [{ start: 0, end: clipEnd - clipStart, duration: clipEnd - clipStart }];
+  const duration = keepIntervals.reduce((sum, interval) => sum + interval.duration, 0);
 
   const filterChains: string[] = [];
+
+  const videoLabels: string[] = [];
+  const audioLabels: string[] = [];
+  for (let i = 0; i < keepIntervals.length; i++) {
+    const interval = keepIntervals[i];
+    filterChains.push(`[0:v]trim=start=${interval.start.toFixed(3)}:end=${interval.end.toFixed(3)},setpts=PTS-STARTPTS[v_cut_${i}]`);
+    filterChains.push(`[0:a]atrim=start=${interval.start.toFixed(3)}:end=${interval.end.toFixed(3)},asetpts=PTS-STARTPTS[a_cut_${i}]`);
+    videoLabels.push(`[v_cut_${i}]`);
+    audioLabels.push(`[a_cut_${i}]`);
+  }
+  if (keepIntervals.length > 1) {
+    filterChains.push(`${videoLabels.join("")}concat=n=${keepIntervals.length}:v=1:a=0[v_concatenated]`);
+    filterChains.push(`${audioLabels.join("")}concat=n=${keepIntervals.length}:v=0:a=1[a_concatenated]`);
+  } else {
+    filterChains.push(`${videoLabels[0]}copy[v_concatenated]`);
+    filterChains.push(`${audioLabels[0]}acopy[a_concatenated]`);
+  }
 
   // --- Video Pipeline ---
 
@@ -386,7 +409,7 @@ export function buildAutoProductionFfmpegCommand(
     `vignette=angle=PI/5:mode=forward,` +
     `format=yuv420p[v_bg]`,
   );
-  filterChains.push(buildSourceTransformFilter("[0:v]", "[v_broll]", layout, targetW, targetH, "default", sourceWidth, sourceHeight, contentType, false));
+  filterChains.push(buildSourceTransformFilter("[v_concatenated]", "[v_broll]", layout, targetW, targetH, "default", sourceWidth, sourceHeight, contentType, false));
   filterChains.push(`[v_bg][v_broll]overlay=0:${layout.mediaTop}:shortest=1[v_composited]`);
 
   // 2. Headline overlay (top safe zone)
@@ -458,7 +481,7 @@ export function buildAutoProductionFfmpegCommand(
   // Loudness normalization to preset target (e.g. -14 LUFS)
   const loudnessTarget = preset.loudnessTargetLu;
   filterChains.push(
-    `[0:a]loudnorm=I=${loudnessTarget}:TP=-1.5:LRA=11[a_final]`,
+    `[a_concatenated]loudnorm=I=${loudnessTarget}:TP=-1.5:LRA=11[a_final]`,
   );
 
   const filterComplex = filterChains.join(";");

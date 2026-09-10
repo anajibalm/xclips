@@ -56,6 +56,7 @@ export type BrollPlacement = z.infer<typeof BrollPlacementSchema>;
 export const EditPlanSchema = z.object({
   statementStart: z.number().min(0),
   statementEnd: z.number().min(0),
+  keepIntervals: z.array(z.object({ start: z.number(), end: z.number(), duration: z.number() })).optional(),
   headline: z.string().min(1),
   brollPlacements: z.array(BrollPlacementSchema),
   thumbnailSourceFrame: z.number().optional(),

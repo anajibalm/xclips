@@ -212,6 +212,28 @@ describe("xclips - S1.3 headline input isolation", () => {
     }
   });
 
+  it("keeps one continuous interval when only CC filler flags exist", async () => {
+    const counters = { discover: 0, headline: 0 };
+    const transcript = {
+      ...mockTranscript,
+      words: mockTranscript.words.map((word, index) =>
+        index === 7 ? { ...word, isFiller: true } : word,
+      ),
+    };
+    const deps = {
+      ...makeDeps(() => {}, counters),
+      getExistingTranscript: async () => ({ success: true as const, data: transcript }),
+    };
+    const result = await runAutoProductionPlanning(brief, deps);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.editPlan.keepIntervals).toHaveLength(1);
+      expect(result.editPlan.keepIntervals?.[0].start).toBe(0);
+      expect(result.editPlan.keepIntervals?.[0].end).toBeGreaterThan(0);
+      expect(result.editPlan.keepIntervals?.[0].duration).toBeGreaterThan(0);
+    }
+  });
+
   it("fallback on headline failure is grounded, flagged for review", async () => {
     const counters = { discover: 0, headline: 0 };
     const deps = makeDeps(() => {}, counters, { success: false, error: "upstream 500" });

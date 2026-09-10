@@ -9,8 +9,9 @@ export interface SliceContract {
   deliverable: string;
   projectId: string;
   sourceVideoId: string;
-  statementStart: number;
-  statementEnd: number;
+  referencePhysicalBounds: { start: number; end: number };
+  semanticStatementId: string;
+  semanticAnchor: string;
   headline: string;
   publisher: string;
   visualSpine: string;
@@ -32,8 +33,10 @@ export interface SliceContract {
 export interface SliceExecutionEvidence {
   projectId: string;
   sourceVideoId: string;
-  statementStart: number;
-  statementEnd: number;
+  semanticStatementId: string;
+  semanticAnchor: string;
+  physicalStatementStart: number;
+  physicalStatementEnd: number;
   headline: string;
   publisher: string;
   visualSpine: string;
@@ -53,6 +56,7 @@ export interface SliceExecutionEvidence {
   machineGateStatus: SliceGateStatus;
   humanGateStatus: SliceGateStatus;
   sourceMayChange?: boolean;
+  semanticStatementPreserved: boolean;
 }
 
 export interface SliceCheck { id: string; status: SliceEvidenceStatus; message: string; }
@@ -68,8 +72,8 @@ const CONTRACT_DIR = path.resolve(process.cwd(), "config", "auto-production", "s
 const EPSILON_SEC = 0.001;
 const equalTime = (a: number, b: number): boolean => Number.isFinite(a) && Math.abs(a - b) <= EPSILON_SEC;
 
-const IMMUTABLE_DIMENSIONS = new Set(["projectId", "sourceVideoId", "statementStart", "statementEnd", "headline", "publisher", "visualSpine"]);
-const MUTABLE_DIMENSIONS = new Set(["audioAlignment", "keepIntervals", "subtitleTiming", "audioCleanup", "audioJoinTreatment"]);
+const IMMUTABLE_DIMENSIONS = new Set(["projectId", "sourceVideoId", "semanticStatementId", "semanticAnchor", "headline", "publisher", "visualSpine"]);
+const MUTABLE_DIMENSIONS = new Set(["physicalStatementStart", "physicalStatementEnd", "keepIntervals", "subtitleTiming", "audioAlignment", "audioCleanup", "audioJoinTreatment"]);
 const FORBIDDEN_CAPABILITIES = new Set(["momentRediscovery", "headlineRegeneration", "sourceReplacement", "broll", "bgm", "sfx", "hyperframes", "thumbnailRedesign", "visualRedesign", "nextSliceWork"]);
 const EVIDENCE_STATUSES = new Set<SliceEvidenceStatus>(["PASS", "FAIL", "BLOCKED", "NOT_APPLICABLE"]);
 const HARD_INVARIANTS = {
@@ -102,8 +106,10 @@ export function validateSliceContractObject(value: unknown): SliceContract {
   if (!exactSet(forbidden, FORBIDDEN_CAPABILITIES)) throw new Error("Invalid forbidden capabilities");
   if (vocabulary.length !== EVIDENCE_STATUSES.size || vocabulary.some((item) => !EVIDENCE_STATUSES.has(item as SliceEvidenceStatus)) || EVIDENCE_STATUSES.size !== new Set(vocabulary).size) throw new Error("Invalid evidence vocabulary");
   if (!isRecord(value.closure) || value.closure.machineGateRequired !== true || value.closure.humanGateRequired !== true || value.closure.blockedRequiredEvidenceMayClose !== false) throw new Error("Invalid closure configuration");
-  if (typeof value.slice !== "string" || typeof value.deliverable !== "string" || typeof value.projectId !== "string" || typeof value.sourceVideoId !== "string" || typeof value.statementStart !== "number" || typeof value.statementEnd !== "number" || typeof value.headline !== "string" || typeof value.publisher !== "string" || typeof value.visualSpine !== "string") throw new Error("Invalid slice contract identity");
+  if (typeof value.slice !== "string" || typeof value.deliverable !== "string" || typeof value.projectId !== "string" || typeof value.sourceVideoId !== "string" || typeof value.semanticStatementId !== "string" || typeof value.semanticAnchor !== "string" || typeof value.headline !== "string" || typeof value.publisher !== "string" || typeof value.visualSpine !== "string") throw new Error("Invalid slice contract identity");
+  if (!isRecord(value.referencePhysicalBounds) || typeof value.referencePhysicalBounds.start !== "number" || typeof value.referencePhysicalBounds.end !== "number") throw new Error("Invalid reference physical bounds");
   if (!isRecord(value.hardInvariants)) throw new Error("Invalid hard invariants");
+  if (!isRecord(value.physicalBoundaryPolicy) || value.physicalBoundaryPolicy.correctionAllowed !== true || value.physicalBoundaryPolicy.requiresTrustedAlignment !== true || value.physicalBoundaryPolicy.requiresSemanticStatementPreserved !== true || value.physicalBoundaryPolicy.momentRediscoveryAllowed !== false) throw new Error("Invalid physical boundary policy");
   const hardInvariants = value.hardInvariants;
   const hardKeys = Object.keys(hardInvariants);
   const expectedKeys = Object.keys(HARD_INVARIANTS);
@@ -121,11 +127,13 @@ export function loadSliceContract(slice: string): SliceContract {
 export function validateSliceExecution(contract: SliceContract, evidence: SliceExecutionEvidence): SliceValidationResult {
   const checks: SliceCheck[] = [];
   const check = (id: string, status: SliceEvidenceStatus, message: string) => checks.push({ id, status, message });
-  const immutablePass = evidence.projectId === contract.projectId && evidence.sourceVideoId === contract.sourceVideoId && equalTime(evidence.statementStart, contract.statementStart) && equalTime(evidence.statementEnd, contract.statementEnd) && evidence.headline === contract.headline && evidence.publisher === contract.publisher && evidence.visualSpine === contract.visualSpine;
+  const physicalChanged = !equalTime(evidence.physicalStatementStart, contract.referencePhysicalBounds.start) || !equalTime(evidence.physicalStatementEnd, contract.referencePhysicalBounds.end);
+  const immutablePass = evidence.projectId === contract.projectId && evidence.sourceVideoId === contract.sourceVideoId && evidence.semanticStatementId === contract.semanticStatementId && evidence.semanticAnchor === contract.semanticAnchor && evidence.headline === contract.headline && evidence.publisher === contract.publisher && evidence.visualSpine === contract.visualSpine;
   check("immutable_identity", immutablePass ? "PASS" : "FAIL", immutablePass ? "Frozen S2 identity matches" : "Frozen S2 identity changed");
   check("moment_rediscovery", evidence.momentRediscoveryCalls === 0 ? "PASS" : "FAIL", `momentRediscoveryCalls=${evidence.momentRediscoveryCalls}`);
   check("headline_regeneration", evidence.headlineGenerationCalls === 0 ? "PASS" : "FAIL", `headlineGenerationCalls=${evidence.headlineGenerationCalls}`);
   check("cc_physical_cut_truth", evidence.ccTimingUsedForPhysicalCuts ? "FAIL" : "PASS", `ccTimingUsedForPhysicalCuts=${evidence.ccTimingUsedForPhysicalCuts}`);
+  check("physical_boundary_authorization", physicalChanged && (evidence.trustedAudioAlignmentStatus !== "PASS" || !evidence.semanticStatementPreserved) ? "FAIL" : "PASS", physicalChanged ? "Physical correction authorization checked" : "Reference physical bounds retained");
   const unsafeFiller = evidence.fillerFlagsUsedForPhysicalCuts && evidence.trustedAudioAlignmentStatus !== "PASS";
   check("filler_physical_cut_truth", unsafeFiller ? "FAIL" : "PASS", unsafeFiller ? "Filler flags used without trusted alignment" : "Filler cut rule satisfied");
   check("trusted_audio_alignment", evidence.trustedAudioAlignmentStatus, `trustedAudioAlignmentStatus=${evidence.trustedAudioAlignmentStatus}`);

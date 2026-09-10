@@ -28,6 +28,35 @@ const DEFAULT_MAX_GAP_SEC = 0.8;
 const DEFAULT_BREAK_REGEX = /[.?!,;:]$/;
 
 /**
+ * Known non-speech caption annotations from transcript tracks (e.g. YouTube
+ * CC "[musik]"). These are lexical sanitation targets, never spoken words.
+ * Only explicit labels match — arbitrary bracketed text like [Presiden],
+ * [Jakarta], or [2026] is preserved.
+ */
+const NON_SPEECH_CUE_LABELS = new Set([
+  "musik",
+  "music",
+  "tepuk tangan",
+  "applause",
+  "tertawa",
+  "laughter",
+  "inaudible",
+  "tidak terdengar",
+]);
+
+/**
+ * Classify a transcript token as a non-speech caption cue. Matches bracket
+ * or parenthesis wrapped labels only, case-insensitively.
+ */
+export function isNonSpeechCaptionCue(text: string): boolean {
+  const trimmed = text.trim().toLowerCase();
+  const match = trimmed.match(/^[[(（](.+)[\]）)]$/);
+  if (!match) return false;
+  const label = match[1].trim().replace(/\s+/g, " ");
+  return NON_SPEECH_CUE_LABELS.has(label);
+}
+
+/**
  * Single Unified Phrase Segmentation Engine for Studio UI, Canvas Preview, SRT Export & ASS Subtitles
  * Guarantees 100% WYSIWYG parity across editor and rendered outputs.
  */

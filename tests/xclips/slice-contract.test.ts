@@ -4,8 +4,10 @@ import { loadSliceContract, validateSliceContractObject, validateSliceExecution,
 const baseEvidence = (): SliceExecutionEvidence => ({
   projectId: "proj_1788933823612_gftf",
   sourceVideoId: "vXFdaRBI9ls",
-  statementStart: 149.56,
-  statementEnd: 197,
+  semanticStatementId: "s1-editorial-statement-001",
+  semanticAnchor: "Reaksi terhadap kebakaran hutan kita juga cukup masif ... kita gunakan prinsip lebih baik-lebih daripada kurang",
+  physicalStatementStart: 149.56,
+  physicalStatementEnd: 197,
   headline: "Reaksi terhadap Kebakaran Hutan Cukup Masif",
   publisher: "METRO TV",
   visualSpine: "S1 frozen: red vertical headline bar, neutral canvas, 52px/12px headline, raised footer",
@@ -39,8 +41,8 @@ describe("S2 hard slice contract", () => {
 
   it("2-5. immutable identity changes fail", () => {
     for (const overrides of [
-      { statementStart: 103 },
-      { statementEnd: 149.56 },
+      { semanticStatementId: "other" },
+      { semanticAnchor: "other" },
       { headline: "Changed headline" },
       { publisher: "Other publisher" },
       { projectId: "other-project" },
@@ -85,6 +87,17 @@ describe("S2 hard slice contract", () => {
     expect(validate().closureAllowed).toBe(true);
   });
 
+  it("accepts trusted physical correction while semantic identity stays frozen", () => {
+    const result = validate({ physicalStatementStart: 147.99, physicalStatementEnd: 192.3, trustedAudioAlignmentStatus: "PASS", semanticStatementPreserved: true });
+    expect(result.hardInvariantFailed).toBe(false);
+    expect(result.checks.find((check) => check.id === "physical_boundary_authorization")?.status).toBe("PASS");
+  });
+
+  it("rejects physical correction without trusted alignment or semantic preservation", () => {
+    expect(validate({ physicalStatementStart: 147.99, physicalStatementEnd: 192.3, trustedAudioAlignmentStatus: "BLOCKED", semanticStatementPreserved: true }).hardInvariantFailed).toBe(true);
+    expect(validate({ physicalStatementStart: 147.99, physicalStatementEnd: 192.3, trustedAudioAlignmentStatus: "PASS", semanticStatementPreserved: false }).hardInvariantFailed).toBe(true);
+  });
+
   it("14-16. forbidden capabilities fail", () => {
     for (const key of ["bgmUsed", "sfxUsed", "brollUsed", "hyperframesUsed", "nextSliceWorkStarted"] as const) {
       expect(validate({ [key]: true } as Partial<SliceExecutionEvidence>).hardInvariantFailed).toBe(true);
@@ -101,7 +114,7 @@ describe("S2 hard slice contract", () => {
   it("loads valid contract and rejects unsupported structure", () => {
     expect(loadSliceContract("s2").slice).toBe("S2");
     const contract = loadSliceContract("s2");
-    expect(() => validateSliceContractObject({ ...contract, immutableDimensions: contract.immutableDimensions.filter((item) => item !== "statementStart") })).toThrow();
+    expect(() => validateSliceContractObject({ ...contract, immutableDimensions: contract.immutableDimensions.filter((item) => item !== "semanticStatementId") })).toThrow();
     expect(() => validateSliceContractObject({ ...contract, immutableDimensions: [...contract.immutableDimensions, "projectId"] })).toThrow();
     expect(() => validateSliceContractObject({ ...contract, forbiddenCapabilities: contract.forbiddenCapabilities.filter((item) => item !== "bgm") })).toThrow();
     expect(() => validateSliceContractObject({ ...contract, forbiddenCapabilities: [...contract.forbiddenCapabilities, "unknown"] })).toThrow();
@@ -116,13 +129,14 @@ describe("S2 hard slice contract", () => {
 
   it("rejects the previous bad S2 attempt with multiple failures", () => {
     const result = validate({
-      statementStart: 103,
-      statementEnd: 149.56,
+      physicalStatementStart: 103,
+      physicalStatementEnd: 149.56,
       headline: "Kita Pulihkan Aceh, Sumut, dan Sumbar dengan Kekuatan Sendiri",
       momentRediscoveryCalls: 1,
       ccTimingUsedForPhysicalCuts: true,
       fillerFlagsUsedForPhysicalCuts: true,
       trustedAudioAlignmentStatus: "BLOCKED",
+      semanticStatementPreserved: false,
     });
     expect(result.hardInvariantFailed).toBe(true);
     expect(result.checks.filter((check) => check.status === "FAIL").length).toBeGreaterThanOrEqual(4);
