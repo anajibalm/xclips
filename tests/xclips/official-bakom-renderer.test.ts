@@ -108,6 +108,32 @@ describe("official BAKOM timeline plan", () => {
     expect(segs[0].kinds).not.toContain("subtitle");
     expect(segs[0].kinds).not.toContain("v5");
   });
+
+  it("broll slots split segments, keep captions, keep main audio mapping", () => {
+    const base = planSegments(s3PlanFixture());
+    const withBroll = planSegments({
+      ...s3PlanFixture(),
+      brollPlacements: [
+        {
+          programStart: 1.2, programEnd: 1.8, sourcePath: "/repo/b.mp4", sourceStart: 0, sourceEnd: 0.6,
+          reason: "cutaway",
+          provenance: { materialId: "m", sourceVideoId: "v", sourceUrl: "https://x", publisher: "p", sourceStart: 0, sourceEnd: 0.6, selectionReason: "r" },
+        },
+      ],
+    });
+    // slot edges become boundaries; tagged segs carry broll + unchanged cue + main sourceStart
+    const tagged = withBroll.filter((s) => s.broll);
+    expect(tagged.length).toBeGreaterThan(0);
+    for (const s of tagged) {
+      expect(s.kinds).toContain("broll");
+      expect(s.kinds).toContain("subtitle");
+      expect(s.cue?.text).toBe("Kalimat Pertama");
+      expect(s.sourceStart).toBeGreaterThanOrEqual(100);
+      expect(s.broll!.sourcePath).toBe("/repo/b.mp4");
+    }
+    // no placements -> no broll tags (S3 behavior unchanged)
+    expect(base.some((s) => s.broll)).toBe(false);
+  });
 });
 
 describe("official BAKOM V5 motion", () => {

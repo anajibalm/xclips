@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { brollAt, dissolveAssembly, validateBrollPlacements, type BrollPlacement } from "@/lib/xclips/bakom-enrichment";
 import {
   BAKOM_CREDIT,
   BAKOM_GOLD,
@@ -64,6 +65,17 @@ export interface OfficialBakomRenderInput {
   outputPath: string;
   v5?: { start: number; end: number; name: string; role: string };
   framingMode?: "FIELD_FIT_BG" | "TALKING_HEAD_SAFE";
+  /**
+   * S4 enrichment: program-relative B-roll slots (same convention as cues).
+   * Visual switches to the placement material; main-program audio is untouched.
+   * Absent/empty = S3 behavior, byte-identical.
+   */
+  brollPlacements?: BrollPlacement[];
+  /**
+   * Speech->endcard cross-dissolve seconds (video only; audio stays
+   * concatenated and untouched). Absent/0 = legacy hard cut, byte-identical.
+   */
+  endcardDissolveSec?: number;
 }
 
 /** S3-local render result. Plain data, no trust capability attached. */
@@ -276,9 +288,11 @@ export interface PlannedSegment {
   start: number;
   end: number;
   sourceStart: number | null;
-  kinds: Array<"intro" | "hook" | "speech" | "subtitle" | "v5">;
+  kinds: Array<"intro" | "hook" | "speech" | "subtitle" | "v5" | "broll">;
   cue?: OfficialBakomCue;
   v5Active: boolean;
+  /** Set only on segments fully inside a B-roll slot. Audio stays main-program. */
+  broll?: { sourcePath: string; sourceStart: number; sourceEnd: number };
 }
 
 /**
@@ -296,6 +310,11 @@ export function planSegments(input: OfficialBakomRenderInput): PlannedSegment[] 
     if (!(input.v5.end > input.v5.start)) throw new Error("v5.end must exceed v5.start");
     points.add(intro + input.v5.start);
     points.add(intro + input.v5.end);
+  }
+  const placements = input.brollPlacements ?? [];
+  for (const p of placements) {
+    points.add(intro + p.programStart);
+    points.add(intro + p.programEnd);
   }
   for (const c of input.cues) {
     if (!(c.end > c.start)) throw new Error("cue end must exceed cue start");
@@ -318,7 +337,21 @@ export function planSegments(input: OfficialBakomRenderInput): PlannedSegment[] 
     const kinds: PlannedSegment["kinds"] = ["speech"];
     if (cue) kinds.push("subtitle");
     if (v5Active) kinds.push("v5");
-    segs.push({ start: s, end: e, sourceStart: input.sourceStart + (s - intro), kinds, cue, v5Active });
+    // B-roll tags only segments fully inside a slot; subtitle lookup by
+    // program time is unchanged, so captions persist over B-roll.
+    const slot = brollAt(placements, (relS + relE) / 2);
+    const inside = slot && relS + 0.001 >= slot.programStart && relE <= slot.programEnd + 0.001 ? slot : null;
+    if (inside && v5Active) throw new Error("broll+v5 overlap unsupported (fail closed)");
+    if (inside) kinds.push("broll");
+    segs.push({
+      start: s,
+      end: e,
+      sourceStart: input.sourceStart + (s - intro),
+      kinds,
+      cue,
+      v5Active,
+      ...(inside ? { broll: { sourcePath: inside.sourcePath, sourceStart: inside.sourceStart + (s - intro - inside.programStart), sourceEnd: inside.sourceEnd } } : {}),
+    });
   }
   return segs;
 }
@@ -420,6 +453,16 @@ async function sourceSegment(
   if (seg.cue) overlays.push(...(await subtitle(seg.cue.text, seg.cue.emphasis, fonts)));
   const extraInputs: string[] = [];
   let overlayTail = "";
+  // S4 enrichment: visual comes from the placement material, audio stays on
+  // the main program (input 0). Caption/credit overlays apply unchanged.
+  let videoInput = "0:v";
+  if (seg.broll) {
+    if (!existsSync(seg.broll.sourcePath)) throw new Error(`B-roll source not found: ${seg.broll.sourcePath}`);
+    // Never read past the validated material end; segment padding covers any slack.
+    const fetchDur = Math.min(dur + 0.25, Math.max(dur, seg.broll.sourceEnd - seg.broll.sourceStart));
+    extraInputs.push("-ss", seg.broll.sourceStart.toFixed(3), "-t", fetchDur.toFixed(3), "-i", seg.broll.sourcePath);
+    videoInput = "1:v";
+  }
   if (seg.v5Active && input.v5 && cardPng) {
     extraInputs.push("-loop", "1", "-framerate", "30", "-t", stamp, "-i", cardPng);
     const motion = v5Motion(seg.start - (BAKOM_INTRO.durationSec + input.v5.start));
@@ -428,7 +471,7 @@ async function sourceSegment(
   }
   const args = ["-y", "-threads", "1", "-filter_threads", "1", "-filter_complex_threads", "1", "-ss", absolute.toFixed(3), "-t", (dur + 0.25).toFixed(3), "-i", input.sourceVideoPath, ...extraInputs, "-filter_complex", "", "-map", "[v]", "-map", "0:a", "-frames:v", frames, "-af", `apad=whole_dur=${stamp},atrim=0:${stamp}`, ...SEGMENT_CODEC_ARGS, output];
   args[args.indexOf("-filter_complex") + 1] =
-    `[0:v]${base(input.framingMode)},${overlays.length > 0 ? `${overlays.join(",")},` : ""}${creditFilter(creditText, fonts)},format=yuv420p[bg]${overlayTail || ",[bg]copy[v]"}`;
+    `[${videoInput}]${base(input.framingMode)},${overlays.length > 0 ? `${overlays.join(",")},` : ""}${creditFilter(creditText, fonts)},format=yuv420p[bg]${overlayTail || ",[bg]copy[v]"}`;
   await run("ffmpeg", args, execOpts);
   return output;
 }
@@ -549,6 +592,15 @@ async function fitLines(opts: { text: string; probe: string; maxW: number; min: 
 
 export async function renderOfficialBakomSequential(input: OfficialBakomRenderInput): Promise<OfficialBakomRenderResult> {
   if (!existsSync(input.sourceVideoPath)) throw new Error(`Source not found: ${input.sourceVideoPath}`);
+  if (input.brollPlacements && input.brollPlacements.length > 0) {
+    validateBrollPlacements(input.brollPlacements, input.sourceEnd - input.sourceStart);
+    for (const p of input.brollPlacements) {
+      if (!existsSync(p.sourcePath)) throw new Error(`B-roll source not found: ${p.sourcePath}`);
+    }
+  }
+  if (input.endcardDissolveSec !== undefined && input.endcardDissolveSec !== 0 && !(input.endcardDissolveSec > 0)) {
+    throw new Error(`endcardDissolveSec must be positive (0 keeps the legacy hard cut): ${input.endcardDissolveSec}`);
+  }
   const fonts = fontFiles();
   const creditText = resolveCreditText(input);
   if (input.transcriptWords && input.transcriptWords.length > 0) {
@@ -603,7 +655,49 @@ export async function renderOfficialBakomSequential(input: OfficialBakomRenderIn
   // lossy audio encode: everything upstream is lossless PCM.
   const finalList = `${dir}/final-concat.txt`;
   await writeFile(finalList, `file 'assembled.mp4'\n`);
+  const dissolveSec = input.endcardDissolveSec ?? 0;
+  if (dissolveSec > 0) {
+    // S4 dissolve WITHOUT xfade: xfade silently drops the second input on
+    // concat-copy timestamp drift, and trim is unreliable on assembled
+    // timelines. The joint is rebuilt from clean single-encode files only:
+    // last speech seg (kept part + alpha-faded tail) overlaid with the
+    // alpha-faded endcard head, then concatenated. Audio mastering stays on
+    // the untouched assembled mix, exactly like the legacy path.
+    const speechProbe = await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=duration", "-of", "default=nw=1:nk=1", speech], execOpts);
+    const speechVideoSec = Number(speechProbe.stdout.trim());
+    if (!Number.isFinite(speechVideoSec)) throw new Error("cannot probe speech video duration for dissolve");
+    const cardProbe = await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=duration", "-of", "default=nw=1:nk=1", endcard], execOpts);
+    const endcardVideoSec = Number(cardProbe.stdout.trim());
+    if (!Number.isFinite(endcardVideoSec)) throw new Error("cannot probe endcard video duration for dissolve");
+    const dasm = dissolveAssembly({ speechVideoSec, endcardSec: endcardVideoSec, dissolveSec });
+    const lastSeg = files[files.length - 1];
+    const lastProbe = await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=duration", "-of", "default=nw=1:nk=1", lastSeg], execOpts);
+    const lastDur = Number(lastProbe.stdout.trim());
+    const keepDur = lastDur - dissolveSec;
+    if (!Number.isFinite(keepDur) || keepDur <= 1) throw new Error(`last speech segment too short for dissolve: ${lastDur}`);
+    const fx = (n: string) => `${dir}/dissolve-${n}.mp4`;
+    await run("ffmpeg", ["-y", "-threads", "1", "-i", lastSeg, "-t", keepDur.toFixed(3), ...SEGMENT_CODEC_ARGS, fx("kept")], execOpts);
+    // Fades and overlay run in ONE graph: intermediate encodes would strip
+    // the alpha channel and freeze the blend. Single encode to x264 here.
+    await run("ffmpeg", ["-y", "-threads", "1", "-sseof", `-${dissolveSec.toFixed(3)}`, "-i", lastSeg, "-t", dissolveSec.toFixed(3), "-i", endcard,
+      "-filter_complex", `[0:v]format=yuva420p,fade=t=out:st=0:d=${dissolveSec}:alpha=1[va];[1:v]format=yuva420p,fade=t=in:st=0:d=${dissolveSec}:alpha=1[vb];[va][vb]overlay=eof_action=pass,format=yuv420p[v]`,
+      "-map", "[v]", "-map", "0:a", "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-threads", "1", "-r", "30", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "-ar", "44100", "-ac", "2", "-shortest", fx("x")], execOpts);
+    await run("ffmpeg", ["-y", "-threads", "1", "-ss", dissolveSec.toFixed(3), "-i", endcard, ...SEGMENT_CODEC_ARGS, fx("tailcard")], execOpts);
+    const videoList = `${dir}/dissolve-video.txt`;
+    const videoFiles = [...files.slice(0, -1).map((f) => f.split("/").pop() as string), "dissolve-kept.mp4", "dissolve-x.mp4", "dissolve-tailcard.mp4"];
+    await writeFile(videoList, videoFiles.map((f) => `file '${f}'`).join("\n"));
+    const dissolvedVideo = `${dir}/dissolved-video.mp4`;
+    await run("ffmpeg", ["-y", "-threads", "1", "-f", "concat", "-safe", "0", "-i", videoList, "-c", "copy", dissolvedVideo], execOpts);
+    await run("ffmpeg", ["-y", "-threads", "1", "-i", dissolvedVideo, "-i", assembled, "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-threads", "1", "-r", "30", "-fps_mode", "cfr", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", "-af", `${loudnormSecondPass(loudness)},aresample=44100:async=1`, "-shortest", input.outputPath], execOpts);
+    // Fail closed: dissolved video must match the tested dissolve math.
+    const dissolvedProbe = await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=duration", "-of", "default=nw=1:nk=1", input.outputPath], execOpts);
+    const dissolvedDur = Number(dissolvedProbe.stdout.trim());
+    if (!Number.isFinite(dissolvedDur) || Math.abs(dissolvedDur - dasm.outputVideoSec) > 0.15) {
+      throw new Error(`dissolve output duration ${dissolvedDur} diverges from assembly math ${dasm.outputVideoSec}`);
+    }
+  } else {
   await run("ffmpeg", ["-y", "-threads", "1", "-f", "concat", "-safe", "0", "-i", finalList, "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-r", "30", "-fps_mode", "cfr", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2", "-af", `${loudnormSecondPass(loudness)},aresample=44100:async=1`, "-shortest", input.outputPath], execOpts);
+  }
   const probe = await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,r_frame_rate", "-of", "default=nw=1:nk=1", input.outputPath], execOpts);
   const [w, h] = probe.stdout.trim().split("\n").map(Number);
   if (w !== 1080 || h !== 1920) throw new Error(`proof output geometry unexpected: ${w}x${h}`);
