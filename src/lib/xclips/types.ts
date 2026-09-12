@@ -311,6 +311,7 @@ export const XclipsAiSettingsSchema = z.object({
     }),
   transcribeModel: z.string().default("gemini-3-7-flash"),
   highlightModel: z.string().default("gemini-3-7-flash"),
+  thumbnailImageModel: z.string().default("gemini-3.1-flash-image"),
   customProviders: z.array(CustomProviderSchema).default([]),
   activeCustomProviderId: z.string().nullable().default(null),
   lightModel: z.string().default("muse-glimmer-30b"), // Built-in Requesty helper model
@@ -452,5 +453,3 @@ export interface DownloadProgress {
   etaStr: string;
   status: "downloading" | "merging" | "transcribing" | "completed" | "error";
 }
-
-

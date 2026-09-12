@@ -12,6 +12,7 @@ import { segmentPhrases, isNonSpeechCaptionCue, remapWordsToKeepTimeline } from 
 import { detectHardwareAcceleration, HardwareEncoder } from "@/lib/xclips/queue";
 import { fitAutoProductionHeadline, resolveAutoProductionFooter } from "@/lib/xclips/auto-production-headline";
 import { buildSourceTransformFilter, getBakomLayout, BACKGROUND_GRADIENT_END_COLOR, BACKGROUND_GRADIENT_MID_COLOR, BACKGROUND_TEXTURE_BOTTOM_COLOR, BACKGROUND_TEXTURE_OVERLAY_OPACITY, BACKGROUND_TEXTURE_TOP_COLOR, HEADLINE_ACCENT_BAR_GAP, HEADLINE_ACCENT_BAR_WIDTH, HEADLINE_ENTER_DURATION_SEC, HEADLINE_ENTER_OFFSET_Y, HEADLINE_RED_BAR_COLOR, type ContentType } from "@/lib/xclips/auto-production-bakom-layout";
+import type { TrustedRenderResult } from "@/lib/xclips/production-trust";
 
 // ============================================================
 // Auto Production Renderer — Slice 3
@@ -37,6 +38,7 @@ export interface RenderAutoProductionResult {
   width: number;
   height: number;
   fps: number;
+  trustedRenderResult?: TrustedRenderResult;
 }
 
 export interface RenderAutoProductionFailure {
@@ -322,6 +324,17 @@ export async function renderAutoProduction(
     fps: preset.fps,
   };
 }
+
+/**
+ * ARCH.1 / ARCH.1R NOTE: this renderer implements the S1 visual spine (legacy
+ * red accent bar, S1 canvas). It is NOT the accepted S3 official BAKOM
+ * presentation (V1/V3/V4/V5/V10). It therefore MUST NOT claim
+ * `official_bakom` renderer authority. Until a reusable canonical official
+ * presentation renderer exists, production render trust is BLOCKED and this
+ * renderer's output is preview-only.
+ */
+export const RENDERER_AUTHORITY_ID = "s1_visual_spine" as const;
+export const RENDERER_IS_OFFICIAL_BAKOM = false;
 
 // --- Input Validation -----------------------------------------------------
 

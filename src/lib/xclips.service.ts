@@ -131,6 +131,7 @@ export class XclipsService {
       maxClipsCount: 5,
       strictBoundary: true,
       outputLanguage: "auto",
+      thumbnailImageModel: "gemini-3.1-flash-image",
     };
   }
 

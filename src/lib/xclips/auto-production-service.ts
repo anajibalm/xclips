@@ -21,13 +21,103 @@ import type {
 	EditPlan,
 	ProductionBrief,
 } from "@/lib/xclips/auto-production-types";
-import type { WordTimestamp } from "@/lib/xclips/types";
+import type { Result, WordTimestamp } from "@/lib/xclips/types";
 import type { ContentType } from "@/lib/xclips/auto-production-bakom-layout";
+import {
+	finalizeProductionArtifact,
+	isTrustedPhysicalTimeline,
+	isTrustedRenderResult,
+	recordCanonicalBakomRender,
+	runPhysicalAlignment,
+	type ProductionArtifactManifest,
+} from "@/lib/xclips/production-trust";
+import { renderOfficialBakomSequential } from "@/lib/xclips/official-bakom-renderer";
+import { generateGenerativeThumbnail, type GenerativeThumbnailInput, type GenerativeThumbnailResult } from "@/lib/xclips/generative-thumbnail";
+import { buildPublishReviewPackage, type PublishPackageInput } from "@/lib/xclips/publish-package-builder";
 import * as path from "path";
 
 // Re-export pure helper from client-safe module
 export { detectSourceType } from "@/lib/xclips/auto-production-helpers";
 import { resolveSourceCreditName } from "@/lib/xclips/auto-production-helpers";
+
+export type OfficialFramingMode = "FIELD_FIT_BG" | "TALKING_HEAD_SAFE";
+
+export interface S5ThumbnailConfig {
+	referenceImages: string[];
+	generatorRepo?: string;
+	generatorCommit?: string;
+	source: PublishPackageInput["source"];
+	materialSources: PublishPackageInput["materialSources"];
+	framingPolicy: PublishPackageInput["framingPolicy"];
+	modules: PublishPackageInput["modules"];
+	reviewFlags: PublishPackageInput["reviewFlags"];
+	publication: PublishPackageInput["publication"];
+}
+
+/** MVP landscape news sources keep full-frame context; talking-head crop remains experimental. */
+export function resolveOfficialFramingMode(
+	sourceVideoPath: string,
+	contentType?: ContentType,
+): OfficialFramingMode {
+	void sourceVideoPath;
+	void contentType;
+	return "FIELD_FIT_BG";
+}
+
+function normalizeStatementToken(value: string): string {
+	return value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+/**
+ * Deterministic canonical form of statement-overlapping transcript words.
+ * YouTube CC word timings are non-monotonic (overlapping rollup cues), so
+ * anchor selection cannot trust raw transcript order. This stable-sorts by
+ * (start, end) — transcript order wins exact ties — and drops duplicate
+ * rollup entries: same normalized text with overlapping time. No word
+ * blacklists, no fuzzy rewriting; distinct overlapping words are retained.
+ */
+export function canonicalizeStatementWords(words: WordTimestamp[]): WordTimestamp[] {
+	const sorted = [...words].sort((a, b) => a.start - b.start || a.end - b.end);
+	const kept: WordTimestamp[] = [];
+	for (const word of sorted) {
+		const token = normalizeStatementToken(word.word);
+		if (token) {
+			const duplicate = kept.some(
+				(keptWord) =>
+					normalizeStatementToken(keptWord.word) === token &&
+					keptWord.start < word.end &&
+					word.start < keptWord.end,
+			);
+			if (duplicate) continue;
+		}
+		kept.push(word);
+	}
+	return kept;
+}
+
+/**
+ * Physical anchor targets must come from the selected editorial statement,
+ * never from whole-transcript edges. Selects transcript words overlapping
+ * [statementStart, statementEnd), canonicalizes them (chronological,
+ * deduped), and returns the first/last lexical words.
+ */
+export function selectStatementEdgePhrases(
+	transcriptWords: WordTimestamp[],
+	statementStart: number,
+	statementEnd: number,
+	edgeWords = 4,
+): { openingPhrase: string[]; endingPhrase: string[]; selectedCount: number } {
+	const selected = canonicalizeStatementWords(
+		transcriptWords.filter((word) => word.end > statementStart && word.start < statementEnd),
+	);
+	const lexical = selected.map((word) => word.word).filter((word) => word.trim().length > 0);
+	const count = Math.max(1, Math.min(edgeWords, lexical.length));
+	return {
+		openingPhrase: lexical.slice(0, count),
+		endingPhrase: lexical.slice(-count),
+		selectedCount: selected.length,
+	};
+}
 
 // ============================================================
 // Auto Production Service — Slice 5 (Pipeline Glue)
@@ -41,7 +131,10 @@ export type AutoProductionStage =
 	| "selecting_statement"
 	| "preparing_graphics"
 	| "rendering"
-	| "running_qc";
+	| "running_qc"
+	| "trust_finalization"
+	| "thumbnail_generation"
+	| "publish_package";
 
 export type AutoProductionJobResult =
 	| AutoProductionJobReady
@@ -61,7 +154,7 @@ interface AutoProductionJobNeedsReview {
 
 interface AutoProductionJobFailed {
 	status: "FAILED";
-	stage: AutoProductionStage | "cover_generation" | "qc";
+	stage: AutoProductionStage | "cover_generation" | "qc" | "trust_finalization";
 	error: string;
 }
 
@@ -69,11 +162,47 @@ interface AutoProductionJobFailed {
 export interface AutoProductionJobBundle {
 	videoPath: string;
 	coverPath: string;
+	publishPackagePath?: string;
 	qc: QcResult;
 	editPlan: EditPlan;
 	preset: AccountPreset;
 	/** Planning context preserved for Render Again (no re-ingest/transcribe). */
 	rerenderContext: RerenderJobContext;
+}
+
+async function renderOfficialProduction(input: RenderAutoProductionInput, options?: { outputDir?: string }): Promise<RenderAutoProductionResult | RenderAutoProductionFailure> {
+	try {
+		const duration = input.editPlan.statementEnd - input.editPlan.statementStart;
+		const cues: Array<{ start: number; end: number; text: string; emphasis?: string }> = [];
+		let current: WordTimestamp[] = [];
+		for (const word of input.transcriptWords) {
+			const start = word.start - input.editPlan.statementStart;
+			const end = word.end - input.editPlan.statementStart;
+			if (end <= 0 || start >= duration) continue;
+      const candidate = [...current, word].map((item) => item.word).join(" ");
+      if (current.length > 0 && candidate.length > 64) {
+        const cueStart = Math.max(0, current[0].start - input.editPlan.statementStart);
+        const cueEnd = Math.min(duration, current[current.length - 1].end - input.editPlan.statementStart);
+        if (cueEnd > cueStart) cues.push({ start: cueStart, end: cueEnd, text: current.map((item) => item.word).join(" ") });
+        current = [];
+      }
+      current.push(word);
+    }
+    if (current.length > 0) {
+      const cueStart = Math.max(0, current[0].start - input.editPlan.statementStart);
+      const cueEnd = Math.min(duration, current[current.length - 1].end - input.editPlan.statementStart);
+      if (cueEnd > cueStart) cues.push({ start: cueStart, end: cueEnd, text: current.map((item) => item.word).join(" ") });
+    }
+		const outputDir = options?.outputDir ?? path.resolve(process.cwd(), "output", "xclips", "auto-production");
+		const outputPath = path.join(outputDir, `official_${Date.now()}.mp4`);
+    const framingMode = resolveOfficialFramingMode(input.sourceVideoPath, input.contentType);
+    const trusted = await renderOfficialBakomSequential({ sourceVideoPath: input.sourceVideoPath, sourceStart: input.editPlan.statementStart, sourceEnd: input.editPlan.statementEnd, headline: input.editPlan.headline, cues, credit: `${input.brief.sourceName} · ${input.brief.accountHandle}`, outputPath, framingMode });
+		const trustedRenderResult = recordCanonicalBakomRender(trusted);
+		if (!trustedRenderResult) throw new Error("Canonical BAKOM render trust recording failed");
+		return { success: true, outputPath, durationSec: trusted.durationSec, width: trusted.width, height: trusted.height, fps: trusted.fps, trustedRenderResult };
+	} catch (error) {
+		return { success: false, error: error instanceof Error ? error.message : "Official BAKOM render failed", stage: "ffmpeg_render" };
+	}
 }
 
 /**
@@ -122,8 +251,12 @@ export interface RunAutoProductionJobInput {
 			renderFps: number;
 			renderDurationSec: number;
 			transcriptWords?: WordTimestamp[];
-		}) => Promise<QcResult>;
+		}		) => Promise<QcResult>;
+	generateThumbnail?: (input: GenerativeThumbnailInput) => ReturnType<typeof generateGenerativeThumbnail>;
+		buildPackage?: (input: PublishPackageInput) => ReturnType<typeof buildPublishReviewPackage>;
+		finalizeTrust?: typeof finalizeProductionArtifact;
 	};
+	s5?: S5ThumbnailConfig;
 }
 
 // --- Entry Point: Full Job (Plan → Render → Cover → QC) -------------------
@@ -133,7 +266,7 @@ export async function runAutoProductionJob(
 ): Promise<AutoProductionJobResult> {
 	const { brief, deps, outputDir, onProgress, _overrides } = input;
 
-	const doRender = _overrides?.render ?? renderAutoProduction;
+	const doRender = _overrides?.render ?? renderOfficialProduction;
 	const doCover = _overrides?.cover ?? generateAutoProductionCover;
 	const doQc = _overrides?.qc ?? runAutoProductionQc;
 
@@ -158,15 +291,15 @@ export async function runAutoProductionJob(
 	};
 
 	// Build rerender context from planning result
-	const rerenderContext: RerenderJobContext = {
+  const rerenderContext: RerenderJobContext = {
 		brief: creditedBrief,
 		preset,
 		editPlan,
 		transcriptWords: transcript.words,
 		sourceVideoPath: project.sourcePath,
-		sourceWidth: project.width ?? 1920,
-		sourceHeight: project.height ?? 1080,
-	};
+    sourceWidth: project.width ?? 1920,
+    sourceHeight: project.height ?? 1080,
+  };
 
 	// 2. Render → Cover → QC (shared with rerender path)
 	return executeRenderCoverQc({
@@ -175,7 +308,11 @@ export async function runAutoProductionJob(
 		onProgress,
 		doRender,
 		doCover,
-		doQc,
+		 doQc,
+		s5: input.s5,
+		generateThumbnail: _overrides?.generateThumbnail,
+		buildPackage: _overrides?.buildPackage,
+		finalizeTrust: _overrides?.finalizeTrust,
 	});
 }
 
@@ -186,6 +323,7 @@ export interface RerenderAutoProductionJobInput {
 	outputDir?: string;
 	onProgress?: (stage: AutoProductionStage) => void;
 	_overrides?: RunAutoProductionJobInput["_overrides"];
+	s5?: S5ThumbnailConfig;
 }
 
 /**
@@ -198,7 +336,7 @@ export async function rerenderAutoProductionJob(
 ): Promise<AutoProductionJobResult> {
 	const { context, outputDir, onProgress, _overrides } = input;
 
-	const doRender = _overrides?.render ?? renderAutoProduction;
+	const doRender = _overrides?.render ?? renderOfficialProduction;
 	const doCover = _overrides?.cover ?? generateAutoProductionCover;
 	const doQc = _overrides?.qc ?? runAutoProductionQc;
 
@@ -209,6 +347,10 @@ export async function rerenderAutoProductionJob(
 		doRender,
 		doCover,
 		doQc,
+		s5: input.s5,
+		generateThumbnail: _overrides?.generateThumbnail,
+		buildPackage: _overrides?.buildPackage,
+		finalizeTrust: _overrides?.finalizeTrust,
 	});
 }
 
@@ -244,12 +386,16 @@ interface ExecuteInput {
 		renderDurationSec: number;
 		transcriptWords?: WordTimestamp[];
 	}) => Promise<QcResult>;
+	s5?: S5ThumbnailConfig;
+	generateThumbnail?: (input: GenerativeThumbnailInput) => Promise<Result<GenerativeThumbnailResult>>;
+	buildPackage?: (input: PublishPackageInput) => ReturnType<typeof buildPublishReviewPackage>;
+	finalizeTrust?: typeof finalizeProductionArtifact;
 }
 
 async function executeRenderCoverQc(
 	input: ExecuteInput,
 ): Promise<AutoProductionJobResult> {
-	const { rerenderContext, outputDir, onProgress, doRender, doCover, doQc } =
+	const { rerenderContext, outputDir, onProgress, doRender, doCover, doQc, s5, finalizeTrust } =
 		input;
 	const { brief, preset, editPlan, transcriptWords, sourceVideoPath, sourceWidth, sourceHeight, contentType } =
 		rerenderContext;
@@ -343,7 +489,108 @@ async function executeRenderCoverQc(
 		return { status: "NEEDS_REVIEW", bundle, reasons };
 	}
 
+	// Production trust gate (ARCH.1 / ARCH.1R §10). READY for a spoken Auto
+	// Production video requires trusted physical timing, a canonical renderer
+	// result, and passing QC. Policy is fixed here, never caller-controlled.
+	// The current render path does not produce a canonical official
+	// presentation render result, so this FAILS CLOSED rather than declaring a
+	// scratch-style output production-valid.
+	const statementAnchors = selectStatementEdgePhrases(
+		transcriptWords,
+		editPlan.statementStart,
+		editPlan.statementEnd,
+		4,
+	);
+	const physical = await runPhysicalAlignment({
+		sourceVideoPath,
+		searchStartSec: Math.max(0, editPlan.statementStart - 5),
+		searchEndSec: editPlan.statementEnd + 5,
+		workDir: path.join(coverOutputDir, "physical-alignment"),
+		openingPhrase: statementAnchors.openingPhrase,
+		endingPhrase: statementAnchors.endingPhrase,
+	});
+	onProgress?.("trust_finalization");
+	const manifest = (finalizeTrust ?? finalizeProductionArtifact)({
+		physicalTimeline: physical.ok ? physical.timeline : undefined,
+		renderResult: renderResult.trustedRenderResult,
+		qcChecks: Object.fromEntries(qc.checks.map((check) => [check.id, check.status])),
+	});
+	const trustManifest = manifest.ok ? manifest.manifest : { artifactStatus: "blocked" as const, reasons: manifest.reasons };
+	if (trustManifest.artifactStatus !== "production_valid") {
+		return {
+			status: "FAILED",
+			stage: "trust_finalization",
+			error: `Production trust gate blocked: ${trustManifest.reasons.join("; ")}`,
+		};
+	}
+
+	if (s5) {
+		onProgress?.("thumbnail_generation");
+		const thumbnailResult = await (input.generateThumbnail ?? generateGenerativeThumbnail)({
+			sourceVideoPath,
+			sourceStillTimestamp: editPlan.thumbnailSourceFrame ?? editPlan.statementStart,
+			title: editPlan.headline,
+			sourceCredit: brief.sourceName,
+			outputDir: coverOutputDir,
+			referenceImages: s5.referenceImages,
+			generatorRepo: s5.generatorRepo,
+			generatorCommit: s5.generatorCommit,
+		});
+		if (!thumbnailResult.success) return { status: "FAILED", stage: "thumbnail_generation", error: thumbnailResult.error };
+		onProgress?.("publish_package");
+		const packageInput: PublishPackageInput = {
+			outputDir: path.join(coverOutputDir, "publish-review-package"),
+			finalVideoPath: renderResult.outputPath,
+			thumbnailPath: thumbnailResult.data.thumbnailPath,
+			thumbnailManifestPath: thumbnailResult.data.manifestPath,
+			thumbnailEvidence: thumbnailResult.data.evidence,
+			source: s5.source,
+			editorialSelection: { headline: editPlan.headline, statement: brief.editorialAngle },
+			physicalTiming: { sourceStart: editPlan.statementStart, sourceEnd: editPlan.statementEnd, openingDirect: true, endingDirect: true },
+			framingPolicy: s5.framingPolicy,
+			materialSources: s5.materialSources,
+			publication: s5.publication,
+			modules: s5.modules,
+			reviewFlags: s5.reviewFlags,
+		};
+		const packageResult = await (input.buildPackage ?? buildPublishReviewPackage)(packageInput);
+		if (packageResult.status !== "PASS") return { status: "FAILED", stage: "publish_package", error: "BLOCKED_QC: publish package QC failed" };
+		bundle.publishPackagePath = packageResult.packageDir;
+	}
+
 	return { status: "READY", bundle };
+}
+
+/**
+ * Canonical finalization binding for Auto Production. Physical trust must be a
+ * validated audio-alignment timeline (never CC/transcript words); render trust
+ * must come from a canonical renderer capability (never a claimed string).
+ */
+function defaultFinalize(input: {
+	transcriptWords?: WordTimestamp[];
+	renderResult: RenderAutoProductionResult;
+	qcChecks: Array<{ id: string; status: string }>;
+	physicalTimeline?: unknown;
+}): ProductionArtifactManifest {
+	const qcChecks: Record<string, string> = {};
+	for (const check of input.qcChecks) qcChecks[check.id] = check.status;
+
+	// `transcriptWords` is NOT physical authority. Only a value carrying the
+	// private audio-alignment capability is accepted.
+	const physicalTimeline = isTrustedPhysicalTimeline(input.physicalTimeline) ? input.physicalTimeline : undefined;
+
+	// The render result must carry the canonical render capability; a plain
+	// render result object (as produced today) is not trusted.
+	const renderTrusted = isTrustedRenderResult(input.renderResult.trustedRenderResult)
+		? input.renderResult.trustedRenderResult
+		: undefined;
+
+	const result = finalizeProductionArtifact({
+		physicalTimeline,
+		renderResult: renderTrusted,
+		qcChecks,
+	});
+	return result.ok ? result.manifest : { artifactStatus: "blocked", reasons: result.reasons };
 }
 
 // --- Helpers --------------------------------------------------------------
