@@ -45,6 +45,9 @@ export type OfficialFramingMode = "FIELD_FIT_BG" | "TALKING_HEAD_SAFE";
 export interface S5ThumbnailConfig {
 	referenceImages: string[];
 	referencesRequired?: boolean;
+	providerId?: string;
+	model?: string;
+	providers?: import("@/lib/xclips/ai-provider-registry").AiProviderConfig[];
 	source: PublishPackageInput["source"];
 	materialSources: PublishPackageInput["materialSources"];
 	framingPolicy: PublishPackageInput["framingPolicy"];
@@ -533,6 +536,9 @@ async function executeRenderCoverQc(
 			outputDir: coverOutputDir,
 			referenceImages: s5.referenceImages,
 			referencesRequired: s5.referencesRequired,
+			providerId: s5.providerId,
+			model: s5.model,
+			providers: s5.providers,
 		});
 		if (!thumbnailResult.success) return { status: "FAILED", stage: "thumbnail_generation", error: thumbnailResult.error };
 		onProgress?.("publish_package");

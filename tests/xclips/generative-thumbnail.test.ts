@@ -5,7 +5,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { buildThumbnailPrompt, createOpenAIImageProvider, generateGenerativeThumbnail, isSupportedOpenAIImageModel, type ThumbnailImageProvider } from "@/lib/xclips/generative-thumbnail";
+import { buildThumbnailPrompt, createOpenAIImageProvider, generateGenerativeThumbnail, type ThumbnailImageProvider } from "@/lib/xclips/generative-thumbnail";
+import type { AiProviderConfig } from "@/lib/xclips/ai-provider-registry";
 
 const exec = promisify(execFile);
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
@@ -74,16 +75,22 @@ describe("internal generative thumbnail", () => {
     expect(withoutRefs).not.toContain("image 2 through final");
   });
 
-  it("accepts only official OpenAI image families and rejects gemini/empty", () => {
-    expect(isSupportedOpenAIImageModel("gpt-image-2.5-sunburst")).toBe(true);
-    expect(isSupportedOpenAIImageModel("gpt-image-1-mini")).toBe(true);
-    expect(isSupportedOpenAIImageModel("dall-e-3")).toBe(true);
-    expect(isSupportedOpenAIImageModel("chatgpt-image-latest")).toBe(true);
-    expect(isSupportedOpenAIImageModel("")).toBe(false);
-    expect(isSupportedOpenAIImageModel("gemini-3.1-flash-image")).toBe(false);
-    expect(isSupportedOpenAIImageModel("gemini-2.0-flash")).toBe(false);
-    expect(isSupportedOpenAIImageModel("some-random-model")).toBe(false);
-  });
+  it("accepts custom provider models without vendor allowlist", async () => {
+    const f = await fixture();
+    const oldModel = process.env.OPENAI_IMAGE_MODEL;
+    delete process.env.OPENAI_IMAGE_MODEL;
+    try {
+      const result = await generateGenerativeThumbnail({
+        ...baseInput(f.root, f.video, [], successProvider()),
+        model: "acme-painter-v9",
+      });
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data.evidence.model).toBe("acme-painter-v9");
+    } finally {
+      if (oldModel === undefined) delete process.env.OPENAI_IMAGE_MODEL;
+      else process.env.OPENAI_IMAGE_MODEL = oldModel;
+    }
+  }, 30000);
 
   it("generates PNG with matching manifest hashes and transform", async () => {
     const f = await fixture();
@@ -166,14 +173,14 @@ describe("internal generative thumbnail", () => {
     }
   }, 30000);
 
-  it("blocks invalid model before any provider work", async () => {
+  it("blocks empty model before any provider work", async () => {
     const f = await fixture();
     let providerCalls = 0;
     const counting: ThumbnailImageProvider = { async generate() { providerCalls += 1; return successProvider().generate({} as never); } };
     const oldModel = process.env.OPENAI_IMAGE_MODEL;
-    process.env.OPENAI_IMAGE_MODEL = "gemini-3.1-flash-image";
+    delete process.env.OPENAI_IMAGE_MODEL;
     try {
-      expect(await generateGenerativeThumbnail(baseInput(f.root, f.video, [], counting))).toEqual({ success: false, error: "BLOCKED_MODEL_CONFIG" });
+      expect(await generateGenerativeThumbnail({ ...baseInput(f.root, f.video, [], counting), model: "   " })).toEqual({ success: false, error: "BLOCKED_MODEL_CONFIG" });
       expect(providerCalls).toBe(0);
     } finally {
       if (oldModel === undefined) delete process.env.OPENAI_IMAGE_MODEL;
@@ -221,17 +228,15 @@ describe("internal generative thumbnail", () => {
     expect(calls[0].files).toEqual(["subject-frame.jpg", "ref-a.png", "ref-b.png"]);
   });
 
-  it("stops gemini and empty models before fetch", async () => {
-    for (const model of ["gemini-3.1-flash-image", ""]) {
-      let fetchCalls = 0;
-      const fetchImpl = (async () => { fetchCalls += 1; throw new Error("must not fetch"); }) as typeof fetch;
-      const provider = createOpenAIImageProvider({ fetchImpl, getSettings: () => ({ provider: "openai", apiKey: "", apiKeys: { openai: "test-key" } }) });
-      const result = await withEnv("OPENAI_API_KEY", "test-key", async () =>
-        provider.generate({ title: "t", subject: { filename: "s.jpg", bytes: new Uint8Array([1]), mimeType: "image/jpeg" }, references: [], prompt: "p", model }),
-      );
-      expect(result).toEqual({ success: false, error: "BLOCKED_MODEL_CONFIG" });
-      expect(fetchCalls).toBe(0);
-    }
+  it("stops empty models before fetch", async () => {
+    let fetchCalls = 0;
+    const fetchImpl = (async () => { fetchCalls += 1; throw new Error("must not fetch"); }) as typeof fetch;
+    const provider = createOpenAIImageProvider({ fetchImpl, getSettings: () => ({ provider: "openai", apiKey: "", apiKeys: { openai: "test-key" } }) });
+    const result = await withEnv("OPENAI_API_KEY", "test-key", async () =>
+      provider.generate({ title: "t", subject: { filename: "s.jpg", bytes: new Uint8Array([1]), mimeType: "image/jpeg" }, references: [], prompt: "p", model: "   " }),
+    );
+    expect(result).toEqual({ success: false, error: "BLOCKED_MODEL_CONFIG" });
+    expect(fetchCalls).toBe(0);
   });
 
   it("blocks malformed provider responses without throwing", async () => {
@@ -270,6 +275,363 @@ describe("internal generative thumbnail", () => {
     try {
       expect(await generateGenerativeThumbnail(baseInput(f.root, f.video, [], small))).toEqual({ success: false, error: "BLOCKED_PROVIDER: invalid raw dimensions" });
     } finally {
+      if (oldModel === undefined) delete process.env.OPENAI_IMAGE_MODEL;
+      else process.env.OPENAI_IMAGE_MODEL = oldModel;
+    }
+  }, 30000);
+});
+
+describe("custom provider routing", () => {
+  const customProvider: AiProviderConfig = {
+    id: "acme",
+    label: "Acme Images",
+    protocol: "openai-compatible",
+    baseUrl: "https://img.acme.test",
+    apiKeyEnv: "TEST_ACME_IMAGE_KEY",
+    capabilities: ["image-edit"],
+    models: [],
+    imageEndpoint: "/v1/img/edits",
+    defaultModel: "acme-painter-v9",
+  };
+
+  async function routedFixture() {
+    const f = await fixture();
+    const imageBytes = await pngBytes(1008, 1344);
+    return { ...f, imageBytes };
+  }
+
+  function mockFetchOk(imageBytes: Uint8Array, calls: Array<{ url: string; method: string; auth: string; fields: Record<string, string>; files: string[] }>) {
+    return (async (url: unknown, init?: { method?: string; headers?: Record<string, string>; body?: unknown }) => {
+      const form = init?.body as FormData;
+      calls.push({
+        url: String(url),
+        method: init?.method ?? "",
+        auth: String(init?.headers?.["Authorization"] ?? ""),
+        fields: {
+          model: String(form.get("model") ?? ""),
+          prompt: String(form.get("prompt") ?? ""),
+          size: String(form.get("size") ?? ""),
+          quality: String(form.get("quality") ?? ""),
+          output_format: String(form.get("output_format") ?? ""),
+        },
+        files: (form.getAll("image[]") as File[]).map((file) => file.name),
+      });
+      return new Response(JSON.stringify({ data: [{ b64_json: Buffer.from(imageBytes).toString("base64") }], usage: { test: 1 } }), { status: 200 });
+    }) as typeof fetch;
+  }
+
+  it("uses custom baseUrl and passes custom model without vendor allowlist", async () => {
+    const f = await routedFixture();
+    const calls: Array<{ url: string; method: string; auth: string; fields: Record<string, string>; files: string[] }> = [];
+    const oldKey = process.env.TEST_ACME_IMAGE_KEY;
+    const oldModel = process.env.OPENAI_IMAGE_MODEL;
+    process.env.TEST_ACME_IMAGE_KEY = "acme-secret-value";
+    delete process.env.OPENAI_IMAGE_MODEL;
+    try {
+      const result = await generateGenerativeThumbnail({
+        sourceVideoPath: f.video,
+        sourceStillTimestamp: 0.2,
+        title: "Grounded title",
+        sourceCredit: "Source",
+        outputDir: join(f.root, "out"),
+        referenceImages: [f.reference],
+        providerId: "acme",
+        model: "acme-painter-v9",
+        providers: [customProvider],
+        fetchImpl: mockFetchOk(f.imageBytes, calls),
+      });
+      expect(result.success).toBe(true);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].url).toBe("https://img.acme.test/v1/img/edits");
+      expect(calls[0].method).toBe("POST");
+      expect(calls[0].fields.model).toBe("acme-painter-v9");
+      expect(calls[0].files).toEqual(["subject-frame.jpg", "reference.png"]);
+      expect(sha256(Buffer.from(calls[0].auth))).toBe(sha256(Buffer.from("Bearer acme-secret-value")));
+      if (!result.success) return;
+      const manifest = JSON.parse(await readFile(result.data.manifestPath, "utf8")) as Record<string, unknown>;
+      expect(manifest.providerId).toBe("acme");
+      expect(manifest.protocol).toBe("openai-compatible");
+      expect(manifest.model).toBe("acme-painter-v9");
+      expect(JSON.stringify(manifest)).not.toContain("acme-secret-value");
+      expect(result.data.evidence.provider).toBe("acme");
+      expect(result.data.evidence.protocol).toBe("openai-compatible");
+    } finally {
+      if (oldKey === undefined) delete process.env.TEST_ACME_IMAGE_KEY;
+      else process.env.TEST_ACME_IMAGE_KEY = oldKey;
+      if (oldModel === undefined) delete process.env.OPENAI_IMAGE_MODEL;
+      else process.env.OPENAI_IMAGE_MODEL = oldModel;
+    }
+  }, 30000);
+
+  it("reads custom apiKeyEnv and blocks missing key before fetch", async () => {
+    const f = await routedFixture();
+    const calls: Array<unknown> = [];
+    const fetchImpl = (async () => { calls.push(1); throw new Error("must not fetch"); }) as typeof fetch;
+    const oldKey = process.env.TEST_ACME_IMAGE_KEY;
+    const oldModel = process.env.OPENAI_IMAGE_MODEL;
+    delete process.env.TEST_ACME_IMAGE_KEY;
+    delete process.env.OPENAI_IMAGE_MODEL;
+    try {
+      const result = await generateGenerativeThumbnail({
+        sourceVideoPath: f.video,
+        sourceStillTimestamp: 0.2,
+        title: "Grounded title",
+        sourceCredit: "Source",
+        outputDir: join(f.root, "out"),
+        referenceImages: [],
+        providerId: "acme",
+        model: "acme-painter-v9",
+        providers: [customProvider],
+        fetchImpl,
+      });
+      expect(result).toEqual({ success: false, error: "BLOCKED_API_KEY" });
+      expect(calls).toHaveLength(0);
+    } finally {
+      if (oldKey === undefined) delete process.env.TEST_ACME_IMAGE_KEY;
+      else process.env.TEST_ACME_IMAGE_KEY = oldKey;
+      if (oldModel === undefined) delete process.env.OPENAI_IMAGE_MODEL;
+      else process.env.OPENAI_IMAGE_MODEL = oldModel;
+    }
+  }, 30000);
+
+  it("blocks providers without image capability before fetch", async () => {
+    const f = await routedFixture();
+    const calls: Array<unknown> = [];
+    const fetchImpl = (async () => { calls.push(1); throw new Error("must not fetch"); }) as typeof fetch;
+    const textOnly: AiProviderConfig = { ...customProvider, id: "textual", capabilities: ["text"] };
+    const oldKey = process.env.TEST_TEXT_KEY;
+    const oldModel = process.env.OPENAI_IMAGE_MODEL;
+    process.env.TEST_TEXT_KEY = "text-key";
+    delete process.env.OPENAI_IMAGE_MODEL;
+    try {
+      const result = await generateGenerativeThumbnail({
+        sourceVideoPath: f.video,
+        sourceStillTimestamp: 0.2,
+        title: "Grounded title",
+        sourceCredit: "Source",
+        outputDir: join(f.root, "out"),
+        referenceImages: [],
+        providerId: "textual",
+        model: "text-model",
+        providers: [{ ...textOnly, apiKeyEnv: "TEST_TEXT_KEY" }],
+        fetchImpl,
+      });
+      expect(result).toEqual({ success: false, error: "BLOCKED_PROVIDER_CAPABILITY" });
+      expect(calls).toHaveLength(0);
+    } finally {
+      if (oldKey === undefined) delete process.env.TEST_TEXT_KEY;
+      else process.env.TEST_TEXT_KEY = oldKey;
+      if (oldModel === undefined) delete process.env.OPENAI_IMAGE_MODEL;
+      else process.env.OPENAI_IMAGE_MODEL = oldModel;
+    }
+  }, 30000);
+
+  it("blocks unknown protocols before fetch", async () => {
+    const f = await routedFixture();
+    const calls: Array<unknown> = [];
+    const fetchImpl = (async () => { calls.push(1); throw new Error("must not fetch"); }) as typeof fetch;
+    const weird = { ...customProvider, id: "weird", protocol: "carrier-pigeon" };
+    const oldKey = process.env.TEST_ACME_IMAGE_KEY;
+    const oldModel = process.env.OPENAI_IMAGE_MODEL;
+    process.env.TEST_ACME_IMAGE_KEY = "acme-secret-value";
+    delete process.env.OPENAI_IMAGE_MODEL;
+    try {
+      const result = await generateGenerativeThumbnail({
+        sourceVideoPath: f.video,
+        sourceStillTimestamp: 0.2,
+        title: "Grounded title",
+        sourceCredit: "Source",
+        outputDir: join(f.root, "out"),
+        referenceImages: [],
+        providerId: "weird",
+        model: "weird-model",
+        providers: [weird as unknown as AiProviderConfig],
+        fetchImpl,
+      });
+      expect(result).toEqual({ success: false, error: "BLOCKED_PROVIDER_CONFIG: unsupported protocol" });
+      expect(calls).toHaveLength(0);
+    } finally {
+      if (oldKey === undefined) delete process.env.TEST_ACME_IMAGE_KEY;
+      else process.env.TEST_ACME_IMAGE_KEY = oldKey;
+      if (oldModel === undefined) delete process.env.OPENAI_IMAGE_MODEL;
+      else process.env.OPENAI_IMAGE_MODEL = oldModel;
+    }
+  }, 30000);
+
+  it("routes built-in OpenAI through the same registry contract", async () => {
+    const f = await routedFixture();
+    const calls: Array<{ url: string; auth: string }> = [];
+    const fetchImpl = (async (url: unknown, init?: { headers?: Record<string, string> }) => {
+      calls.push({ url: String(url), auth: String(init?.headers?.["Authorization"] ?? "") });
+      return new Response(JSON.stringify({ data: [{ b64_json: Buffer.from(f.imageBytes).toString("base64") }] }), { status: 200 });
+    }) as typeof fetch;
+    const oldKey = process.env.OPENAI_API_KEY;
+    const oldModel = process.env.OPENAI_IMAGE_MODEL;
+    process.env.OPENAI_API_KEY = "openai-test-key";
+    delete process.env.OPENAI_IMAGE_MODEL;
+    try {
+      const result = await generateGenerativeThumbnail({
+        sourceVideoPath: f.video,
+        sourceStillTimestamp: 0.2,
+        title: "Grounded title",
+        sourceCredit: "Source",
+        outputDir: join(f.root, "out"),
+        referenceImages: [],
+        fetchImpl,
+      });
+      expect(result.success).toBe(true);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].url).toBe("https://api.openai.com/v1/images/edits");
+      expect(calls[0].auth).not.toBe("");
+      if (!result.success) return;
+      expect(result.data.evidence.provider).toBe("openai");
+      expect(result.data.evidence.protocol).toBe("openai-images");
+    } finally {
+      if (oldKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = oldKey;
+      if (oldModel === undefined) delete process.env.OPENAI_IMAGE_MODEL;
+      else process.env.OPENAI_IMAGE_MODEL = oldModel;
+    }
+  }, 30000);
+
+  it("isolates custom provider from OPENAI_IMAGE_MODEL via provider defaultModel", async () => {
+    const f = await routedFixture();
+    const calls: Array<{ fields: Record<string, string> }> = [];
+    const fetchImpl = (async (_url: unknown, init?: { body?: unknown }) => {
+      const form = init?.body as FormData;
+      calls.push({ fields: { model: String(form.get("model") ?? "") } });
+      return new Response(JSON.stringify({ data: [{ b64_json: Buffer.from(f.imageBytes).toString("base64") }] }), { status: 200 });
+    }) as typeof fetch;
+    const oldKey = process.env.TEST_ACME_IMAGE_KEY;
+    const oldModel = process.env.OPENAI_IMAGE_MODEL;
+    process.env.TEST_ACME_IMAGE_KEY = "acme-secret-value";
+    process.env.OPENAI_IMAGE_MODEL = "gpt-image-2.5-sunburst";
+    try {
+      const result = await generateGenerativeThumbnail({
+        sourceVideoPath: f.video,
+        sourceStillTimestamp: 0.2,
+        title: "Grounded title",
+        sourceCredit: "Source",
+        outputDir: join(f.root, "out"),
+        referenceImages: [],
+        providerId: "acme",
+        providers: [customProvider],
+        fetchImpl,
+      });
+      expect(result.success).toBe(true);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].fields.model).toBe("acme-painter-v9");
+      if (!result.success) return;
+      expect(result.data.evidence.provider).toBe("acme");
+      expect(result.data.evidence.model).toBe("acme-painter-v9");
+    } finally {
+      if (oldKey === undefined) delete process.env.TEST_ACME_IMAGE_KEY;
+      else process.env.TEST_ACME_IMAGE_KEY = oldKey;
+      if (oldModel === undefined) delete process.env.OPENAI_IMAGE_MODEL;
+      else process.env.OPENAI_IMAGE_MODEL = oldModel;
+    }
+  }, 30000);
+
+  it("blocks custom provider without explicit or default model before fetch", async () => {
+    const f = await routedFixture();
+    const calls: Array<unknown> = [];
+    const fetchImpl = (async () => { calls.push(1); throw new Error("must not fetch"); }) as typeof fetch;
+    const bare: AiProviderConfig = { ...customProvider, id: "bare", defaultModel: undefined };
+    const oldKey = process.env.TEST_ACME_IMAGE_KEY;
+    const oldModel = process.env.OPENAI_IMAGE_MODEL;
+    process.env.TEST_ACME_IMAGE_KEY = "acme-secret-value";
+    process.env.OPENAI_IMAGE_MODEL = "gpt-image-2.5-sunburst";
+    try {
+      const result = await generateGenerativeThumbnail({
+        sourceVideoPath: f.video,
+        sourceStillTimestamp: 0.2,
+        title: "Grounded title",
+        sourceCredit: "Source",
+        outputDir: join(f.root, "out"),
+        referenceImages: [],
+        providerId: "bare",
+        providers: [bare],
+        fetchImpl,
+      });
+      expect(result).toEqual({ success: false, error: "BLOCKED_MODEL_CONFIG" });
+      expect(calls).toHaveLength(0);
+    } finally {
+      if (oldKey === undefined) delete process.env.TEST_ACME_IMAGE_KEY;
+      else process.env.TEST_ACME_IMAGE_KEY = oldKey;
+      if (oldModel === undefined) delete process.env.OPENAI_IMAGE_MODEL;
+      else process.env.OPENAI_IMAGE_MODEL = oldModel;
+    }
+  }, 30000);
+
+  it("prefers explicit input.model over custom provider defaultModel", async () => {
+    const f = await routedFixture();
+    const calls: Array<{ fields: Record<string, string> }> = [];
+    const fetchImpl = (async (_url: unknown, init?: { body?: unknown }) => {
+      const form = init?.body as FormData;
+      calls.push({ fields: { model: String(form.get("model") ?? "") } });
+      return new Response(JSON.stringify({ data: [{ b64_json: Buffer.from(f.imageBytes).toString("base64") }] }), { status: 200 });
+    }) as typeof fetch;
+    const oldKey = process.env.TEST_ACME_IMAGE_KEY;
+    const oldModel = process.env.OPENAI_IMAGE_MODEL;
+    process.env.TEST_ACME_IMAGE_KEY = "acme-secret-value";
+    process.env.OPENAI_IMAGE_MODEL = "gpt-image-2.5-sunburst";
+    try {
+      const result = await generateGenerativeThumbnail({
+        sourceVideoPath: f.video,
+        sourceStillTimestamp: 0.2,
+        title: "Grounded title",
+        sourceCredit: "Source",
+        outputDir: join(f.root, "out"),
+        referenceImages: [],
+        providerId: "acme",
+        model: "acme-custom-override-v1",
+        providers: [customProvider],
+        fetchImpl,
+      });
+      expect(result.success).toBe(true);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].fields.model).toBe("acme-custom-override-v1");
+      if (!result.success) return;
+      expect(result.data.evidence.model).toBe("acme-custom-override-v1");
+    } finally {
+      if (oldKey === undefined) delete process.env.TEST_ACME_IMAGE_KEY;
+      else process.env.TEST_ACME_IMAGE_KEY = oldKey;
+      if (oldModel === undefined) delete process.env.OPENAI_IMAGE_MODEL;
+      else process.env.OPENAI_IMAGE_MODEL = oldModel;
+    }
+  }, 30000);
+
+  it("keeps OPENAI_IMAGE_MODEL override for built-in OpenAI", async () => {
+    const f = await routedFixture();
+    const calls: Array<{ fields: Record<string, string> }> = [];
+    const fetchImpl = (async (_url: unknown, init?: { body?: unknown }) => {
+      const form = init?.body as FormData;
+      calls.push({ fields: { model: String(form.get("model") ?? "") } });
+      return new Response(JSON.stringify({ data: [{ b64_json: Buffer.from(f.imageBytes).toString("base64") }] }), { status: 200 });
+    }) as typeof fetch;
+    const oldKey = process.env.OPENAI_API_KEY;
+    const oldModel = process.env.OPENAI_IMAGE_MODEL;
+    process.env.OPENAI_API_KEY = "openai-test-key";
+    process.env.OPENAI_IMAGE_MODEL = "gpt-image-2.5-flare";
+    try {
+      const result = await generateGenerativeThumbnail({
+        sourceVideoPath: f.video,
+        sourceStillTimestamp: 0.2,
+        title: "Grounded title",
+        sourceCredit: "Source",
+        outputDir: join(f.root, "out"),
+        referenceImages: [],
+        fetchImpl,
+      });
+      expect(result.success).toBe(true);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].fields.model).toBe("gpt-image-2.5-flare");
+      if (!result.success) return;
+      expect(result.data.evidence.provider).toBe("openai");
+      expect(result.data.evidence.model).toBe("gpt-image-2.5-flare");
+    } finally {
+      if (oldKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = oldKey;
       if (oldModel === undefined) delete process.env.OPENAI_IMAGE_MODEL;
       else process.env.OPENAI_IMAGE_MODEL = oldModel;
     }

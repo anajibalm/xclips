@@ -20,6 +20,7 @@ const baseInput = (root: string): PublishPackageInput => ({
   thumbnailPath: join(root, "thumbnail.png"),
   thumbnailEvidence: {
     provider: "openai",
+    protocol: "openai-images",
     model: "gpt-image-2.5-sunburst",
     generationStatus: "GENERATED",
     promptSha256: "fixture-prompt",

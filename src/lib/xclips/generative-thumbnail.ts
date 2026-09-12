@@ -5,6 +5,14 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { extractThumbnailSubjectFrame } from "@/lib/xclips/thumbnail-subject-frame";
 import { xclipsService } from "@/lib/xclips.service";
+import {
+  BUILT_IN_OPENAI_PROVIDER,
+  buildImageEditsUrl,
+  defaultProviderRegistry,
+  findProvider,
+  readProviderApiKey,
+  type AiProviderConfig,
+} from "@/lib/xclips/ai-provider-registry";
 import type { Result } from "@/lib/xclips/types";
 
 const exec = promisify(execFile);
@@ -12,23 +20,6 @@ const REQUESTED_SIZE = "1008x1344" as const;
 const FINAL_DIMENSIONS = "1080x1440" as const;
 const TRANSFORM = "scale=1080:1440:force_original_aspect_ratio=increase,crop=1080:1440" as const;
 export const DEFAULT_OPENAI_IMAGE_MODEL = "gpt-image-2.5-sunburst";
-
-export function isSupportedOpenAIImageModel(model: unknown): model is string {
-  if (typeof model !== "string") return false;
-  const value = model.trim();
-  if (!value) return false;
-  if (/gemini/i.test(value)) return false;
-  return value.startsWith("gpt-image-") || value.startsWith("dall-e-") || value.startsWith("chatgpt-image-");
-}
-
-export function resolveThumbnailImageModel(configured?: unknown): string | null {
-  const env = (process.env.OPENAI_IMAGE_MODEL || "").trim();
-  if (env) return isSupportedOpenAIImageModel(env) ? env : null;
-  if (typeof configured === "string" && configured.trim()) {
-    return isSupportedOpenAIImageModel(configured) ? configured.trim() : null;
-  }
-  return DEFAULT_OPENAI_IMAGE_MODEL;
-}
 
 export interface ThumbnailImageProviderInput {
   title: string;
@@ -59,6 +50,9 @@ export interface GenerativeThumbnailInput {
   referencesRequired?: boolean;
   notes?: string;
   style?: { name: string; accentColors: string[] };
+  providerId?: string;
+  model?: string;
+  providers?: AiProviderConfig[];
   provider?: ThumbnailImageProvider;
   fetchImpl?: typeof fetch;
 }
@@ -68,7 +62,8 @@ export interface GenerativeThumbnailResult {
   manifestPath: string;
   requestPath: string;
   evidence: {
-    provider: "openai";
+    provider: string;
+    protocol: string;
     model: string;
     generationStatus: "GENERATED";
     promptSha256: string;
@@ -108,11 +103,55 @@ export function buildThumbnailPrompt(input: Pick<GenerativeThumbnailInput, "titl
   ].join("\n");
 }
 
+async function postImageEdit(options: {
+  url: string;
+  apiKey: string;
+  model: string;
+  prompt: string;
+  subject: ThumbnailImageProviderInput["subject"];
+  references: ThumbnailImageProviderInput["references"];
+  fetchImpl: typeof fetch;
+}): Promise<Result<ThumbnailImageProviderOutput>> {
+  const form = new FormData();
+  form.append("model", options.model);
+  form.append("prompt", options.prompt);
+  form.append("size", REQUESTED_SIZE);
+  form.append("quality", "high");
+  form.append("output_format", "png");
+  for (const file of [options.subject, ...options.references]) {
+    form.append("image[]", new File([Buffer.from(file.bytes)], file.filename, { type: file.mimeType }));
+  }
+  let response: Response;
+  try {
+    response = await options.fetchImpl(options.url, { method: "POST", headers: { Authorization: `Bearer ${options.apiKey}` }, body: form });
+  } catch (error) {
+    return { success: false, error: `BLOCKED_PROVIDER: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  if (!response.ok) return { success: false, error: response.status === 400 || response.status === 422 ? "BLOCKED_UNSUPPORTED_SIZE" : `BLOCKED_PROVIDER: ${response.status}` };
+  let payload: { data?: Array<{ b64_json?: string }>; usage?: unknown };
+  try {
+    payload = await response.json() as { data?: Array<{ b64_json?: string }>; usage?: unknown };
+  } catch {
+    return { success: false, error: "BLOCKED_PROVIDER: malformed response" };
+  }
+  const encoded = payload.data?.[0]?.b64_json;
+  if (!encoded || typeof encoded !== "string") return { success: false, error: "BLOCKED_PROVIDER: no image response" };
+  let bytes: Uint8Array;
+  try {
+    bytes = Buffer.from(encoded, "base64");
+    if (bytes.length === 0) return { success: false, error: "BLOCKED_PROVIDER: empty image response" };
+  } catch {
+    return { success: false, error: "BLOCKED_PROVIDER: malformed base64" };
+  }
+  return { success: true, data: { bytes, mimeType: "image/png", model: options.model, usage: payload.usage } };
+}
+
 export interface OpenAIImageProviderOptions {
   fetchImpl?: typeof fetch;
   getSettings?: () => { apiKeys?: { openai?: string }; provider?: string; apiKey?: string };
 }
 
+/** Backward-compatible built-in provider, routed through the registry contract. */
 export function createOpenAIImageProvider(options: OpenAIImageProviderOptions = {}): ThumbnailImageProvider {
   const fetchImpl = options.fetchImpl ?? fetch;
   const getSettings = options.getSettings ?? (() => xclipsService.getAiSettings());
@@ -125,39 +164,45 @@ export function createOpenAIImageProvider(options: OpenAIImageProviderOptions = 
       key = process.env.OPENAI_API_KEY || "";
     }
     if (!key) return { success: false, error: "BLOCKED_API_KEY" };
-    if (!isSupportedOpenAIImageModel(input.model)) return { success: false, error: "BLOCKED_MODEL_CONFIG" };
-    const form = new FormData();
-    form.append("model", input.model); form.append("prompt", input.prompt); form.append("size", REQUESTED_SIZE); form.append("quality", "high"); form.append("output_format", "png");
-    const files = [input.subject, ...input.references];
-    for (const file of files) form.append("image[]", new File([Buffer.from(file.bytes)], file.filename, { type: file.mimeType }));
-    let response: Response;
-    try {
-      response = await fetchImpl("https://api.openai.com/v1/images/edits", { method: "POST", headers: { Authorization: `Bearer ${key}` }, body: form });
-    } catch (error) {
-      return { success: false, error: `BLOCKED_PROVIDER: ${error instanceof Error ? error.message : String(error)}` };
-    }
-    if (!response.ok) return { success: false, error: response.status === 400 || response.status === 422 ? "BLOCKED_UNSUPPORTED_SIZE" : `BLOCKED_PROVIDER: ${response.status}` };
-    let payload: { data?: Array<{ b64_json?: string }>; usage?: unknown };
-    try {
-      payload = await response.json() as { data?: Array<{ b64_json?: string }>; usage?: unknown };
-    } catch {
-      return { success: false, error: "BLOCKED_PROVIDER: malformed response" };
-    }
-    const encoded = payload.data?.[0]?.b64_json;
-    if (!encoded || typeof encoded !== "string") return { success: false, error: "BLOCKED_PROVIDER: no image response" };
-    let bytes: Uint8Array;
-    try {
-      bytes = Buffer.from(encoded, "base64");
-      if (bytes.length === 0) return { success: false, error: "BLOCKED_PROVIDER: empty image response" };
-    } catch {
-      return { success: false, error: "BLOCKED_PROVIDER: malformed base64" };
-    }
-    return { success: true, data: { bytes, mimeType: "image/png", model: input.model, usage: payload.usage } };
+    if (!input.model.trim()) return { success: false, error: "BLOCKED_MODEL_CONFIG" };
+    const url = buildImageEditsUrl(BUILT_IN_OPENAI_PROVIDER);
+    if (!url) return { success: false, error: "BLOCKED_PROVIDER_CONFIG" };
+    return postImageEdit({ url, apiKey: key, model: input.model.trim(), prompt: input.prompt, subject: input.subject, references: input.references, fetchImpl });
   } };
 }
 
 function defaultProvider(fetchImpl?: typeof fetch): ThumbnailImageProvider {
   return createOpenAIImageProvider(fetchImpl ? { fetchImpl } : {});
+}
+
+function isBuiltInOpenAI(provider: AiProviderConfig): boolean {
+  return provider.id === BUILT_IN_OPENAI_PROVIDER.id && provider.protocol === "openai-images";
+}
+
+/**
+ * Provider-scoped model resolution. The provider is resolved FIRST; the
+ * model never leaks across providers: OPENAI_IMAGE_MODEL and the legacy
+ * xclips thumbnailImageModel apply ONLY to the built-in OpenAI provider.
+ */
+function resolveTaskModel(input: Pick<GenerativeThumbnailInput, "model">, provider: AiProviderConfig): string | null {
+  if (typeof input.model === "string") {
+    const explicit = input.model.trim();
+    return explicit ? explicit : null;
+  }
+  if (provider.defaultModel?.trim()) return provider.defaultModel.trim();
+  if (isBuiltInOpenAI(provider)) {
+    const envOverride = (process.env.OPENAI_IMAGE_MODEL || "").trim();
+    if (envOverride) return envOverride;
+    let configured = "";
+    try {
+      configured = xclipsService.getAiSettings().thumbnailImageModel || "";
+    } catch {
+      configured = "";
+    }
+    if (configured.trim()) return configured.trim();
+    return DEFAULT_OPENAI_IMAGE_MODEL;
+  }
+  return null;
 }
 
 async function generateGenerativeThumbnailInternal(input: GenerativeThumbnailInput): Promise<Result<GenerativeThumbnailResult>> {
@@ -172,21 +217,32 @@ async function generateGenerativeThumbnailInternal(input: GenerativeThumbnailInp
   const subjectBytes = await readFile(subject.data);
   const references = await Promise.all(input.referenceImages.map(async (path) => ({ filename: basename(path), bytes: await readFile(path), mimeType: mimeType(path) })));
   const prompt = buildThumbnailPrompt(input);
-  let configuredModel = "";
-  try {
-    configuredModel = process.env.OPENAI_IMAGE_MODEL || xclipsService.getAiSettings().thumbnailImageModel || "";
-  } catch {
-    configuredModel = process.env.OPENAI_IMAGE_MODEL || "";
+  const providerId = (input.providerId || "openai").trim() || "openai";
+  const providers = input.providers ?? defaultProviderRegistry();
+  const provider = findProvider(providers, providerId) ?? (providerId === BUILT_IN_OPENAI_PROVIDER.id ? { ...BUILT_IN_OPENAI_PROVIDER } : undefined);
+  if (!provider) return { success: false, error: "BLOCKED_PROVIDER_CONFIG: unknown provider" };
+  if (provider.protocol !== "openai-images" && provider.protocol !== "openai-compatible") {
+    return { success: false, error: "BLOCKED_PROVIDER_CONFIG: unsupported protocol" };
   }
-  const envOverride = (process.env.OPENAI_IMAGE_MODEL || "").trim();
-  if (envOverride && !isSupportedOpenAIImageModel(envOverride)) return { success: false, error: "BLOCKED_MODEL_CONFIG" };
-  const model = resolveThumbnailImageModel(configuredModel);
+  if (!provider.capabilities.some((capability) => capability === "image-edit" || capability === "image-generation")) {
+    return { success: false, error: "BLOCKED_PROVIDER_CAPABILITY" };
+  }
+  const url = buildImageEditsUrl(provider);
+  if (!url) return { success: false, error: "BLOCKED_PROVIDER_CONFIG: invalid baseUrl or endpoint" };
+  const model = resolveTaskModel(input, provider);
   if (!model) return { success: false, error: "BLOCKED_MODEL_CONFIG" };
   const outputPath = join(input.outputDir, "thumbnail.png");
   const manifestPath = join(input.outputDir, "generation-manifest.json");
   const requestPath = join(input.outputDir, "thumbnail-input.json");
-  await writeFile(requestPath, `${JSON.stringify({ title: input.title, sourceCredit: input.sourceCredit, notes: input.notes ?? "", style: input.style ?? { name: "paper brutalism", accentColors: ["navy blue", "crimson red"] }, aspectRatio: "3:4", references: input.referenceImages.map((referencePath) => basename(referencePath)) }, null, 2)}\n`);
-  const result = await (input.provider ?? defaultProvider(input.fetchImpl)).generate({ title: input.title, subject: { filename: basename(subject.data), bytes: subjectBytes, mimeType: mimeType(subject.data) }, references, prompt, model });
+  await writeFile(requestPath, `${JSON.stringify({ title: input.title, sourceCredit: input.sourceCredit, notes: input.notes ?? "", style: input.style ?? { name: "paper brutalism", accentColors: ["navy blue", "crimson red"] }, aspectRatio: "3:4", providerId: provider.id, protocol: provider.protocol, model, references: input.referenceImages.map((referencePath) => basename(referencePath)) }, null, 2)}\n`);
+  const subjectInput = { filename: basename(subject.data), bytes: subjectBytes, mimeType: mimeType(subject.data) };
+  const result = input.provider
+    ? await input.provider.generate({ title: input.title, subject: subjectInput, references, prompt, model })
+    : await (async () => {
+      const apiKey = readProviderApiKey(provider);
+      if (!apiKey) return { success: false, error: "BLOCKED_API_KEY" } as Result<ThumbnailImageProviderOutput>;
+      return postImageEdit({ url, apiKey, model, prompt, subject: subjectInput, references, fetchImpl: input.fetchImpl ?? fetch });
+    })();
   if (!result.success) return result;
   const rawPath = `${outputPath}.raw`;
   try {
@@ -200,9 +256,9 @@ async function generateGenerativeThumbnailInternal(input: GenerativeThumbnailInp
   if (finalProbe.streams?.[0]?.width !== 1080 || finalProbe.streams?.[0]?.height !== 1440) return { success: false, error: "BLOCKED_PROVIDER: invalid final dimensions" };
   const outputSha256 = await fileSha256(outputPath);
   const rawDimensions = "1008x1344";
-  const manifest = { generationStatus: "GENERATED", provider: "openai", model: result.data.model, promptSha256: sha256(Buffer.from(prompt)), requestedSize: REQUESTED_SIZE, rawDimensions, finalDimensions: FINAL_DIMENSIONS, transform: TRANSFORM, subjectImage: { filename: basename(subject.data), role: "subject" as const, sha256: sha256(subjectBytes) }, referenceImages: references.map((reference) => ({ filename: reference.filename, role: "reference" as const, sha256: sha256(reference.bytes) })), outputSha256, usage: result.data.usage ?? null };
+  const manifest = { generationStatus: "GENERATED", providerId: provider.id, protocol: provider.protocol, provider: provider.id, model, promptSha256: sha256(Buffer.from(prompt)), requestedSize: REQUESTED_SIZE, rawDimensions, finalDimensions: FINAL_DIMENSIONS, transform: TRANSFORM, subjectImage: { filename: basename(subject.data), role: "subject" as const, sha256: sha256(subjectBytes) }, referenceImages: references.map((reference) => ({ filename: reference.filename, role: "reference" as const, sha256: sha256(reference.bytes) })), outputSha256, usage: result.data.usage ?? null };
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-  return { success: true, data: { thumbnailPath: outputPath, manifestPath, requestPath, evidence: { provider: "openai", model: result.data.model, generationStatus: "GENERATED", promptSha256: manifest.promptSha256, requestedSize: REQUESTED_SIZE, rawDimensions, finalDimensions: FINAL_DIMENSIONS, transform: manifest.transform, inputImages: [manifest.subjectImage, ...manifest.referenceImages], outputSha256 } } };
+  return { success: true, data: { thumbnailPath: outputPath, manifestPath, requestPath, evidence: { provider: provider.id, protocol: provider.protocol, model, generationStatus: "GENERATED", promptSha256: manifest.promptSha256, requestedSize: REQUESTED_SIZE, rawDimensions, finalDimensions: FINAL_DIMENSIONS, transform: manifest.transform, inputImages: [manifest.subjectImage, ...manifest.referenceImages], outputSha256 } } };
 }
 
 export async function generateGenerativeThumbnail(input: GenerativeThumbnailInput): Promise<Result<GenerativeThumbnailResult>> {
