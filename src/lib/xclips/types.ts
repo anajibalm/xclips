@@ -311,7 +311,7 @@ export const XclipsAiSettingsSchema = z.object({
     }),
   transcribeModel: z.string().default("gemini-3-7-flash"),
   highlightModel: z.string().default("gemini-3-7-flash"),
-  thumbnailImageModel: z.string().default("gemini-3.1-flash-image"),
+  thumbnailImageModel: z.string().default("gpt-image-2.5-sunburst"),
   customProviders: z.array(CustomProviderSchema).default([]),
   activeCustomProviderId: z.string().nullable().default(null),
   lightModel: z.string().default("muse-glimmer-30b"), // Built-in Requesty helper model

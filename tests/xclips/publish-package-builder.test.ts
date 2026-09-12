@@ -19,15 +19,14 @@ const baseInput = (root: string): PublishPackageInput => ({
   finalVideoPath: join(root, "final.mp4"),
   thumbnailPath: join(root, "thumbnail.png"),
   thumbnailEvidence: {
-    provider: "template-guideline",
-    generatorRepo: "template-guideline",
-    generatorCommit: "fixture-commit",
-    generatorCommand: "npm run generate:thumbnail -- --input <request.json> --output <thumbnail.png>",
+    provider: "openai",
     model: "gpt-image-2.5-sunburst",
     generationStatus: "GENERATED",
     promptSha256: "fixture-prompt",
     requestedSize: "1008x1344",
+    rawDimensions: "1008x1344",
     finalDimensions: "1080x1440",
+    transform: "scale=1080:1440:force_original_aspect_ratio=increase,crop=1080:1440",
     inputImages: [{ filename: "subject.jpg", role: "subject", sha256: "fixture-subject" }, { filename: "reference.png", role: "reference", sha256: "fixture-reference" }],
     outputSha256: "fixture-output",
   },
@@ -94,7 +93,7 @@ describe("publish package builder", () => {
     await exec("ffmpeg", ["-y", "-f", "lavfi", "-i", "color=c=black:s=1080x1920:r=30", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100", "-t", "1", "-af", "volume=7dB", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", input.finalVideoPath]);
     await exec("ffmpeg", ["-y", "-f", "lavfi", "-i", "color=c=black:s=1080x1440", "-frames:v", "1", input.thumbnailPath]);
     input.thumbnailEvidence.outputSha256 = createHash("sha256").update(await readFile(input.thumbnailPath)).digest("hex");
-    await writeFile(input.thumbnailManifestPath, `${JSON.stringify({ generationStatus: "GENERATED", finalDimensions: "1080x1440", outputSha256: input.thumbnailEvidence.outputSha256, model: input.thumbnailEvidence.model, promptSha256: input.thumbnailEvidence.promptSha256 })}\n`);
+    await writeFile(input.thumbnailManifestPath, `${JSON.stringify({ generationStatus: "GENERATED", requestedSize: "1008x1344", rawDimensions: "1008x1344", finalDimensions: "1080x1440", transform: input.thumbnailEvidence.transform, outputSha256: input.thumbnailEvidence.outputSha256, model: input.thumbnailEvidence.model, promptSha256: input.thumbnailEvidence.promptSha256 })}\n`);
     const result = await buildPublishReviewPackage(input);
     const manifest = JSON.parse(await readFile(join(result.packageDir, "package-manifest.json"), "utf8"));
     expect(result.status).toBe("PASS");

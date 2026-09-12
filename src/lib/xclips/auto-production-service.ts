@@ -44,8 +44,7 @@ export type OfficialFramingMode = "FIELD_FIT_BG" | "TALKING_HEAD_SAFE";
 
 export interface S5ThumbnailConfig {
 	referenceImages: string[];
-	generatorRepo?: string;
-	generatorCommit?: string;
+	referencesRequired?: boolean;
 	source: PublishPackageInput["source"];
 	materialSources: PublishPackageInput["materialSources"];
 	framingPolicy: PublishPackageInput["framingPolicy"];
@@ -533,8 +532,7 @@ async function executeRenderCoverQc(
 			sourceCredit: brief.sourceName,
 			outputDir: coverOutputDir,
 			referenceImages: s5.referenceImages,
-			generatorRepo: s5.generatorRepo,
-			generatorCommit: s5.generatorCommit,
+			referencesRequired: s5.referencesRequired,
 		});
 		if (!thumbnailResult.success) return { status: "FAILED", stage: "thumbnail_generation", error: thumbnailResult.error };
 		onProgress?.("publish_package");

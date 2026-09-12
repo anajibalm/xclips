@@ -28,15 +28,14 @@ export interface PublishPackageInput {
   finalVideoPath: string;
   thumbnailPath: string;
   thumbnailEvidence: {
-    provider: "template-guideline";
-    generatorRepo: string;
-    generatorCommit: string;
-    generatorCommand: string;
+    provider: "openai";
     model: string;
     generationStatus: "GENERATED";
     promptSha256: string;
     requestedSize: "1008x1344";
+    rawDimensions: string;
     finalDimensions: "1080x1440";
+    transform: string;
     inputImages: Array<{ filename: string; role: "subject" | "reference"; sha256: string }>;
     outputSha256: string;
   };
@@ -72,7 +71,7 @@ export function validatePublishPackageInput(input: PublishPackageInput): void {
   }
   if (!input.editorialSelection.headline.trim()) throw new Error("headline missing");
   if (!input.publication.captionDraft.trim()) throw new Error("publication caption missing");
-  if (input.thumbnailEvidence?.provider !== "template-guideline" || !input.thumbnailEvidence.generatorRepo || !input.thumbnailEvidence.generatorCommit || !input.thumbnailEvidence.generatorCommand || !input.thumbnailEvidence.model || input.thumbnailEvidence.generationStatus !== "GENERATED" || !input.thumbnailEvidence.promptSha256 || input.thumbnailEvidence.requestedSize !== "1008x1344" || input.thumbnailEvidence.finalDimensions !== "1080x1440" || !input.thumbnailEvidence.inputImages.length || !input.thumbnailEvidence.outputSha256) throw new Error("generative thumbnail evidence missing");
+  if (input.thumbnailEvidence?.provider !== "openai" || !input.thumbnailEvidence.model || input.thumbnailEvidence.generationStatus !== "GENERATED" || !input.thumbnailEvidence.promptSha256 || input.thumbnailEvidence.requestedSize !== "1008x1344" || input.thumbnailEvidence.rawDimensions !== "1008x1344" || input.thumbnailEvidence.finalDimensions !== "1080x1440" || !input.thumbnailEvidence.transform || !input.thumbnailEvidence.inputImages.length || !input.thumbnailEvidence.outputSha256) throw new Error("generative thumbnail evidence missing");
   if (Object.values(input.thumbnailEvidence).some((value) => typeof value === "string" && /(?:^|[/\\])(home|tmp|vault|artifacts)(?:[/\\]|$)/i.test(value))) throw new Error("thumbnail evidence path must be portable");
   const words = input.publication.captionDraft.trim().split(/\s+/).length;
   if (words < 50 || words > 120) throw new Error(`publication caption must contain 50-120 words, got ${words}`);
