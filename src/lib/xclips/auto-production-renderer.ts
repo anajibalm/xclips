@@ -8,7 +8,7 @@ import {
 } from "@/lib/xclips/auto-production-types";
 import { WordTimestamp, Result, XclipsProject } from "@/lib/xclips/types";
 import { hexToAssColor, formatAssTime } from "@/lib/xclips/ffmpeg-builder";
-import { segmentPhrases, isNonSpeechCaptionCue, remapWordsToKeepTimeline } from "@/lib/xclips/phrase-segmentation";
+import { segmentPhrases, isNonSpeechCaptionCue, remapWordsToKeepTimeline, selectClipWords } from "@/lib/xclips/phrase-segmentation";
 import { detectHardwareAcceleration, HardwareEncoder } from "@/lib/xclips/queue";
 import { fitAutoProductionHeadline, resolveAutoProductionFooter } from "@/lib/xclips/auto-production-headline";
 import { buildSourceTransformFilter, getBakomLayout, BACKGROUND_GRADIENT_END_COLOR, BACKGROUND_GRADIENT_MID_COLOR, BACKGROUND_TEXTURE_BOTTOM_COLOR, BACKGROUND_TEXTURE_OVERLAY_OPACITY, BACKGROUND_TEXTURE_TOP_COLOR, HEADLINE_ACCENT_BAR_GAP, HEADLINE_ACCENT_BAR_WIDTH, HEADLINE_ENTER_DURATION_SEC, HEADLINE_ENTER_OFFSET_Y, HEADLINE_RED_BAR_COLOR, type ContentType } from "@/lib/xclips/auto-production-bakom-layout";
@@ -69,24 +69,10 @@ const MIN_CUE_DURATION_SEC = 0.5;
 // --- Helpers ---------------------------------------------------------------
 
 /**
- * Order-aware clip window. Walks the transcript in sequence and returns
- * words from the first one ending after `clipStart` up to and including the
- * first one reaching `clipEnd`. Selecting purely by timestamp overlap is
- * unsafe: CC tracks emit non-monotonic timings, so a word occurring later in
- * the transcript can carry an earlier timestamp and leak past the boundary.
+ * Order-aware clip window — canonical implementation lives in
+ * phrase-segmentation.ts (client-safe); re-exported here for existing callers.
  */
-export function selectClipWords(
-  words: WordTimestamp[],
-  clipStart: number,
-  clipEnd: number,
-): WordTimestamp[] {
-  const startIndex = words.findIndex((w) => w.end > clipStart);
-  if (startIndex === -1) return [];
-  for (let i = startIndex; i < words.length; i++) {
-    if (words[i].end >= clipEnd) return words.slice(startIndex, i + 1);
-  }
-  return words.slice(startIndex);
-}
+export { selectClipWords };
 
 /**
  * Deterministic start boundary guard. Walks backward from `rawStart` in

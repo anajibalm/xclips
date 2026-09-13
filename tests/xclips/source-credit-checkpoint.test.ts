@@ -146,6 +146,7 @@ describe("s6a runner CLI parsing", () => {
       mode: "resume",
       checkpointPath: "artifacts/cp.json",
       outDir: "artifacts/out",
+      confirmContext: false,
     });
   });
 

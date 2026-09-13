@@ -9,6 +9,7 @@ import {
 import { xclipsService } from "@/lib/xclips.service";
 import { xclipsDb } from "@/lib/xclips/xclips-db";
 import {
+  applyResumeOptions,
   buildPlanningCheckpoint,
   hashTranscriptWords,
   parseS6aArgs,
@@ -54,14 +55,25 @@ let sourcePath: string | undefined;
 let result;
 if (parsed.mode === "resume") {
   const checkpoint = JSON.parse(fs.readFileSync(path.resolve(parsed.checkpointPath), "utf8")) as unknown;
-  const context = resolveResumeContext(checkpoint, {
-    getProject: (id) => xclipsDb.getProject(id) ?? null,
-    getTranscript: (projectId, transcriptId) => xclipsDb.getTranscript(projectId, transcriptId) ?? null,
+  const store = {
+    getProject: (id: string) => xclipsDb.getProject(id) ?? null,
+    getTranscript: (projectId: string, transcriptId: string) => xclipsDb.getTranscript(projectId, transcriptId) ?? null,
+  };
+  const context = resolveResumeContext(checkpoint, store);
+  // Normalize with current deterministic rules (no planning, no AI calls).
+  // Operator inputs apply here only; the checkpoint file is never rewritten.
+  const checkpointDoc = checkpoint as { projectId?: string; transcriptId?: string };
+  const project = store.getProject(String(checkpointDoc.projectId ?? ""));
+  const transcript = project ? store.getTranscript(project.id, String(checkpointDoc.transcriptId ?? "")) : null;
+  if (!project || !transcript) throw new Error("PLANNING_PROJECT_MISMATCH");
+  const normalized = applyResumeOptions(context, project, transcript.words ?? [], {
+    confirmContext: parsed.confirmContext,
+    sourceDate: parsed.sourceDate,
   });
-  sourcePath = context.sourceVideoPath;
+  sourcePath = normalized.sourceVideoPath;
   // Resume performs render stages only: no planning, no AI discovery calls.
   result = await rerenderAutoProductionJob({
-    context,
+    context: normalized,
     outputDir: path.join(outDir, "render"),
     onProgress,
   });

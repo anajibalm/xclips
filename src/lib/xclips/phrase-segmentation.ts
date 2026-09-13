@@ -179,6 +179,26 @@ export function clampCueOverlaps(cues: CaptionCue[]): CaptionCue[] {
 }
 
 /**
+ * Order-aware clip window. Walks the transcript in sequence and returns
+ * words from the first one ending after `clipStart` up to and including the
+ * first one reaching `clipEnd`. Selecting purely by timestamp overlap is
+ * unsafe: CC tracks emit non-monotonic timings, so a word occurring later in
+ * the transcript can carry an earlier timestamp and leak past the boundary.
+ */
+export function selectClipWords(
+  words: WordTimestamp[],
+  clipStart: number,
+  clipEnd: number,
+): WordTimestamp[] {
+  const startIndex = words.findIndex((w) => w.end > clipStart);
+  if (startIndex === -1) return [];
+  for (let i = startIndex; i < words.length; i++) {
+    if (words[i].end >= clipEnd) return words.slice(startIndex, i + 1);
+  }
+  return words.slice(startIndex);
+}
+
+/**
  * Generates standard SRT subtitle text from word timestamps with frame-accurate timecodes
  */
 export function generateSrtFromWords(
