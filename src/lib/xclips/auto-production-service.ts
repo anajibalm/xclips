@@ -39,6 +39,11 @@ import * as path from "path";
 // Re-export pure helper from client-safe module
 export { detectSourceType } from "@/lib/xclips/auto-production-helpers";
 import { resolveSourceCreditMeta, resolveSourceCreditName } from "@/lib/xclips/auto-production-helpers";
+import { segmentPhrases, clampCueOverlaps } from "@/lib/xclips/phrase-segmentation";
+
+/** Caption readability contract for official renders: at most 6 words and 3.5s per cue. */
+export const OFFICIAL_CAPTION_MAX_WORDS = 6;
+export const OFFICIAL_CAPTION_MAX_DURATION_SEC = 3.5;
 
 export type OfficialFramingMode = "FIELD_FIT_BG" | "TALKING_HEAD_SAFE";
 
@@ -184,26 +189,28 @@ async function renderOfficialProduction(input: RenderAutoProductionInput, option
       return { success: false, error: creditMeta.error, stage: "validate_input" };
     }
 		const duration = input.editPlan.statementEnd - input.editPlan.statementStart;
-		const cues: Array<{ start: number; end: number; text: string; emphasis?: string }> = [];
-		let current: WordTimestamp[] = [];
-		for (const word of input.transcriptWords) {
-			const start = word.start - input.editPlan.statementStart;
-			const end = word.end - input.editPlan.statementStart;
-			if (end <= 0 || start >= duration) continue;
-      const candidate = [...current, word].map((item) => item.word).join(" ");
-      if (current.length > 0 && candidate.length > 64) {
-        const cueStart = Math.max(0, current[0].start - input.editPlan.statementStart);
-        const cueEnd = Math.min(duration, current[current.length - 1].end - input.editPlan.statementStart);
-        if (cueEnd > cueStart) cues.push({ start: cueStart, end: cueEnd, text: current.map((item) => item.word).join(" ") });
-        current = [];
-      }
-      current.push(word);
-    }
-    if (current.length > 0) {
-      const cueStart = Math.max(0, current[0].start - input.editPlan.statementStart);
-      const cueEnd = Math.min(duration, current[current.length - 1].end - input.editPlan.statementStart);
-      if (cueEnd > cueStart) cues.push({ start: cueStart, end: cueEnd, text: current.map((item) => item.word).join(" ") });
-    }
+		// Caption cues from word timestamps only: at most 6 words and 3.5s per
+		// cue, boundaries at word edges, order preserved, words never
+		// rewritten, split, or retimed, timeline untouched. Words outside the
+		// statement window are excluded from cues (same window rule as before).
+		const windowWords = input.transcriptWords.filter(
+			(word) => word.end > input.editPlan.statementStart && word.start < input.editPlan.statementEnd,
+		);
+		// No overlap: a cue never extends into the next cue's start. Start
+		// edges always follow word timestamps; only an overlapped end is
+		// pulled back to the next start (source rollup artifact). A single
+		// word longer than the duration cap stays whole — words are never
+		// split or retimed.
+		const cues = clampCueOverlaps(
+			segmentPhrases(windowWords, {
+				maxWords: OFFICIAL_CAPTION_MAX_WORDS,
+				maxDurationSec: OFFICIAL_CAPTION_MAX_DURATION_SEC,
+			}).map((phrase) => ({
+				start: Math.max(0, phrase.startSec - input.editPlan.statementStart),
+				end: Math.min(duration, phrase.endSec - input.editPlan.statementStart),
+				text: phrase.text,
+			})),
+		);
 		const outputDir = options?.outputDir ?? path.resolve(process.cwd(), "output", "xclips", "auto-production");
 		const outputPath = path.join(outputDir, `official_${Date.now()}.mp4`);
     const framingMode = resolveOfficialFramingMode(input.sourceVideoPath, input.contentType);

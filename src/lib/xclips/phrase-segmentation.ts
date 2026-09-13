@@ -13,6 +13,14 @@ export interface PhraseSegmentationOptions {
   maxWords?: number;
   maxGapSec?: number;
   breakRegex?: RegExp;
+  /**
+   * Hard readability cap: a phrase never spans more than this many seconds.
+   * Optional (undefined preserves legacy behavior). When set, a word that
+   * would push the current phrase past the cap starts a new phrase at a word
+   * edge — words are never reordered, rewritten, dropped, or retimed, and the
+   * video/audio timeline is untouched (cue grouping only).
+   */
+  maxDurationSec?: number;
 }
 
 export interface TimelineInterval {
@@ -69,6 +77,7 @@ export function segmentPhrases(
   const maxWords = options?.maxWords ?? DEFAULT_MAX_WORDS;
   const maxGapSec = options?.maxGapSec ?? DEFAULT_MAX_GAP_SEC;
   const breakRegex = options?.breakRegex ?? DEFAULT_BREAK_REGEX;
+  const maxDurationSec = options?.maxDurationSec;
 
   const validWords = words.filter((w) => !w.excluded && w.word !== undefined && w.word !== null);
   if (validWords.length === 0) return [];
@@ -85,15 +94,18 @@ export function segmentPhrases(
 
     let shouldBreak = false;
     if (prevWord) {
+      const durationExceeded =
+        maxDurationSec !== undefined && word.end - currentWords[0].start > maxDurationSec;
       if (hasExplicitBreaks) {
-        // Strict explicit break: only break where breakAfter was set
-        shouldBreak = prevWord.breakAfter === true;
+        // Strict explicit break: only break where breakAfter was set,
+        // plus the hard duration cap (word edges only, order preserved).
+        shouldBreak = prevWord.breakAfter === true || durationExceeded;
       } else {
         // Heuristic break for unsegmented raw words
         const isGapBreak = word.start - prevWord.end >= maxGapSec;
         const isPunctuationBreak = prevWord.word ? breakRegex.test(prevWord.word.trim()) : false;
         const isMaxWordsReached = currentWords.length >= maxWords;
-        shouldBreak = isGapBreak || isPunctuationBreak || isMaxWordsReached;
+        shouldBreak = isGapBreak || isPunctuationBreak || isMaxWordsReached || durationExceeded;
       }
     }
 
@@ -135,6 +147,35 @@ export function segmentPhrases(
   }
 
   return phrases;
+}
+
+export interface CaptionCue {
+  start: number;
+  end: number;
+  text: string;
+}
+
+/**
+ * Remove cue overlaps from rollup-style word timestamps. Start edges always
+ * follow word timestamps; only an overlapped end is pulled back to the next
+ * cue start. Cues reduced to zero/negative length are dropped. Pure.
+ */
+export function clampCueOverlaps(cues: CaptionCue[]): CaptionCue[] {
+  // Drop ill-timed cues first (end <= start from non-monotonic source
+  // timestamps), then clamp ends to the next start. Dropping can create a new
+  // adjacency that overlaps, so repeat to a fixpoint: every pass either drops
+  // at least one cue or returns stable, hence it always terminates.
+  let current = cues.filter((cue) => cue.end > cue.start);
+  for (let pass = 0; pass < current.length; pass++) {
+    const clamped = current.map((cue, index) => ({
+      ...cue,
+      end: index + 1 < current.length ? Math.min(cue.end, current[index + 1].start) : cue.end,
+    }));
+    const next = clamped.filter((cue) => cue.end > cue.start);
+    if (next.length === current.length) return next;
+    current = next;
+  }
+  return current;
 }
 
 /**
