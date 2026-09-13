@@ -38,7 +38,7 @@ import * as path from "path";
 
 // Re-export pure helper from client-safe module
 export { detectSourceType } from "@/lib/xclips/auto-production-helpers";
-import { resolveSourceCreditName } from "@/lib/xclips/auto-production-helpers";
+import { resolveSourceCreditMeta, resolveSourceCreditName } from "@/lib/xclips/auto-production-helpers";
 
 export type OfficialFramingMode = "FIELD_FIT_BG" | "TALKING_HEAD_SAFE";
 
@@ -174,6 +174,15 @@ export interface AutoProductionJobBundle {
 
 async function renderOfficialProduction(input: RenderAutoProductionInput, options?: { outputDir?: string }): Promise<RenderAutoProductionResult | RenderAutoProductionFailure> {
 	try {
+    // Publishing account handle (brief.accountHandle) occupies the publisherHandle
+    // slot: SourceCreditMeta.publisherHandle is documented as the "publishing
+    // account" and renders as "Informasi resmi: {handle}". Footage-owner
+    // identity stays in sourceName; display names and UC-style channel IDs are
+    // never converted into handles by the resolver below.
+    const creditMeta = resolveSourceCreditMeta(input.projectSourceMeta, input.brief.sourceName, input.brief.accountHandle);
+    if ("error" in creditMeta) {
+      return { success: false, error: creditMeta.error, stage: "validate_input" };
+    }
 		const duration = input.editPlan.statementEnd - input.editPlan.statementStart;
 		const cues: Array<{ start: number; end: number; text: string; emphasis?: string }> = [];
 		let current: WordTimestamp[] = [];
@@ -198,7 +207,7 @@ async function renderOfficialProduction(input: RenderAutoProductionInput, option
 		const outputDir = options?.outputDir ?? path.resolve(process.cwd(), "output", "xclips", "auto-production");
 		const outputPath = path.join(outputDir, `official_${Date.now()}.mp4`);
     const framingMode = resolveOfficialFramingMode(input.sourceVideoPath, input.contentType);
-    const trusted = await renderOfficialBakomSequential({ sourceVideoPath: input.sourceVideoPath, sourceStart: input.editPlan.statementStart, sourceEnd: input.editPlan.statementEnd, headline: input.editPlan.headline, cues, credit: `${input.brief.sourceName} · ${input.brief.accountHandle}`, outputPath, framingMode });
+    const trusted = await renderOfficialBakomSequential({ sourceVideoPath: input.sourceVideoPath, sourceStart: input.editPlan.statementStart, sourceEnd: input.editPlan.statementEnd, headline: input.editPlan.headline, cues, credit: `${creditMeta.sourceName} · ${creditMeta.publisherHandle}`, creditMeta, outputPath, framingMode });
 		const trustedRenderResult = recordCanonicalBakomRender(trusted);
 		if (!trustedRenderResult) throw new Error("Canonical BAKOM render trust recording failed");
 		return { success: true, outputPath, durationSec: trusted.durationSec, width: trusted.width, height: trusted.height, fps: trusted.fps, trustedRenderResult };
@@ -219,6 +228,7 @@ export interface RerenderJobContext {
 	sourceVideoPath: string;
 	sourceWidth: number;
 	sourceHeight: number;
+  projectSourceMeta?: import("@/lib/xclips/types").XclipsProject["sourceMeta"];
 	contentType?: ContentType;
 }
 
@@ -259,6 +269,7 @@ export interface RunAutoProductionJobInput {
 		finalizeTrust?: typeof finalizeProductionArtifact;
 	};
 	s5?: S5ThumbnailConfig;
+  onPlanningComplete?: (context: RerenderJobContext) => Promise<void> | void;
 }
 
 // --- Entry Point: Full Job (Plan → Render → Cover → QC) -------------------
@@ -301,7 +312,9 @@ export async function runAutoProductionJob(
 		sourceVideoPath: project.sourcePath,
     sourceWidth: project.width ?? 1920,
     sourceHeight: project.height ?? 1080,
+    projectSourceMeta: project.sourceMeta,
   };
+  await input.onPlanningComplete?.(rerenderContext);
 
 	// 2. Render → Cover → QC (shared with rerender path)
 	return executeRenderCoverQc({
@@ -418,6 +431,7 @@ async function executeRenderCoverQc(
 		sourceVideoPath,
 		sourceWidth,
 		sourceHeight,
+		projectSourceMeta: rerenderContext.projectSourceMeta,
 		contentType,
 	};
 

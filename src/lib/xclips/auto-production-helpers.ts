@@ -28,9 +28,42 @@ export function detectSourceType(sourcePath: string): "local" | "url" {
 export interface SourceCreditMetadata {
 	channel?: string | null;
 	uploader?: string | null;
+	uploaderId?: string | null;
+	channelId?: string | null;
+	channelUrl?: string | null;
+	uploaderUrl?: string | null;
 	publisher?: string | null;
 	creator?: string | null;
 	author?: string | null;
+}
+
+export interface ResolvedSourceCreditMeta {
+	sourceName: string;
+	publisherHandle: string;
+}
+
+const cleanHandle = (value: string | null | undefined): string => {
+	const cleaned = cleanCredit(value);
+	return /^@[A-Za-z0-9._-]+$/.test(cleaned) ? cleaned : "";
+};
+
+export function resolveSourceCreditMeta(
+	meta: SourceCreditMetadata | undefined | null,
+	briefSourceName: string,
+	/**
+	 * Publishing/output account handle (same domain as ProductionBrief
+	 * accountHandle and SourceCreditMeta.publisherHandle, which
+	 * bakom-presentation.ts documents as the "publishing account" and
+	 * endcardChannelLines renders as "Informasi resmi: {handle}").
+	 * Footage-source identity (uploaderId, channelUrl, uploaderUrl,
+	 * channelId, display names) lives in a different domain and is NEVER
+	 * consulted here; footage identity resolves to sourceName only.
+	 */
+	publishingAccountHandle: string,
+): ResolvedSourceCreditMeta | { error: "MISSING_PUBLISHER_HANDLE" } {
+	const sourceName = resolveSourceCreditName(meta, briefSourceName);
+	const handle = cleanHandle(publishingAccountHandle);
+	return handle ? { sourceName, publisherHandle: handle } : { error: "MISSING_PUBLISHER_HANDLE" };
 }
 
 /** Last-resort credit when neither metadata nor explicit name yields text. */

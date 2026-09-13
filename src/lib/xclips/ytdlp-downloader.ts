@@ -504,6 +504,10 @@ export async function fetchGenericYtDlpInfo(url: string): Promise<Result<YouTube
           thumbnail: json.thumbnail || (json.thumbnails && json.thumbnails[0]?.url) || "",
           uploader: json.uploader || json.channel || "Unknown Creator",
           channel: json.channel || json.uploader || "Unknown Creator",
+          uploaderId: json.uploader_id,
+          channelId: json.channel_id,
+          channelUrl: json.channel_url,
+          uploaderUrl: json.uploader_url,
           description: (json.description || "").slice(0, 300),
           webpageUrl: json.webpage_url || url,
         };
@@ -631,6 +635,10 @@ export async function fetchYouTubeInfo(url: string): Promise<Result<YouTubeVideo
           thumbnail: json.thumbnail || (json.thumbnails && json.thumbnails[0]?.url) || "",
           uploader: json.uploader || json.channel || "Unknown Creator",
           channel: json.channel || json.uploader || "Unknown Creator",
+          uploaderId: json.uploader_id,
+          channelId: json.channel_id,
+          channelUrl: json.channel_url,
+          uploaderUrl: json.uploader_url,
           description: (json.description || "").slice(0, 300),
           webpageUrl: json.webpage_url || url,
         };

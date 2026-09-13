@@ -6,7 +6,7 @@ import {
   AccountPreset,
   EditPlan,
 } from "@/lib/xclips/auto-production-types";
-import { WordTimestamp, Result } from "@/lib/xclips/types";
+import { WordTimestamp, Result, XclipsProject } from "@/lib/xclips/types";
 import { hexToAssColor, formatAssTime } from "@/lib/xclips/ffmpeg-builder";
 import { segmentPhrases, isNonSpeechCaptionCue, remapWordsToKeepTimeline } from "@/lib/xclips/phrase-segmentation";
 import { detectHardwareAcceleration, HardwareEncoder } from "@/lib/xclips/queue";
@@ -28,6 +28,7 @@ export interface RenderAutoProductionInput {
   sourceVideoPath: string;
   sourceWidth: number;
   sourceHeight: number;
+  projectSourceMeta?: XclipsProject["sourceMeta"];
   contentType?: ContentType;
 }
 

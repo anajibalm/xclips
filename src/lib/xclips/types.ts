@@ -111,6 +111,10 @@ export interface XclipsProject {
     title?: string;
     channel?: string;
     uploader?: string;
+    uploaderId?: string;
+    channelId?: string;
+    channelUrl?: string;
+    uploaderUrl?: string;
     description?: string;
     webpageUrl?: string;
     thumbnail?: string;
@@ -440,6 +444,10 @@ export interface YouTubeVideoInfo {
   channel: string;
   description: string;
   webpageUrl: string;
+  uploaderId?: string;
+  channelId?: string;
+  channelUrl?: string;
+  uploaderUrl?: string;
   mediaType?: "video" | "image";
   directMediaUrl?: string;
 }
