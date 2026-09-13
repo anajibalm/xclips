@@ -38,7 +38,7 @@ import * as path from "path";
 
 // Re-export pure helper from client-safe module
 export { detectSourceType } from "@/lib/xclips/auto-production-helpers";
-import { resolveSourceCreditMeta, resolveSourceCreditName } from "@/lib/xclips/auto-production-helpers";
+import { resolveSourceCreditMeta, resolveSourceCreditName, resolveBriefSourceDate } from "@/lib/xclips/auto-production-helpers";
 import { segmentPhrases, clampCueOverlaps } from "@/lib/xclips/phrase-segmentation";
 
 /** Caption readability contract for official renders: at most 6 words and 3.5s per cue. */
@@ -305,9 +305,15 @@ export async function runAutoProductionJob(
 	// S1.2: resolve publisher-level source credit upstream of rendering.
 	// Persisted channel/uploader metadata wins over a video-title sourceName;
 	// the footer resolver downstream only measures/fits/truncates.
+	// Operator-supplied sourceDate wins; the platform publication/upload
+	// date is only a fallback (never the event date). Missing on both
+	// sides stays undefined and QC remains REVIEW.
+	const resolvedDate = resolveBriefSourceDate(planning.brief.sourceDate, project.sourceMeta?.uploadDate);
 	const creditedBrief: ProductionBrief = {
 		...planning.brief,
 		sourceName: resolveSourceCreditName(project.sourceMeta, planning.brief.sourceName),
+		sourceDate: resolvedDate.date,
+		sourceDateProvenance: resolvedDate.provenance,
 	};
 
 	// Build rerender context from planning result

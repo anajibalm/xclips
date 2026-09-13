@@ -136,6 +136,8 @@ export const ProductionBriefSchema = z.object({
   accountPresetId: AccountPresetIdSchema,
   sourceName: z.string().min(1, "sourceName is required"),
   sourceDate: z.string().optional(),
+  /** Where sourceDate came from; absent means operator-supplied (legacy) or missing. */
+  sourceDateProvenance: z.enum(["operator", "platform_upload", "missing"]).optional(),
   accountHandle: z.string().min(1, "accountHandle is required"),
   sourceRole: z.string().optional(),
   // Operator attestation: source contains sensitive content → S5 routes to NEEDS_REVIEW.

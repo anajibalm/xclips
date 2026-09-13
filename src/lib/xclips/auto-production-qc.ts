@@ -219,7 +219,14 @@ function runContractChecks(
   if (!input.brief.sourceDate || input.brief.sourceDate.trim().length === 0) {
     checks.push({ id: "contract_source_date", category: "contract", status: "REVIEW", message: "sourceDate not provided — editorial compliance requires human review" });
   } else {
-    checks.push({ id: "contract_source_date", category: "contract", status: "PASS", message: `sourceDate present: "${input.brief.sourceDate}"` });
+    // Provenance is descriptive only: a platform upload date is the platform
+    // publication date, never the event date. Briefs predating the provenance
+    // field could only carry operator-supplied dates.
+    const provenance = input.brief.sourceDateProvenance ?? "operator";
+    const origin = provenance === "platform_upload"
+      ? "platform publication date (not the event date)"
+      : "operator-supplied date";
+    checks.push({ id: "contract_source_date", category: "contract", status: "PASS", message: `sourceDate present: "${input.brief.sourceDate}" (provenance: ${provenance} — ${origin})` });
   }
 }
 

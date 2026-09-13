@@ -102,6 +102,27 @@ export function findYtDlpBinary(): string {
 }
 
 /**
+ * Normalize a yt-dlp `upload_date` value (YYYYMMDD) to ISO YYYY-MM-DD.
+ * Returns undefined for missing/invalid values. Calendar-validated, so
+ * impossible dates (e.g. month 13, February 30) are rejected. The result
+ * describes the platform publication/upload date — never the event date.
+ */
+export function normalizeUploadDate(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const match = value.trim().match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (!match) return undefined;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return undefined;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    return undefined;
+  }
+  return `${match[1]}-${match[2]}-${match[3]}`;
+}
+
+/**
  * Finds the ffmpeg binary on the system for yt-dlp stream muxing
  */
 export function findFfmpegBinary(): string | undefined {
@@ -508,6 +529,7 @@ export async function fetchGenericYtDlpInfo(url: string): Promise<Result<YouTube
           channelId: json.channel_id,
           channelUrl: json.channel_url,
           uploaderUrl: json.uploader_url,
+          uploadDate: normalizeUploadDate(json.upload_date),
           description: (json.description || "").slice(0, 300),
           webpageUrl: json.webpage_url || url,
         };
@@ -639,6 +661,7 @@ export async function fetchYouTubeInfo(url: string): Promise<Result<YouTubeVideo
           channelId: json.channel_id,
           channelUrl: json.channel_url,
           uploaderUrl: json.uploader_url,
+          uploadDate: normalizeUploadDate(json.upload_date),
           description: (json.description || "").slice(0, 300),
           webpageUrl: json.webpage_url || url,
         };

@@ -115,6 +115,8 @@ export interface XclipsProject {
     channelId?: string;
     channelUrl?: string;
     uploaderUrl?: string;
+    /** Platform publication/upload date (ISO YYYY-MM-DD) — never the event date. */
+    uploadDate?: string;
     description?: string;
     webpageUrl?: string;
     thumbnail?: string;
@@ -448,6 +450,8 @@ export interface YouTubeVideoInfo {
   channelId?: string;
   channelUrl?: string;
   uploaderUrl?: string;
+  /** Platform publication/upload date (ISO YYYY-MM-DD) — never the event date. */
+  uploadDate?: string;
   mediaType?: "video" | "image";
   directMediaUrl?: string;
 }

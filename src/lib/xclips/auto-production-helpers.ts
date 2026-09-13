@@ -69,6 +69,48 @@ export function resolveSourceCreditMeta(
 /** Last-resort credit when neither metadata nor explicit name yields text. */
 export const FALLBACK_SOURCE_CREDIT = "Redaksi";
 
+/**
+ * Where a resolved editorial source date came from. `operator` is an
+ * explicit operator-supplied date; `platform_upload` is the platform
+ * publication/upload date (never the event date); `missing` means no valid
+ * date exists on either side and QC must remain REVIEW.
+ */
+export type SourceDateProvenance = "operator" | "platform_upload" | "missing";
+
+export interface ResolvedSourceDate {
+  date?: string;
+  provenance: SourceDateProvenance;
+}
+
+/** Strict ISO YYYY-MM-DD with real calendar validation. */
+export function isValidIsoDate(value: string): boolean {
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+/**
+ * Resolve the editorial source date. An explicit operator-supplied date wins
+ * ONLY when it is a valid ISO date; otherwise a valid platform date is used
+ * with `platform_upload` provenance. Invalid/missing on both sides yields no
+ * date with `missing` provenance (QC remains REVIEW).
+ */
+export function resolveBriefSourceDate(
+  explicitDate?: string | null,
+  platformDate?: string | null,
+): ResolvedSourceDate {
+  const explicit = (explicitDate ?? "").trim();
+  if (explicit && isValidIsoDate(explicit)) return { date: explicit, provenance: "operator" };
+  const platform = (platformDate ?? "").trim();
+  if (platform && isValidIsoDate(platform)) return { date: platform, provenance: "platform_upload" };
+  return { provenance: "missing" };
+}
+
 const cleanCredit = (value: string | null | undefined): string =>
 	(value ?? "").replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
 

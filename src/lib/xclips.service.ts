@@ -565,6 +565,7 @@ export class XclipsService {
         title: info.title,
         channel: info.channel,
         uploader: info.uploader,
+        uploadDate: info.uploadDate,
         description: info.description,
         webpageUrl: info.webpageUrl,
         thumbnail: info.thumbnail,

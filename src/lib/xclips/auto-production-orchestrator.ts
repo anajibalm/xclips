@@ -397,6 +397,25 @@ async function produceGroundedHeadline(
     if (check.grounded) {
       return { headline, headlineSignal: { confidence: "strong", warnings: [] } };
     }
+    // AI headline is ungrounded: try a deterministic extractive fallback
+    // (verbatim slice of the selected transcript) and accept it only when it
+    // passes the same grounding validator. No stemming loosening, no invented
+    // words, no AI retry.
+    const extractive = fallbackHeadlineFromTranscript(selectedText);
+    if (extractive) {
+      const recheck = validateHeadlineGrounding(extractive, selectedText);
+      if (recheck.grounded) {
+        return {
+          headline: extractive,
+          headlineSignal: {
+            confidence: "strong",
+            warnings: [
+              `AI headline ungrounded (${check.suspicious.join(", ")}) — deterministic extractive fallback from selected transcript used`,
+            ],
+          },
+        };
+      }
+    }
     return {
       headline,
       headlineSignal: {
