@@ -153,3 +153,67 @@ type(scope): concise description in imperative mood
 10. Hard invariant failure means STOP; do not compensate around it.
 11. Never start next slice before current slice closure gate passes.
 12. Unrelated dirty work may never be modified to make a slice pass.
+
+## Governance: Decision Ownership And Stop States
+
+### Decision ownership
+
+Manusia memutuskan:
+
+- product behavior;
+- meaning of PASS;
+- risk tolerance;
+- human attestation;
+- penggunaan API berbayar;
+- perubahan threshold/policy;
+- migration/deployment;
+- commit/push bila belum diberi izin.
+
+Agent memutuskan sendiri:
+
+- repo discovery;
+- caller/dependency tracing;
+- smallest implementation;
+- test selection;
+- perbaikan compile/test failure;
+- internal refactor yang tidak mengubah kontrak;
+- pengulangan verification.
+
+### Required execution loop
+
+```text
+Read ticket
+→ inspect repository
+→ reproduce
+→ implement smallest change
+→ run verification
+→ diagnose failure
+→ repair
+→ repeat
+→ audit final diff
+```
+
+### Valid stop states
+
+Agent hanya boleh berhenti dengan salah satu status berikut:
+
+- `DONE`: outcome ticket tercapai, evidence tersedia, verification selesai, dan final diff diaudit.
+- `DECISION_REQUIRED`: pekerjaan mencapai pertanyaan produk/policy yang belum diputuskan manusia; agent tidak memilih jawabannya.
+- `AUTHORITY_REQUIRED`: pekerjaan membutuhkan izin manusia, seperti API berbayar, render eksternal, migration/deployment, atau commit/push.
+- `BLOCKED`: hard invariant, akses, dependency, atau kondisi lingkungan mencegah pekerjaan berlanjut; evidence dan blocker harus disebutkan.
+
+Test merah, typecheck merah, import error, dan belum menemukan caller bukan alasan meminta keputusan manusia. Agent harus diagnose, repair, dan repeat terlebih dahulu.
+
+### Anti-gaming rules
+
+Dilarang melemahkan, menghapus, atau skip test; mengubah expected agar mengikuti bug; menangkap error lalu mengembalikan success; mengganti definisi PASS; menyebut “expected PASS” tanpa menjalankan gate; hardcode fixture untuk melewati test; mengarang metadata; melonggarkan threshold tanpa keputusan; menghapus atau menimpa perubahan pengguna; atau menyembunyikan baseline failure.
+
+### Safety boundary
+
+- Preserve dirty/untracked work.
+- Destructive operations memerlukan izin.
+- API, render, dan external-cost operations memerlukan izin eksplisit.
+- Stage, commit, dan push hanya bila task mengizinkan.
+- Laporan harus membedakan perubahan task dan perubahan pre-existing.
+
+Detail bug atau incident tertentu tidak menjadi aturan permanen di dokumen ini.
