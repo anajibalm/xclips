@@ -519,12 +519,14 @@ async function executeRenderCoverQc(
 		return { status: "NEEDS_REVIEW", bundle, reasons };
 	}
 
-	// Production trust gate (ARCH.1 / ARCH.1R §10). READY for a spoken Auto
-	// Production video requires trusted physical timing, a canonical renderer
-	// result, and passing QC. Policy is fixed here, never caller-controlled.
-	// The current render path does not produce a canonical official
-	// presentation render result, so this FAILS CLOSED rather than declaring a
-	// scratch-style output production-valid.
+	// Production trust gate (ARCH.1; spec `docs/architecture/auto-production-mvp11.md`
+	// §6.5). READY for a spoken Auto Production video requires trusted physical
+	// timing, a canonical renderer result, and passing QC. Policy is fixed here,
+	// never caller-controlled. The default render path records canonical BAKOM
+	// render trust above, so the gate FAILS CLOSED whenever trust cannot be
+	// established rather than declaring an untrusted output production-valid.
+	// Posture affirmed by owner decision D1 (2026-09-14; see
+	// `docs/product/xclips-evidence-ledger.md`).
 	const statementAnchors = selectStatementEdgePhrases(
 		transcriptWords,
 		editPlan.statementStart,

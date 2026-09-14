@@ -1,253 +1,91 @@
-# xClips Auto Production — MVP Closure Workboard
+# xClips Auto Production — Active Workboard (Canonical S1–S7)
 
-Canonical plan for the MVP closure sprint (2026-09-08). One active story at a time.
-Working principle: keep every story the smallest package that can realistically
-be proven E2E; never widen a story for adjacent problems.
+R0/R0.1 recovery baseline: HEAD `db3932d` (`feat: close auto production proper edit slice`),
+branch `feat/auto-production-mvp`, recorded 2026-09-11. R0 and R0.1 are docs-only;
+neither made any commit.
 
-## Done
+The canonical roadmap is `docs/architecture/auto-production-mvp11.md` — see the
+MVP Slice Roadmap Freeze section, with debt and policies in the Known Debt /
+Polish Queue, Blocker Rule, and S4 Source Switch Policy sections.
+This file is a tactical pointer only and never overrides that document. Any slice
+numbering outside S1–S7 is superseded legacy terminology. The superseded workboard
+legacy body is preserved verbatim after the banner (provenance only) in
+`docs/archive/auto-production-legacy-workboard-2026-09-08.md` — LEGACY /
+NON-CANONICAL / DO NOT USE FOR SLICE STATUS.
 
-### S1 — Real-media backend proof (PASS)
-- Real Metro TV source (`youtube watch?v=7EUk3OE9lqA`, project `proj_1788801264816_1ogi`,
-  194-word YouTube CC transcript) driven through the real Hono
-  `POST /api/xclips/auto-production/rerender` → `NEEDS_REVIEW`
-  (sole reason: sourceDate omitted — no upload_date in persisted sourceMeta).
-- Outputs: `output/xclips/auto-production/final_1788835441082.mp4` (h264,
-  1080x1920, 30fps, 35.0s, aac audio) + `cover_1788835455040.jpg` (JPEG 1080x1920,
-  real source frame). QC 15 PASS / 1 REVIEW / 0 FAIL.
-- Subtitles verified visible in output ("SELURUH PEMANTAUAN DILAKUKAN /
-  BERDASARKAN DATA DAN", uppercase, safe zone, no karaoke).
-- Story blockers fixed in-story (minimal repairs):
-  1. `auto-production-service.ts`: default cover output dir to
-     `output/xclips/auto-production` (was `""` → ENOENT mkdir crash on all
-     three Hono routes when outputDir omitted).
-  2. `auto-production-renderer.ts` `buildAutoProductionAss`: missing newline
-     between `[Events]` Format line and first Dialogue glued
-     (`TextDialogue:`) → libass dropped the whole Events section → every
-     Auto Production render shipped zero subtitles. One-line fix + regression
-     test (`places every Dialogue event on its own line`).
-- Verification: tsc clean; renderer tests 25/25; real-endpoint evidence above.
+## Canonical status (exact)
 
-## Authoritative product decisions (Bakom brief, resolved 2026-09-08)
+| Slice | Status |
+| :--- | :--- |
+| S1 — One Correct Editorial Clip | CLOSED (committed `8ba8888`, pushed) |
+| S2 — One Properly Edited Clip | CLOSED (committed `db3932d`, pushed) |
+| S3 — One Official BAKOM Reels Draft | FUNCTIONALLY ACCEPTED / ENGINEERING OPEN (presentation accepted on `artifacts/slice-3-official-bakom-draft/official-production-wired.mp4`; closure debt items B–D in the Known Debt / Polish Queue section open; reusable-renderer coverage of debt B–D unconfirmed — `official-bakom-renderer.ts` incl. sequential path IS committed; see ledger CF2) |
+| S4 — One Enriched BAKOM Draft | IN PROGRESS / HUMAN_REVIEW_REQUIRED (`artifacts/slice-4-enriched-bakom-draft/s4-final.mp4` + `publish-review-package.json`; framing + source-graphics-collision review open; uncommitted) |
+| S5 — One Publish-Review Package | EVIDENCE EXISTS, NOT REVIEWED (`artifacts/s5-publish-review-package/` 2026-09-12: final.mp4 + all-PASS ffprobe QC + human-review warnings; canonical dir per ledger CF3; twin `slice-5-*` retained as historical evidence only — non-canonical, forbidden as pipeline input, decided 2026-09-14) |
+| S6 PREFLIGHT (regression evidence) | source-01 PARTIAL (promo tail auto-removed, edges direct, opening mid-sentence) / source-02 FAIL (candidate grounding / range-mapping failure) / source-03 PASS — full pass 1/3, direct edges 2/3 |
+| S6 FINAL (MVP 1.1 closure) | NOT RUN |
+| S7 — One Source → Five Clips | POST-MVP / NOT STARTED |
 
-1. Duration is a permissible range/policy; semantic completeness wins over
-   padding/filler; never force a clip longer merely to reach a target.
-   CONFLICT on record: current code hard-FAILs statements/renders outside
-   30–60s (`orchestrator selectStatement`, QC `media_duration` /
-   `contract_statement_duration`), which misclassifies an editorial condition
-   as technical inability and contradicts PRD FR-6 (duration problems surface
-   as review flags) and FR-13 (doubt → NEEDS_REVIEW, inability → FAILED).
-   Unresolved policy, recorded without inventing a number: no product source
-   defines what a semantically complete sub-30s statement should become;
-   30s stays the range floor that triggers review, not a FAIL threshold,
-   pending leadership calibration (cf. PRD OQ-1). → S3.
-2. Editorial function is manually selected for MVP. It is the Bakom content
-   function/category (e.g. humanization, public education/policy, public
-   communication/information integrity, accountability) — NOT the existing
-   `hookFormula` (viral hook matrix mechanics: hook matrix entries carry
-   emotions such as Alert/Concerned, `transcript-chunker.ts`,
-   `types.ts:211`). Separate product field/concept. → S2.
-3. Context Integrity is a review gate, never automatic repair. → S5.
-4. Sensitive content routes to NEEDS_REVIEW until human review. → S2 (field) + S5 (gate).
-5. Bakom watermark/logo is a fixed asset. None exists in the repo
-   (no `public/` or `assets/` dir; vault holds only cache/downloads/settings/
-   fixtures/db; no preset field; no overlay step) and none may be invented or
-   generated — the asset is operator-provided. → S7.
-6. SUBTITLE CONTRACT (semantic phrase boundaries + max-word readability
-   guardrail + safe/readable rendering) is required equally on generation and
-   verification. Generation satisfied (`segmentPhrases`, preset cap 6, S1
-   pixel proof); QC verification missing (zero caption checks in
-   `auto-production-qc.ts`). → S5.
-7. Keep every deliverable the smallest package provable E2E (enforced in
-   sequencing below).
-8. COPY PACK (publishing caption + CTA + hashtags) is owned by xClips for MVP.
-   Zero constructs exist anywhere in `src`; kept distinct from SUBTITLE CONTRACT. → S8.
-9. Headline safe-fit must resolve before MVP DONE; was correctly non-blocking
-   for S1. → S6 before the final gate.
+## Binding rules (R0.1)
 
-## Remaining MVP Stories (ordered, dependency order)
+1. Artifact existence is not closure. A directory or a `final.mp4` alone never
+   closes a slice; closure needs machine gate + human gate + commit linkage
+   (S1/S2), or explicit functional accept with recorded debt (S3).
+2. `artifacts/slice-4-enriched-bakom-draft/publish-review-package.json` is S4.1
+   evidence (`human_review_required`), not the S5 deliverable.
+3. Current S6 sources (`artifacts/slice-6-three-fresh-urls/`, corrected truth
+   1/3 in `s6-corrected-truth.json`) are REGRESSION FIXTURES, not final
+   acceptance. `source-0*/final.mp4` files do not validate their slices.
+4. S6 FINAL requires three unseen URLs processed after code freeze, with no
+   coding between runs. The S6 semantic/physical hardening currently in the
+   dirty tree must be frozen first.
+5. S7 means one source → approximately five independent clips/packages.
+   Post-MVP backlog (e.g. large candidate benchmarks) never redefines S7.
+6. Production Trust Boundary is COMMITTED/FAIL-CLOSED (owner decision D1,
+   2026-09-14; see evidence ledger CF1): canonical physical-timing and
+   render producers are committed and wired; the gate fails closed without
+   them and no success-path run exists yet (as of 2026-09-14). No provenance string mints
+   trust. Do not claim otherwise. One authorized post-`f0422b4` anchored
+   run may prove the capability only; S6 FINAL stays the product gate.
+7. PRD thumbnail rule: cover/thumbnail is the deterministic treatment of a
+   traceable real source or approved B-roll frame only. AI-generated imagery is
+   OUT OF SCOPE by PRD and stays out of the production path.
+8. Local evidence lives under `artifacts/` (see inventory below). `/tmp/` and
+   `output/` are ephemeral/transient and are never durable evidence.
+9. No uncommitted implementation is closed. Dirty/untracked work (S3 renderer
+   files, S4 artifacts, S6 hardening in `audio-alignment.ts` /
+   `auto-production-service.ts` / `auto-production-deps.ts`, thumbnail path,
+   this workboard pointer) stays OPEN. No commit path is authorized until the
+   R1 dependency-disentangling plan lands; the R0 commit train is rejected
+   (see below).
 
-### S2 — Manual brief inputs: editorialFunction + sensitivity attestation (PASS)
-- Why required: decisions 2 + 4 (field half). No editorial-function field
-  existed in the brief schema/form (it is not `hookFormula`, see decision 2);
-  `selectStatement` omitted `hookFormula` and fell back to settings `"auto"`;
-  zero sensitivity constructs existed in the path.
-- Implemented: `ProductionBriefSchema` gains required `editorialFunction`
-  (free string, manually selected; no invented enum lock-in) and
-  `sensitiveContent: boolean` (default false, backward compatible);
-  threading `selectStatement → deps.discoverHighlights → xclipsService →
-  buildHighlightPrompt` as `EDITORIAL FUNCTION CONTEXT` (additive optional
-  params only; `hookFormula` path untouched); form select with the four Bakom
-  categories + sensitivity attestation checkbox + Generate gate;
-  client-safe `buildAutoProductionBrief` extended.
-- Verification: tsc clean; focused 114/114 (5 files); full suite 252/252
-  (+7 new: schema validation/defaults, orchestrator capture incl.
-  `hookFormula` absence, builder passthrough, prompt context
-  present/absent); factories updated mechanically, no assertions weakened.
-- Non-goals (held): AI auto-detection of sensitivity (backlog); hook-formula
-  changes; planning-logic redesign.
-- Dependency: none. Unblocks S4 (real AI planning uses this brief).
+## Local evidence inventory
 
-### S3 — Duration range policy (corrects hard-FAIL conflict) (PASS)
-- Why required: decision 1 + recorded conflict. Minimum-side behavior only:
-  a semantically complete but short statement routes to NEEDS_REVIEW naming
-  the cause (PRD FR-6), never FAIL; no filler/padding/looping added to reach
-  a target (trim-only render asserted); maximum side (60s) unchanged.
-- Implemented: orchestrator `selectStatement` — over-60s still technical
-  FAILED (message unchanged), zero/negative span fails as malformed bounds,
-  positive sub-30s proceeds with `statementSignal` review + machine-readable
-  warning (`25.0s below 30s review threshold … no filler added`); QC
-  `media_duration` + `contract_statement_duration` map sub-30s to REVIEW
-  (same numbers in message), over-60s stays FAIL. No new numeric bound.
-- Verification: tsc clean; focused orchestrator+service+QC 81/81; e2e-smoke
-  3/3 incl. new real-render proof (25s statement → exact 10–35s bounds,
-  NEEDS_REVIEW with duration reason, real files produced); full suite
-  255/255 (+3). No filler/padding/looping code exists or was added.
-- Non-goals (held): recalibrating 30s/60s (OQ-1); changing the 60s ceiling.
-- Dependency: none. Unblocks correct NEEDS_REVIEW routing for S4 outputs.
+`artifacts/` is currently untracked. Every path below is workspace evidence,
+not Git-durable proof: artifact existence or path alone never closes a slice.
+Future closure needs a curated manifest/checksum or other durable linkage.
 
-### S4 — Real AI planning proof (PASS)
-- Real Gemini planning remains proven, but original runs exposed a semantic
-  blocker: `/jobs` and `/regenerate` called ingest every time. Each call
-  minted a new project, so persisted project `proj_1788801264816_1ogi` and
-  transcript `tr_yt_1788801272342` were not reused. `/regenerate` also
-  retranscribed, violating same source/project + same transcript semantics.
-- Existing real-provider evidence retained: direct Gemini
-  (`https://generativelanguage.googleapis.com/v1beta`, model
-  `gemini-3.7-flash` after correcting stale `gemini-3-7-flash` 404); prior
-  successful runs returned `NEEDS_REVIEW`, rendered video + cover, and QC
-  15 PASS / 1 REVIEW / 0 FAIL. Transient Gemini 503 overloads remain noted;
-  no retry infrastructure added.
-- Smallest repair: `getAutoProductionDeps()` now resolves oldest persisted
-  project with exact local source identity, existing media, and usable
-  transcript; orchestrator reuses it before ingest. Miss/error falls through
-  to existing ingest path. No provider or API redesign.
-- Real repaired `/jobs` (`s4-reuse-jobs-003`): project remained
-  `proj_1788801264816_1ogi`; transcript remained
-  `tr_yt_1788801272342` (194 words); no transcription dispatch; Gemini
-  Map-Reduce planning executed; EditPlan 44–87s, headline
-  "Panduan Warga Hadapi Abu Vulkanik"; render
-  `output/xclips/auto-production/final_1788846108205.mp4` + cover
-  `cover_1788846120478.jpg`; QC 15 PASS / 1 REVIEW / 0 FAIL.
-- Real repaired `/regenerate` (`s4-reuse-regen-001`): same project ID and
-  same transcript ID/word count; no transcription dispatch; Gemini planning
-  executed again; EditPlan 42–85s, headline "Panduan Menghadapi Abu
-  Vulkanik"; render `output/xclips/auto-production/final_1788846143122.mp4`
-  + cover `cover_1788846155136.jpg`; QC 15 PASS / 1 REVIEW / 0 FAIL.
-- Focused orchestrator tests: 32 PASS. `tsc --noEmit` clean. Full suite
-  not a gate: 256 PASS, 3 pre-existing real-render timeout failures in
-  `auto-production-e2e-smoke.test.ts` (5s test timeout); S5 work remained scoped.
-- Semantic blocker closed: both real calls now record stable project and
-  transcript identities, planning twice, and zero transcription dispatches.
-- Non-goals held: provider marketplace, model discovery, keychain work;
-  no watermark, headline-fit, copy-pack, or later QC story changes.
+- S1: `artifacts/slice-1-correct-editorial-clip/final.mp4`
+- S2: `artifacts/slice-2-proper-edit/final.mp4` + `final-machine-check.json`
+- S3: `artifacts/slice-3-official-bakom-draft/official-production-wired.mp4` + `s3-official-spec.json`
+- S4: `artifacts/slice-4-enriched-bakom-draft/s4-final.mp4` + `publish-review-package.json` + `baseline/`
+- S6 preflight fixtures: `artifacts/slice-6-three-fresh-urls/s6-corrected-truth.json` + `source-01/` + `source-02/` + `source-03/`
+- Slice authority: `config/auto-production/slice-contracts/s2.json` (tracked) + `s4.json` (untracked, P1_CONTRACT_ONLY, as of 2026-09-14); S1/S3/S5–S7 contracts missing
 
-### S5 — QC review gates: Context Integrity + SUBTITLE CONTRACT + sensitivity flag (PASS)
-- Why required: decisions 3 + 4 (gate half) + 6 (verification half).
-- Implemented deterministic REVIEW-only gates. Context Integrity uses one
-  minimum human attestation field, `contextIntegrityConfirmed`; false,
-  undefined, or omitted emits `editorial_context_integrity` REVIEW. True
-  emits same stable check as PASS. Checklist remains human-authoritative;
-  no AI fact-checking or semantic repair.
-- `sensitiveContent: true` emits `editorial_sensitive_content` REVIEW and
-  routes final verdict to `NEEDS_REVIEW`; false emits no sensitivity reason.
-- Subtitle contract receives renderer transcript words through service QC
-  wiring. Explicit missing words emits `subtitle_contract_missing` REVIEW;
-  invalid statement-relative timing emits `subtitle_contract_timing` REVIEW;
-  phrase segmentation uses existing `segmentPhrases` and preset cap, with
-  over-six-word evidence emitting `subtitle_contract_max_words` REVIEW.
-  Uppercase is reported deterministically as
-  `subtitle_contract_uppercase` PASS from preset transform configuration;
-  compliant phrases emit `subtitle_contract` PASS. No subtitle rewrite or
-  re-render added. Legacy direct QC callers without transcript words remain
-  compatible; explicit empty artifact remains REVIEW.
-- Existing technical FAIL checks, sourceDate review, and S3 duration policy
-  preserved. Multiple review checks coexist without overwriting.
-- Verification: focused QC/service/orchestrator/types/API tests 135/135 PASS;
-  `tsc --noEmit` clean. Full suite 264 PASS / 3 FAIL, same known
-  `auto-production-e2e-smoke.test.ts` 5-second real-render timeouts; no S6
-  work started.
-- Files: `src/lib/xclips/auto-production-qc.ts`,
-  `src/lib/xclips/auto-production-service.ts`,
-  `src/lib/xclips/auto-production-types.ts`,
-  `src/lib/xclips/auto-production-api.ts`,
-  `src/app/xclips/auto-production/page.tsx`,
-  `tests/xclips/auto-production-qc.test.ts`.
-- Non-goals: AI-driven sensitivity detection (backlog); caption
-  re-rendering; headline safe-fit, watermark, copy pack, final E2E.
-- Dependency: S2 (sensitivity field); S4 closed.
+## Next action (R1 — no implementation, no commit)
 
-### S6 — BAKOM Deterministic Portrait Visual System (PASS / CLOSED)
-- C1 PASS: spoken subtitles use canonical `captionTop = 1476` with ASS
-  `\\an8\\pos(540,1476)`; BROLL bottom remains 1440. Position independent of
-  source orientation, content type, and zoom.
-- C2 PASS: headline uses white 48px text, 10px line spacing, permanent red
-  left accent bar, fixed 300ms fade + subtle slide-up, max 3 lines, balanced
-  deterministic wrapping, orphan-final-line penalty, and weak connector
-  (`dan`, `atau`, `yang`, `untuk`, `dari`, `dengan`) line-end penalty.
-- C3 PASS: human accepted real Metro `news_talking_head` framing at locked
-  zoom `1.20`. Output remains 1080x1920; BROLL geometry and footer anchoring
-  unchanged. Video visual system closed.
-- Human visual acceptance completed using real Metro artifacts, including
-  subtitle frames, headline frames, and zoom frame. Latest C3 artifact:
-  `/tmp/opencode/s6-c3-zoom120/final_1788877450157.mp4` with frame
-  `/tmp/opencode/s6-c3-zoom120/frame.png`.
-- Canonical constants and transform rules live in
-  `src/lib/xclips/auto-production-bakom-layout.ts`; renderer and cover share
-  deterministic geometry. Future invariant preserved: source → transcript →
-  N EditPlans, each independently renderable. No batch orchestration added.
-- S6-T NEXT: AI-generated editorial thumbnail remains separate from final
-  video; deterministic text overlay and source-reference safety remain the
-  contract. Provider image generation stays unverified and deferred.
-- Non-goals: S7 official logo/watermark, S8 copy pack, S9 final real E2E, S10
-  engineering gate, provider redesign, batch/queue/workers.
-- Dependency: none.
+The R0 commit train is REJECTED and must not be executed. It is rejected because:
 
-### S7 — Fixed Bakom watermark overlay (operator-provided asset) (NEXT)
-- Why required: decision 5. Nothing exists; nothing may be invented.
-- Acceptance: operator-supplied fixed logo asset stored in repo, deterministic
-  overlay in render (+ cover if decided), pixel-verified, tests; no per-job
-  options.
-- Non-goals: configurable/uploadable watermarks, animated bugs.
-- Dependency: operator logo asset (see Operator dependencies); none in code.
+- the renderer/trust files have a circular commit-order dependency (renderer
+  claims depend on the trust vocabulary while the trust gate depends on the
+  renderer wiring);
+- (historical R0 rationale, superseded by owner decision D1 — see rule 6:
+  at R0 time the production gate could not land while physical and render
+  authorities were BLOCKED with no committed producers);
+- no commit may leave the production happy path permanently FAILED;
+- the AI thumbnail generator is outside MVP scope and must not ride a
+  production commit train.
 
-### S8 — COPY PACK: publishing caption + CTA + hashtags
-- Why required: decision 8. Kept distinct from SUBTITLE CONTRACT (decision 4
-  terminology note in prior audit is superseded: subtitle checks are
-  SUBTITLE CONTRACT; this story is COPY PACK only).
-- Acceptance: deterministic copy pack derived from brief/headline, returned
-  with the job bundle and shown in result UI; unit + API-shape tests.
-  (Whether AI-assisted is decided at story start; deterministic template
-  satisfies the smallest-package principle if chosen.)
-- Non-goals: auto-publishing, scheduling, analytics (PRD §6.2).
-- Dependency: none in code; E2E evidence quality wants S4 output.
-
-### S9 — Final real E2E acceptance (full path, after all behavior changes)
-- Why required: MVP may not be declared DONE from tests/build alone.
-- Acceptance: one real run over the actual application/backend path proving
-  end to end: real source → AI planning → manual editorialFunction input →
-  review routing → render → subtitles → headline safe-fit → fixed watermark →
-  cover → copy pack → QC verdict; ffprobe + visual QC on artifacts.
-- Non-goals: new behavior (any failure reopens its owning story).
-- Dependency: S2–S8 + operator credential + logo asset.
-
-### S10 — Final engineering gate
-- Why required: H5 closure.
-- Acceptance: focused + full suite + `tsc --noEmit` + `git diff --check` +
-  `next build` + clean tracked diff. No commit/push without explicit user
-  instruction (zero auto-commit protocol).
-- Dependency: S9.
-
-## Operator dependencies (blocking: S4, S7, S9)
-
-1. Working AI provider key via Settings UI (existing BYOK boundary; no code
-   change expected).
-2. Fixed Bakom logo asset file (will be stored in repo by the operator;
-   nothing generated or invented by engineering).
-
-## Backlog (do NOT implement inside active story)
-
-- AI-driven sensitivity detection (needs S4 planning context + defined
-  sensitivity categories; after MVP).
-- `hookFormula` changes (explicitly not editorialFunction; leave on `"auto"`).
-- Per-job styling overrides, custom BGM upload, batch queues, publishing,
-  scheduling, analytics (PRD §6.2, unchanged).
+R1 is: define the S3 hard slice contract and produce a
+dependency-disentangling plan. No implementation or commit yet. Do not start
+S6 FINAL or S7 before that plan lands and a freeze is declared.
