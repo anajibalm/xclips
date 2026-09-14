@@ -223,9 +223,9 @@ describe("auto-production-service", () => {
 		expect(anchors.endingPhrase).not.toContain("penutup");
 	});
 
-	it("canonicalizes overlapping CC edges chronologically without word blacklists", () => {
+	it("preserves transcript order for semantic edges without word blacklists", () => {
 		// Real S6 source-01 pattern: ROC overlaps abu/tidak in time. No
-		// manual blacklist: every distinct word is retained, ordered by time.
+		// manual blacklist: every distinct word is retained in transcript order.
 		const words = [
 			{ word: "kolom", start: 32.48, end: 33.36 },
 			{ word: "abu", start: 33.36, end: 34.24 },
@@ -237,11 +237,11 @@ describe("auto-production-service", () => {
 			["kolom", "ROC", "abu", "tidak", "terekam"],
 		);
 		const anchors = selectStatementEdgePhrases(words, 33.21, 72, 4);
-		expect(anchors.openingPhrase).toEqual(["kolom", "ROC", "abu", "tidak"]);
+		expect(anchors.openingPhrase).toEqual(["kolom", "abu", "tidak", "ROC"]);
 	});
 
-	it("sorts out-of-order CC timings before edge selection", () => {
-		// Real S6 source-02 pattern: transcript order is not time order.
+	it("preserves out-of-order CC transcript sequence for edge selection", () => {
+		// Transcript order remains semantic order even when timings differ.
 		const words = [
 			{ word: "dari", start: 514.94, end: 515.84 },
 			{ word: "dan", start: 514.10, end: 515.03 },
@@ -249,7 +249,7 @@ describe("auto-production-service", () => {
 			{ word: "namanya", start: 515.97, end: 516.90 },
 		];
 		const anchors = selectStatementEdgePhrases(words, 515, 561.32, 4);
-		expect(anchors.openingPhrase).toEqual(["dan", "dari", "apa", "namanya"]);
+		expect(anchors.openingPhrase).toEqual(["dari", "dan", "apa", "namanya"]);
 	});
 
 	it("drops duplicate rollup entries with overlapping time", () => {

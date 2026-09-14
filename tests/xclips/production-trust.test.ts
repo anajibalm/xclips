@@ -16,6 +16,7 @@ import {
   NON_PHYSICAL_TIMING_SOURCES,
   OFFICIAL_BAKOM_RENDERER_AUTHORITY,
   PHYSICAL_TIMING_AUTHORITY,
+  physicalEdgesOrdered,
 } from "@/lib/xclips/production-trust";
 import { mapCanonicalWordsToAudio, parseWhisperCppWordOutput, type WhisperCppTimedWord } from "@/lib/xclips/audio-alignment";
 import type { WordTimestamp } from "@/lib/xclips/types";
@@ -44,6 +45,26 @@ function perfectLookingPhysical(): Record<string, unknown> {
 }
 
 describe("ARCH.1C production trust — capability leaks closed", () => {
+  it("enforces non-overlapping ordered physical edges", () => {
+    expect(physicalEdgesOrdered({ physicalEnd: 1 }, { physicalStart: 0 })).toBe(false);
+    expect(physicalEdgesOrdered({ physicalEnd: 1 }, { physicalStart: 0.5 })).toBe(false);
+    expect(physicalEdgesOrdered({ physicalEnd: 1 }, { physicalStart: 1 })).toBe(true);
+    expect(physicalEdgesOrdered({ physicalEnd: 1 }, { physicalStart: 2 })).toBe(true);
+    expect(physicalEdgesOrdered({ physicalEnd: 1 }, { physicalStart: 1, physicalEnd: 1 })).toBe(true);
+  });
+
+  it("requires semantic words for physical alignment input", async () => {
+    const result = await trustModule.runPhysicalAlignment({
+      sourceVideoPath: "/missing/source.mp4",
+      searchStartSec: 0,
+      searchEndSec: 1,
+      workDir: "/tmp/trust-semantic-required",
+      openingPhrase: ["alpha", "beta"],
+      endingPhrase: ["gamma", "delta"],
+      semanticWords: [],
+    });
+    expect(result.ok).toBe(false);
+  });
   // --- CASE A: no public minter ------------------------------------------
 
   it("CASE A: no public trust-minter factory is exported", () => {

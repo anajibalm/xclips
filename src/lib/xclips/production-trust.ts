@@ -1,4 +1,5 @@
 import type { WordTimestamp } from "@/lib/xclips/types";
+import { reconcileEdgeAnchor, type WhisperCppTimedWord } from "@/lib/xclips/audio-alignment";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -202,6 +203,11 @@ function validateProvenance(provenance: PhysicalTimingProvenance | undefined): T
  */
 export const CANONICAL_PHYSICAL_AUTHORITY_AVAILABLE = true;
 
+/** Physical edge invariant: opening may end exactly when ending begins. */
+export function physicalEdgesOrdered(opening: { physicalEnd: number }, ending: { physicalStart: number }): boolean {
+  return opening.physicalEnd <= ending.physicalStart;
+}
+
 export interface PhysicalAlignmentRequest {
   sourceVideoPath: string;
   searchStartSec: number;
@@ -209,6 +215,7 @@ export interface PhysicalAlignmentRequest {
   workDir: string;
   openingPhrase: string[];
   endingPhrase: string[];
+  semanticWords: WordTimestamp[];
 }
 
 /**
@@ -232,6 +239,9 @@ export function whisperRuntimeCandidates(): Array<{ whisper: string; model: stri
 
 /** Execute committed Whisper.cpp path. No CC or caller-supplied timing input. */
 export async function runPhysicalAlignment(request: PhysicalAlignmentRequest): Promise<TrustValidationResult> {
+  if (!Array.isArray(request.semanticWords) || request.semanticWords.length === 0) {
+    return physicalFail("missing_words", "Semantic words are required for physical edge reconciliation");
+  }
   if (!existsSync(request.sourceVideoPath)) return physicalFail("missing_words", `Source not found: ${request.sourceVideoPath}`);
   const runtime = whisperRuntimeCandidates().find((c) => existsSync(c.whisper) && existsSync(c.model));
   if (!runtime) return physicalFail("missing_provenance", "Canonical Whisper.cpp runtime/model unavailable");
@@ -262,25 +272,13 @@ export async function runPhysicalAlignment(request: PhysicalAlignmentRequest): P
   }
   const error = validateAlignedWords(words);
   if (error) return error;
-  const normalize = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
-  const normalized = words.map((word) => normalize(word.word));
-  const find = (phrase: string[], from: number) => {
-    const target = phrase.map(normalize).filter(Boolean);
-    for (let i = from; i + target.length <= normalized.length; i++) {
-      if (target.every((word, offset) => normalized[i + offset] === word)) return i;
-    }
-    const joinedTarget = target.join("");
-    for (let i = from; i < normalized.length; i++) {
-      if (normalized.slice(i).join("").startsWith(joinedTarget)) return i;
-    }
-    return -1;
-  };
-  const opening = find(request.openingPhrase, 0);
-  const ending = find(request.endingPhrase, Math.max(0, opening));
-  if (opening < 0 || ending < opening) return physicalFail("missing_words", `Direct physical semantic anchors not found: opening=${request.openingPhrase.join(" ")} ending=${request.endingPhrase.join(" ")}`);
-  const selected = words.slice(opening, ending + request.endingPhrase.length);
-  if (selected.length === 0) return physicalFail("missing_words", "Direct physical anchor span is empty");
-  return mintPhysicalTimeline(selected, { source: "audio", provider: "whisper.cpp", model: "ggml-small-q5_1.bin", version: "1.9.4", openingDirect: true, endingDirect: true, physicalStart: selected[0].start, physicalEnd: selected[selected.length - 1].end, openingPhrase: request.openingPhrase.join(" "), endingPhrase: request.endingPhrase.join(" ") });
+  const opening = reconcileEdgeAnchor({ side: "opening", semanticWords: request.semanticWords, timedWords: words as WhisperCppTimedWord[], semanticEdgeSec: request.searchStartSec + 5 });
+  const ending = reconcileEdgeAnchor({ side: "ending", semanticWords: request.semanticWords, timedWords: words as WhisperCppTimedWord[], semanticEdgeSec: request.searchEndSec - 5 });
+  if (!opening.success || !ending.success || !physicalEdgesOrdered(opening.data, ending.data)) {
+    return physicalFail("missing_words", `Direct physical edge reconciliation failed: opening=${opening.success ? "ok" : opening.error} ending=${ending.success ? "ok" : ending.error}`);
+  }
+  const selected = words.filter((word) => word.start >= opening.data.physicalStart && word.end <= ending.data.physicalEnd);
+  return mintPhysicalTimeline(selected, { source: "audio", provider: "whisper.cpp", model: "ggml-small-q5_1.bin", version: "1.9.4", openingDirect: true, endingDirect: true, physicalStart: opening.data.physicalStart, physicalEnd: ending.data.physicalEnd, openingPhrase: opening.data.phrase.join(" "), endingPhrase: ending.data.phrase.join(" ") });
 }
 
 function mintPhysicalTimeline(words: WordTimestamp[], provenance: PhysicalTimingProvenance): TrustValidationResult {

@@ -84,10 +84,306 @@ export function sliceCanonicalSpanByText(
   return { success: true, data: { words: words.slice(startIndex, endIndex + 1) } };
 }
 
+export interface ContiguousPhraseSpan {
+  timedStart: number;
+  timedEnd: number;
+  perWord: Array<{ timedStart: number; timedEnd: number }>;
+}
+
+/**
+ * Earliest contiguous realization of a normalized anchor phrase in the
+ * normalized timed-token stream. One phrase word may consume up to 8
+ * contiguous timed fragments whose concatenation equals the word exactly
+ * (whisper.cpp subword emission, e.g. kol+om → kolom). Symmetrically, one
+ * timed token may equal the concatenation of consecutive phrase words
+ * (e.g. baik-lebih → baik + lebih). Empty timed tokens (punctuation
+ * fragments) are skipped without breaking contiguity. Returns null when
+ * the phrase has no contiguous realization — callers fail closed instead
+ * of jumping seconds ahead to another occurrence of a common word.
+ */
+export function findContiguousPhraseSpan(
+  phraseTokens: string[],
+  timedTokens: string[],
+  fromIndex = 0,
+): ContiguousPhraseSpan | null {
+  const phrase = phraseTokens.filter(Boolean);
+  if (phrase.length === 0) return null;
+  const startFrom = Math.max(0, fromIndex);
+  for (let s = startFrom; s < timedTokens.length; s++) {
+    if (!timedTokens[s]) continue;
+    const perWord: Array<{ timedStart: number; timedEnd: number }> = [];
+    let j = s;
+    let k = 0;
+    let ok = true;
+    const skipEmpty = () => {
+      while (j < timedTokens.length && !timedTokens[j]) j++;
+    };
+    while (k < phrase.length) {
+      skipEmpty();
+      if (j >= timedTokens.length) {
+        ok = false;
+        break;
+      }
+      // Join direction: one timed token equals consecutive phrase words.
+      let joined = false;
+      let acc = "";
+      for (let l = 1; k + l - 1 < phrase.length; l++) {
+        acc += phrase[k + l - 1];
+        if (acc.length > timedTokens[j].length) break;
+        if (timedTokens[j] === acc && l >= 2) {
+          for (let t = 0; t < l; t++) perWord.push({ timedStart: j, timedEnd: j });
+          j++;
+          k += l;
+          joined = true;
+          break;
+        }
+      }
+      if (joined) continue;
+      // Fragment direction: consecutive timed tokens join into one word.
+      const target = phrase[k];
+      let built = "";
+      let wordStart = -1;
+      let lastUsed = -1;
+      let fragments = 0;
+      while (j < timedTokens.length && fragments < 8) {
+        const token = timedTokens[j];
+        j++;
+        if (!token) continue;
+        if (wordStart === -1) wordStart = j - 1;
+        built += token;
+        fragments++;
+        lastUsed = j - 1;
+        if (built === target) break;
+        if (!target.startsWith(built)) {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok || built !== target || wordStart === -1) {
+        ok = false;
+        break;
+      }
+      perWord.push({ timedStart: wordStart, timedEnd: lastUsed });
+      k++;
+    }
+    if (ok) {
+      return { timedStart: s, timedEnd: perWord[perWord.length - 1].timedEnd, perWord };
+    }
+  }
+  return null;
+}
+
+/**
+ * Order-preserving dedupe of overlapping transcript words. Same normalized
+ * text with overlapping time is a duplicate rollup cue: keep the first in
+ * transcript order. Distinct words are always retained (no blacklists).
+ * Transcript order is preserved throughout — CC timestamps are neighborhood
+ * hints, never linguistic ordering authority.
+ */
+export function dedupeOverlappingWords(words: WordTimestamp[]): WordTimestamp[] {
+  const kept: WordTimestamp[] = [];
+  for (const word of words) {
+    const token = normalize(word.word);
+    if (token) {
+      const duplicate = kept.some(
+        (keptWord) =>
+          normalize(keptWord.word) === token &&
+          keptWord.start < word.end &&
+          word.start < keptWord.end,
+      );
+      if (duplicate) continue;
+    }
+    kept.push(word);
+  }
+  return kept;
+}
+
+/** Every contiguous realization of a phrase, earliest first. */
+export function findAllContiguousPhraseSpans(
+  phraseTokens: string[],
+  timedTokens: string[],
+  fromIndex = 0,
+): ContiguousPhraseSpan[] {
+  const spans: ContiguousPhraseSpan[] = [];
+  let from = Math.max(0, fromIndex);
+  while (from < timedTokens.length) {
+    const span = findContiguousPhraseSpan(phraseTokens, timedTokens, from);
+    if (!span) break;
+    spans.push(span);
+    from = span.timedStart + 1;
+  }
+  return spans;
+}
+
+export interface ReconciledWordSpan {
+  word: string;
+  start: number;
+  end: number;
+}
+
+export interface ReconciledEdgeAnchor {
+  side: "opening" | "ending";
+  phrase: string[];
+  /** Indices into the edge neighborhood window (see windowOffset). */
+  semanticTokenIndices: number[];
+  /** window[0] === selectedLexical[windowOffset]. */
+  windowOffset: number;
+  physicalStart: number;
+  physicalEnd: number;
+  wordSpans: ReconciledWordSpan[];
+  maxAdjacentGapSec: number;
+  deltaSec: number;
+  candidatesChecked: number;
+  triedPhrases: string[];
+}
+
+/** Terminal punctuation may end a phrase, never appear mid-phrase. */
+const TERMINAL_PUNCT_RE = /[.?!]\s*$/;
+
+function hasInteriorTerminal(words: string[]): boolean {
+  return words.slice(0, -1).some((word) => TERMINAL_PUNCT_RE.test(word.trim()));
+}
+
+function spanWordSpans(
+  phraseWords: string[],
+  span: ContiguousPhraseSpan,
+  timedWords: WhisperCppTimedWord[],
+): ReconciledWordSpan[] {
+  return span.perWord.map((part, k) => ({
+    word: phraseWords[k],
+    start: timedWords[part.timedStart].start,
+    end: timedWords[part.timedEnd].end,
+  }));
+}
+
+function spanMaxGap(span: ContiguousPhraseSpan, timedWords: WhisperCppTimedWord[]): number {
+  let max = 0;
+  for (let k = 1; k < span.perWord.length; k++) {
+    const gap =
+      timedWords[span.perWord[k].timedStart].start - timedWords[span.perWord[k - 1].timedEnd].end;
+    if (gap > max) max = gap;
+  }
+  return max;
+}
+
+/**
+ * Bounded semantic-edge → physical-edge reconciliation.
+ *
+ * Rolling-CC edge words are noisy (artifacts, misordered rollups), so the
+ * first/last N synthetic words are not required verbatim. Instead, search
+ * the semantic edge neighborhood (transcript order, first/last ~12 lexical
+ * tokens) for the longest directly supported phrase: exact contiguous
+ * slices of lengths 4 → 3 → 2, nearest the edge first. Interior tokens are
+ * never deleted to manufacture a match. Every candidate must be exactly
+ * realized via findContiguousPhraseSpan — no fuzzy rewriting, no 1-word
+ * anchors. A candidate crossing a hard sentence boundary (terminal
+ * punctuation before the final token) is rejected. The accepted physical
+ * span must be near-contiguous (adjacent-word gap ≤ maxAdjacentGapSec)
+ * and sit within maxDistanceSec of the semantic edge, else fail closed.
+ */
+export function reconcileEdgeAnchor(input: {
+  side: "opening" | "ending";
+  semanticWords: WordTimestamp[];
+  timedWords: WhisperCppTimedWord[];
+  semanticEdgeSec: number;
+  neighborhoodTokens?: number;
+  maxPhraseWords?: number;
+  minPhraseWords?: number;
+  maxDistanceSec?: number;
+  maxAdjacentGapSec?: number;
+}): Result<ReconciledEdgeAnchor> {
+  const { side, semanticWords, timedWords, semanticEdgeSec } = input;
+  const neighborhood = input.neighborhoodTokens ?? 12;
+  const maxLen = input.maxPhraseWords ?? 4;
+  const minLen = Math.max(2, input.minPhraseWords ?? 2);
+  const bound = input.maxDistanceSec ?? 5;
+  const maxGap = input.maxAdjacentGapSec ?? 1.25;
+  if (timedWords.length === 0) return { success: false, error: "Empty timed words" };
+  const lexicalAll = dedupeOverlappingWords(semanticWords)
+    .map((w) => w.word)
+    .filter((w) => normalize(w) !== "");
+  if (lexicalAll.length === 0) return { success: false, error: "Empty semantic edge text" };
+  const window =
+    side === "opening" ? lexicalAll.slice(0, neighborhood) : lexicalAll.slice(-neighborhood);
+  const windowOffset = side === "opening" ? 0 : lexicalAll.length - window.length;
+  const normWindow = window.map(normalize);
+  const timedTokens = timedWords.map((w) => normalize(w.word));
+  const seen = new Set<string>();
+  const triedPhrases: string[] = [];
+  const maxWindowLen = Math.min(maxLen, window.length);
+  for (let len = maxWindowLen; len >= minLen; len--) {
+    const starts: number[] =
+      side === "opening"
+        ? Array.from({ length: window.length - len + 1 }, (_, a) => a)
+        : Array.from({ length: window.length - len + 1 }, (_, k) => window.length - len - k);
+    for (const a of starts) {
+      const idx = Array.from({ length: len }, (_, i) => a + i);
+      const phraseWords = idx.map((i) => window[i]);
+      const phraseTokens = idx.map((i) => normWindow[i]);
+      if (phraseTokens.some((t) => !t)) continue;
+      const key = phraseTokens.join(" ");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      triedPhrases.push(phraseWords.join(" "));
+      if (hasInteriorTerminal(phraseWords)) continue;
+      let best: { anchorSec: number; span: ContiguousPhraseSpan } | null = null;
+      for (const span of findAllContiguousPhraseSpans(phraseTokens, timedTokens)) {
+        if (spanMaxGap(span, timedWords) > maxGap) continue;
+        const anchorSec =
+          side === "opening" ? timedWords[span.timedStart].start : timedWords[span.timedEnd].end;
+        if (!Number.isFinite(anchorSec)) continue;
+        if (Math.abs(anchorSec - semanticEdgeSec) > bound) continue;
+        if (!best) {
+          best = { anchorSec, span };
+          continue;
+        }
+        const bestAnchor =
+          side === "opening"
+            ? timedWords[best.span.timedStart].start
+            : timedWords[best.span.timedEnd].end;
+        const dNew = Math.abs(anchorSec - semanticEdgeSec);
+        const dBest = Math.abs(bestAnchor - semanticEdgeSec);
+        if (dNew < dBest - 1e-9) {
+          best = { anchorSec, span };
+        } else if (
+          Math.abs(dNew - dBest) < 1e-9 &&
+          (side === "opening"
+            ? span.timedStart < best.span.timedStart
+            : span.timedEnd > best.span.timedEnd)
+        ) {
+          best = { anchorSec, span };
+        }
+      }
+      if (best) {
+        const wordSpans = spanWordSpans(phraseWords, best.span, timedWords);
+        return {
+          success: true,
+          data: {
+            side,
+            phrase: phraseWords,
+            semanticTokenIndices: idx,
+            windowOffset,
+            physicalStart: timedWords[best.span.timedStart].start,
+            physicalEnd: timedWords[best.span.timedEnd].end,
+            wordSpans,
+            maxAdjacentGapSec: spanMaxGap(best.span, timedWords),
+            deltaSec: best.anchorSec - semanticEdgeSec,
+            candidatesChecked: triedPhrases.length,
+            triedPhrases,
+          },
+        };
+      }
+    }
+  }
+  return {
+    success: false,
+    error: `No bounded direct phrase near semantic edge (checked ${triedPhrases.length} candidates)`,
+  };
+}
+
 function substitutionScore(a: string, b: string): number {
   if (!a || !b) return -1;
   if (a === b) return 2;
-  if (a.length >= 4 && b.length >= 4 && (a.includes(b) || b.includes(a))) return 1;
   return -1;
 }
 

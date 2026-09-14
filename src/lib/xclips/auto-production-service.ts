@@ -40,6 +40,7 @@ import * as path from "path";
 export { detectSourceType } from "@/lib/xclips/auto-production-helpers";
 import { resolveSourceCreditMeta, resolveSourceCreditName, resolveBriefSourceDate } from "@/lib/xclips/auto-production-helpers";
 import { segmentPhrases, clampCueOverlaps } from "@/lib/xclips/phrase-segmentation";
+import { dedupeOverlappingWords } from "@/lib/xclips/audio-alignment";
 
 /** Caption readability contract for official renders: at most 6 words and 3.5s per cue. */
 export const OFFICIAL_CAPTION_MAX_WORDS = 6;
@@ -114,7 +115,7 @@ export function selectStatementEdgePhrases(
 	statementEnd: number,
 	edgeWords = 4,
 ): { openingPhrase: string[]; endingPhrase: string[]; selectedCount: number } {
-	const selected = canonicalizeStatementWords(
+	const selected = dedupeOverlappingWords(
 		transcriptWords.filter((word) => word.end > statementStart && word.start < statementEnd),
 	);
 	const lexical = selected.map((word) => word.word).filter((word) => word.trim().length > 0);
@@ -537,6 +538,7 @@ async function executeRenderCoverQc(
 		workDir: path.join(coverOutputDir, "physical-alignment"),
 		openingPhrase: statementAnchors.openingPhrase,
 		endingPhrase: statementAnchors.endingPhrase,
+		semanticWords: transcriptWords.filter((word) => word.end > editPlan.statementStart && word.start < editPlan.statementEnd),
 	});
 	onProgress?.("trust_finalization");
 	const manifest = (finalizeTrust ?? finalizeProductionArtifact)({

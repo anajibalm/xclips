@@ -194,3 +194,154 @@ describe("S2.9 non-speech caption cues", () => {
     }
   });
 });
+  reconcileEdgeAnchor,
+  it("6b. reconciler finds the contiguous clean phrase beside noise", () => {
+    // Real S6 shape: semantic ["kolom","abu","tidak","ROC",...] in
+    // transcript order; physical has "kolom abu tidak" contiguously.
+    // Only exact contiguous slices are generated — never synthetic skips.
+    const semantic = canonical(["kolom", "abu", "tidak", "ROC", "terekam"]);
+    const result = reconcileEdgeAnchor({
+      side: "opening",
+      semanticWords: semantic,
+      timedWords: timed([
+        ["kol", 29.92, 30.19], ["om", 30.19, 30.37],
+        ["ab", 30.37, 30.55], ["u", 30.55, 30.64],
+        ["tidak", 30.64, 31.09], ["terekam", 31.5, 32.0],
+      ]),
+      semanticEdgeSec: 33.21,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.phrase).toEqual(["kolom", "abu", "tidak"]);
+      expect(result.data.physicalStart).toBe(29.92);
+      expect(result.data.physicalEnd).toBe(31.09);
+      expect(result.data.maxAdjacentGapSec).toBeLessThanOrEqual(1.25);
+      expect(result.data.wordSpans).toHaveLength(3);
+      // Every tried candidate is a contiguous slice of semantic order.
+      const lex = semantic.map((w) => w.word);
+      for (const tried of result.data.triedPhrases) {
+        const parts = tried.split(" ");
+        const at = lex.indexOf(parts[0]);
+        expect(at).toBeGreaterThanOrEqual(0);
+        expect(lex.slice(at, at + parts.length)).toEqual(parts);
+      }
+    }
+  });
+
+  it("6b2. an interior negation can never be skipped", () => {
+    // semantic "boleh tidak masuk" vs physical "boleh masuk": deleting
+    // "tidak" to manufacture a match is forbidden → fail closed.
+    const result = reconcileEdgeAnchor({
+      side: "opening",
+      semanticWords: canonical(["boleh", "tidak", "masuk"]),
+      timedWords: timed([["boleh", 10, 10.4], ["masuk", 10.4, 10.9]]),
+      semanticEdgeSec: 10.1,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error).toContain("checked 3 candidates");
+  });
+
+  it("6c. scrambled CC timestamps never determine semantic word order", () => {
+    // Same words as 6b but the noisy token carries the earliest timestamp:
+    // transcript order must still win, yielding the same phrase.
+    const semantic: WordTimestamp[] = [
+      { word: "kolom", start: 32.48, end: 33.36 },
+      { word: "abu", start: 33.36, end: 34.24 },
+      { word: "tidak", start: 34.24, end: 35.12 },
+      { word: "ROC", start: 32.0, end: 32.5 },
+      { word: "terekam", start: 34.42, end: 35.62 },
+    ];
+    const result = reconcileEdgeAnchor({
+      side: "opening",
+      semanticWords: semantic,
+      timedWords: timed([
+        ["kol", 29.92, 30.19], ["om", 30.19, 30.37],
+        ["ab", 30.37, 30.55], ["u", 30.55, 30.64],
+        ["tidak", 30.64, 31.09], ["terekam", 31.5, 32.0],
+      ]),
+      semanticEdgeSec: 33.21,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.phrase).toEqual(["kolom", "abu", "tidak"]);
+    }
+  });
+
+  it("6c2. a phrase crossing terminal punctuation is rejected", () => {
+    // "kawah." ends a sentence: the crosser is considered but vetoed, and
+    // the clean adjacent phrase wins instead.
+    const result = reconcileEdgeAnchor({
+      side: "ending",
+      semanticWords: canonical(["laporan", "kawah.", "Jelajahi", "cara", "baru"]),
+      timedWords: timed([
+        ["kawah", 63.0, 63.5],
+        ["Jelajahi", 64.0, 64.4], ["cara", 64.4, 64.8], ["baru", 64.8, 65.2],
+      ]),
+      semanticEdgeSec: 65.0,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.phrase).toEqual(["Jelajahi", "cara", "baru"]);
+      expect(result.data.triedPhrases).toContain("kawah. Jelajahi cara baru");
+    }
+  });
+
+  it("6c3. a physically large inter-word gap is rejected", () => {
+    // "kolom"+"abu" realized with a 2s gap between them: not cohesive.
+    const gapped = reconcileEdgeAnchor({
+      side: "opening",
+      semanticWords: canonical(["kolom", "abu"]),
+      timedWords: timed([
+        ["kol", 10, 10.2], ["om", 10.2, 10.4],
+        ["ab", 12.4, 12.6], ["u", 12.6, 12.8],
+      ]),
+      semanticEdgeSec: 10.1,
+    });
+    expect(gapped.success).toBe(false);
+    // Same phrase with a tight later realization is accepted instead.
+    const tight = reconcileEdgeAnchor({
+      side: "opening",
+      semanticWords: canonical(["kolom", "abu"]),
+      timedWords: timed([
+        ["kol", 10, 10.2], ["om", 10.2, 10.4],
+        ["ab", 12.4, 12.6], ["u", 12.6, 12.8],
+        ["kol", 20, 20.2], ["om", 20.2, 20.4],
+        ["ab", 20.4, 20.6], ["u", 20.6, 20.8],
+      ]),
+      semanticEdgeSec: 19.9,
+    });
+    expect(tight.success).toBe(true);
+    if (tight.success) {
+      expect(tight.data.physicalStart).toBe(20);
+      expect(tight.data.maxAdjacentGapSec).toBeLessThanOrEqual(1.25);
+    }
+  });
+
+  it("6d. reconciler fails closed with no exact 2+ word physical phrase", () => {
+    // No two adjacent-in-semantics words are ever contiguous in physical
+    // audio here.
+    const result = reconcileEdgeAnchor({
+      side: "opening",
+      semanticWords: canonical(["kolom", "ROC", "abu", "tidak"]),
+      timedWords: timed([
+        ["kol", 29.92, 30.19], ["om", 30.19, 30.37],
+        ["salah", 30.37, 30.6], ["bukan", 30.6, 31.0],
+      ]),
+      semanticEdgeSec: 33.21,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("6e. physically distant phrase realizations are rejected", () => {
+    const result = reconcileEdgeAnchor({
+      side: "opening",
+      semanticWords: canonical(["kolom", "abu", "tidak"]),
+      timedWords: timed([
+        ["kol", 100, 100.2], ["om", 100.2, 100.4],
+        ["ab", 100.4, 100.6], ["u", 100.6, 100.8],
+        ["tidak", 100.8, 101.0],
+      ]),
+      semanticEdgeSec: 33.21,
+    });
+    expect(result.success).toBe(false);
+  });
